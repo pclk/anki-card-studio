@@ -334,7 +334,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:140px}
     </div>
     <div class="row" style="gap:8px;border-top:1px solid var(--line);padding-top:12px">
       <button class="btn sm" id="setExport">⬇ Export settings</button>
-      <button class="btn sm" id="setImport">⬆ Import settings</button><input type="file" id="setFile" hidden accept=".json">
+      <button class="btn sm" id="setImport" title="A settings .json, or a full app-data .zip (projects + settings)">⬆ Import…</button><input type="file" id="setFile" hidden accept=".json,.zip,application/json,application/zip">
       <span class="spacer"></span>
       <button class="btn sm" id="setReset">Reset to defaults</button>
     </div>
@@ -3625,14 +3625,19 @@ const Store = {
     return st;
   },
   /** save unless someone else saved since `baseRev` -> {ok} | {conflict, rev} */
-  async putProject(id, st, baseRev){
+  async putProject(id, st, baseRev, onProgress){
     if (!this.on) return idbTx(os => new Promise(res => { const g = os.get('project:' + id);
       g.onsuccess = () => { const cur = g.result; if (baseRev != null && cur && (cur.rev || 0) !== baseRev) return res({conflict: true, rev: cur.rev || 0}); os.put(st, 'project:' + id); res({ok: true}); }; }));
-    const meta = {...st, media: {}};
+    const meta = {...st, media: {}}, todo = [];
     for (const [n, m] of Object.entries(st.media || {})){
       const e = {...m}; delete e.blob; meta.media[n] = e;
-      if (m.blob && !this.uploaded.has(m.blob)){ await this.putBlob(this.pPath(id, 'media', n), m.blob); this.uploaded.add(m.blob); }
+      if (m.blob && !this.uploaded.has(m.blob)) todo.push([n, m.blob]);
     }
+    // new images go up 4 at a time (an import can bring hundreds)
+    let next = 0, done = 0;
+    const worker = async () => { while (next < todo.length){ const [n, bl] = todo[next++];
+      await this.putBlob(this.pPath(id, 'media', n), bl); this.uploaded.add(bl); done++; if (onProgress && todo.length > 8) onProgress(done, todo.length); } };
+    await Promise.all(Array.from({length: Math.min(4, todo.length)}, worker));
     const headers = {'Content-Type': 'application/json'}; if (baseRev != null) headers['X-ACS-Base-Rev'] = String(baseRev);
     const r = await fetch(this.base + '/api/' + this.pPath(id), {method: 'PUT', body: JSON.stringify(meta), headers, cache: 'no-store'});
     if (r.status === 401 && this.hosted){ signInAgain(); throw new Error('signed out - sign in again to keep saving'); }
@@ -5535,10 +5540,13 @@ $('#btnExportApp').onclick = async () => {
   download(await z.generateAsync({type: 'blob', compression: 'DEFLATE'}), `acs-app-data-${new Date().toISOString().slice(0, 10)}.zip`);
 };
 $('#btnImportApp').onclick = () => $('#appFile').click();
-$('#appFile').onchange = async e => {
-  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+$('#appFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importAppZip(f); };
+async function importAppZip(f){
+  if (!window.JSZip) return toast('JSZip did not load - are you online?');
   try {
+    toast(`Reading ${f.name}…`, 60000);
     const z = await JSZip.loadAsync(f);
+    if (!z.file('projects.json')) throw new Error('this zip is not an app-data export (no projects.json)');
     const idx = JSON.parse(await z.file('projects.json').async('string'));
     const list = idx.projects || [];
     if (!confirm(`Add ${list.length} project(s) from this file to the ones you have? (Projects with the same id are imported as copies.)`)) return;
@@ -5549,7 +5557,7 @@ $('#appFile').onchange = async e => {
       const zf = z.file(`projects/${p.id}.json`); if (!zf) continue;
       const st = unpackState(JSON.parse(await zf.async('string')));
       const id = projects.some(x => x.id === p.id) ? 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) : p.id;
-      await Store.putProject(id, st);
+      await Store.putProject(id, st, undefined, (done, all) => toast(`Importing ${n} of ${list.length}: ${p.name || p.id} - images ${done}/${all}`, 60000));
       for (const src of st.sources || []){
         const jf = z.file(`projects/${p.id}/sources/${src.id}.json`); if (!jf) continue;
         const bf = src.ext && z.file(`projects/${p.id}/sources/${src.id}.${src.ext}`);
@@ -5560,9 +5568,9 @@ $('#appFile').onchange = async e => {
     await Store.putIndex(projects);
     const sf = z.file('settings.json');
     if (sf && confirm('Also replace your keys & settings with the ones in this file?')){ SET = mergeSettings(JSON.parse(await sf.async('string'))); saveSettings(); }
-    renderProjects(); toast(`Imported ${list.length} project(s)`);
-  } catch (er) { console.error(er); toast('Could not import: ' + er.message); }
-};
+    renderProjects(); toast(`Imported ${list.length} project(s)`, 4000);
+  } catch (er) { console.error(er); toast('Could not import: ' + er.message, 8000); }
+}
 
 /* ====================================================================== YANK */
 function htmlToText(h){
@@ -5846,6 +5854,9 @@ $('#setReset').onclick = () => { if (confirm('Reset all keys and the request-cha
 $('#setExport').onclick = () => download(new Blob([JSON.stringify({format: 'anki-studio/settings-v1', ...SET}, null, 2)], {type: 'application/json'}), 'acs-settings.json');
 $('#setImport').onclick = () => $('#setFile').click();
 $('#setFile').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  // a full export (.zip from "App data -> Export all") goes to the app-data import
+  const head = new Uint8Array(await f.slice(0, 2).arrayBuffer());
+  if (/\.zip$/i.test(f.name) || (head[0] === 0x50 && head[1] === 0x4b)){ $('#setDlg') && $('#setDlg').open && $('#setDlg').close(); return importAppZip(f); }
   try { SET = mergeSettings(JSON.parse(await f.text())); saveSettings(); renderSettings(); toast('Settings imported'); } catch (er) { toast('Not a settings file: ' + er.message); } };
 loadSettings(); renderKeyHints();
 

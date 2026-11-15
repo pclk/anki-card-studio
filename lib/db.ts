@@ -17,6 +17,13 @@ export function setDb(q: Query | null): void {
 export function db(): Query {
   if (!query) {
     const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    // local development without Neon: a Postgres kept in a folder (PGlite). Never used on Vercel.
+    if (!url && process.env.ACS_PGLITE_DIR && !process.env.VERCEL) {
+      const dir = process.env.ACS_PGLITE_DIR;
+      const pg = import("@electric-sql/pglite").then(({ PGlite }) => new PGlite(dir));
+      query = (async (text: string, params: unknown[] = []) => (await (await pg).query(text, params)).rows) as Query;
+      return query;
+    }
     if (!url) throw new Error("DATABASE_URL is not set");
     const sql = neon(url);
     query = (async (text: string, params: unknown[] = []) => (await sql.query(text, params)) as never) as Query;

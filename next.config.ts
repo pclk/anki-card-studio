@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
     "/": ["./studio/studio.html"],
   },
   poweredByHeader: false,
+  // only loaded for local development without a database URL (ACS_PGLITE_DIR)
+  serverExternalPackages: ["@electric-sql/pglite"],
   async headers() {
     return [
       {
