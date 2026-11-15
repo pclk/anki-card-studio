@@ -1,27 +1,23 @@
 /**
- * Sign-in with GitHub (Auth.js). Only the GitHub usernames listed in ACS_ALLOWED_GITHUB can sign in; with the list
- * empty, nobody can. Sessions are signed JWT cookies, so no session table is needed.
+ * Sign-in with GitHub (Auth.js). Only allowed usernames can sign in (see lib/allow.ts: the admin, ACS_ALLOWED_GITHUB,
+ * and people the admin adds in the app). Sessions are signed JWT cookies, so no session table is needed.
  *
- * Env: AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET, ACS_ALLOWED_GITHUB (e.g. "pclk" or "pclk, friend").
+ * Env: AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET, optional ACS_ALLOWED_GITHUB, ACS_ADMIN_GITHUB (default pclk).
  */
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
+import { allowedLogins } from "@/lib/allow";
 
-export function allowedLogins(): string[] {
-  return (process.env.ACS_ALLOWED_GITHUB || "")
-    .split(/[\s,]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
+export { allowedLogins, envLogins, adminLogins } from "@/lib/allow";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [GitHub],
   trustHost: true,
   session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 90 },
   callbacks: {
-    signIn({ profile }) {
+    async signIn({ profile }) {
       const login = String((profile as { login?: string } | undefined)?.login || "").toLowerCase();
-      return !!login && allowedLogins().includes(login);
+      return !!login && (await allowedLogins(true)).includes(login);
     },
     jwt({ token, profile }) {
       if (profile) {

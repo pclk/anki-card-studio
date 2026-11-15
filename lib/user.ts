@@ -4,14 +4,15 @@
  * ACS_INSECURE_DEV_USER lets local development and the automated tests run without GitHub. It is ignored whenever
  * the app runs on Vercel, so it can never open up a deployment.
  */
-import { auth, allowedLogins } from "@/auth";
+import { auth } from "@/auth";
+import { allowedLogins, adminLogins } from "./allow";
 
-export type User = { owner: string; login: string; name?: string | null; image?: string | null };
+export type User = { owner: string; login: string; name?: string | null; image?: string | null; admin?: boolean };
 
 export function devUser(): User | null {
   const dev = process.env.ACS_INSECURE_DEV_USER;
   if (!dev || process.env.VERCEL) return null;
-  return { owner: `dev:${dev}`, login: dev, name: dev };
+  return { owner: `dev:${dev}`, login: dev, name: dev, admin: adminLogins().includes(dev.toLowerCase()) };
 }
 
 export async function currentUser(): Promise<User | null> {
@@ -21,6 +22,7 @@ export async function currentUser(): Promise<User | null> {
   const u = s?.user as { login?: string; ghid?: string; name?: string | null; image?: string | null } | undefined;
   if (!u?.login || !u.ghid) return null;
   // the allow-list is checked again on every request, so removing someone takes effect immediately
-  if (!allowedLogins().includes(u.login.toLowerCase())) return null;
-  return { owner: `gh:${u.ghid}`, login: u.login, name: u.name, image: u.image };
+  const login = u.login.toLowerCase();
+  if (!(await allowedLogins()).includes(login)) return null;
+  return { owner: `gh:${u.ghid}`, login: u.login, name: u.name, image: u.image, admin: adminLogins().includes(login) };
 }

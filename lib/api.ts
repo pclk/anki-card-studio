@@ -18,6 +18,7 @@ import * as st from "./store";
 import { HttpError } from "./store";
 import { fetchReadable } from "./fetch-readable";
 import type { User } from "./user";
+import { envLogins, adminLogins, forgetAllowedCache } from "./allow";
 
 export const API_VERSION = "2";
 
@@ -53,7 +54,31 @@ export async function handleApi(req: Request, parts: string[], user: User | null
     const o = user.owner;
 
     if (p.length === 1 && p[0] === "ping")
-      return json(200, { ok: true, version: API_VERSION, hosted: true, dataDir: "", user: { login: user.login, name: user.name ?? null, image: user.image ?? null } });
+      return json(200, { ok: true, version: API_VERSION, hosted: true, dataDir: "", user: { login: user.login, name: user.name ?? null, image: user.image ?? null, admin: !!user.admin } });
+
+    // who may sign in: admins only (ACS_ADMIN_GITHUB, default pclk)
+    if (p[0] === "people") {
+      if (!user.admin) return json(403, { ok: false, error: "only the admin can manage who signs in" });
+      const list = async () => {
+        const added = await st.listAllowed(), env = envLogins(), admins = adminLogins();
+        return { env, admins, added: added.filter((r) => !env.includes(r.login) && !admins.includes(r.login)) };
+      };
+      if (p.length === 1 && m === "GET") return json(200, await list());
+      if (p.length === 1 && m === "POST") {
+        const { login } = JSON.parse(await req.text() || "{}");
+        await st.addAllowed(String(login || "").trim().replace(/^@/, ""), user.login);
+        forgetAllowedCache();
+        return json(200, await list());
+      }
+      if (p.length === 2 && m === "DELETE") {
+        const login = p[1].toLowerCase();
+        if (adminLogins().includes(login)) return json(400, { ok: false, error: "the admin can't be removed" });
+        if (envLogins().includes(login)) return json(400, { ok: false, error: "this username is set in ACS_ALLOWED_GITHUB on Vercel - remove it there" });
+        await st.removeAllowed(login);
+        forgetAllowedCache();
+        return json(200, await list());
+      }
+    }
 
     if (p.length === 1 && p[0] === "settings") {
       if (m === "GET") return json(200, await st.getSettings(o));
@@ -86,7 +111,7 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           const d = await st.getProject(o, id);
           return d == null ? json(404, { ok: false, error: "not found" }) : json(200, d);
         }
-        if (m === "PUT") return json(200, await st.putProject(o, id, await req.text(), req.headers.get("x-acs-base-rev")));
+        if (m === "PUT") return json(200, await st.putProject(o, id, await req.text(), req.headers.get("x-acs-base-rev"), req.headers.get("x-acs-restore") === "1"));
         if (m === "DELETE") { await st.deleteProject(o, id); return json(200, { ok: true }); }
       }
       if (p.length === 3 && st.KINDS.has(p[2]) && m === "GET") return json(200, await st.listFiles(o, id, p[2]));

@@ -150,3 +150,34 @@ test("readable text keeps structure and drops page chrome", () => {
   assert.match(text, /int {2}x = 1;/);
   assert.doesNotMatch(text, /menu|foot|x\(\)/);
 });
+
+test("an explicit import brings back a deleted project", async () => {
+  await call(A, "PUT", "project/pz", JSON.stringify({ rev: 1 }));
+  await call(A, "PUT", "projects", JSON.stringify([{ id: "pz", name: "Z", updated: 1 }]));
+  await call(A, "DELETE", "project/pz");
+  // an ordinary save of a deleted id (e.g. from a stale device) stays hidden from the list
+  await call(A, "PUT", "project/pz", JSON.stringify({ rev: 2 }));
+  let r = await (await call(A, "PUT", "projects", JSON.stringify([{ id: "pz", name: "Z", updated: 5 }]))).json();
+  assert.ok(!r.some((e: { id: string }) => e.id === "pz"));
+  // an import says so, and the project comes back
+  await call(A, "PUT", "project/pz", JSON.stringify({ rev: 3 }), { "x-acs-restore": "1" });
+  r = await (await call(A, "PUT", "projects", JSON.stringify([{ id: "pz", name: "Z again", updated: 6 }]))).json();
+  assert.equal(r.find((e: { id: string }) => e.id === "pz").name, "Z again");
+});
+
+test("only the admin manages who can sign in", async () => {
+  const ADMIN: User = { owner: "gh:9", login: "pclk", admin: true };
+  assert.equal((await call(A, "GET", "people")).status, 403);
+  assert.equal((await call(A, "POST", "people", JSON.stringify({ login: "eve" }))).status, 403);
+  let j = await (await call(ADMIN, "GET", "people")).json();
+  assert.deepEqual(j.admins, ["pclk"]);
+  j = await (await call(ADMIN, "POST", "people", JSON.stringify({ login: "@Friend-1" }))).json();
+  assert.deepEqual(j.added.map((x: { login: string }) => x.login), ["friend-1"]);
+  const { allowedLogins } = await import("../lib/allow");
+  assert.ok((await allowedLogins(true)).includes("friend-1"));
+  assert.equal((await call(ADMIN, "POST", "people", JSON.stringify({ login: "bad name!" }))).status, 400);
+  assert.equal((await call(ADMIN, "DELETE", "people/pclk")).status, 400, "admin can't remove themself");
+  j = await (await call(ADMIN, "DELETE", "people/friend-1")).json();
+  assert.equal(j.added.length, 0);
+  assert.ok(!(await allowedLogins(true)).includes("friend-1"));
+});

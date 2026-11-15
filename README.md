@@ -35,7 +35,8 @@ How to use the Studio itself: [docs/USER-GUIDE.md](docs/USER-GUIDE.md).
    | `AUTH_SECRET` | a random string: `openssl rand -base64 32` |
    | `AUTH_GITHUB_ID` | the OAuth app's Client ID |
    | `AUTH_GITHUB_SECRET` | the OAuth app's client secret |
-   | `ACS_ALLOWED_GITHUB` | `pclk` — GitHub usernames allowed in, comma separated. **Empty means nobody.** |
+   | `ACS_ALLOWED_GITHUB` | optional: extra GitHub usernames allowed in, comma separated |
+   | `ACS_ADMIN_GITHUB` | optional: who manages the list in the app (default `pclk`) |
 
 5. **Redeploy** (*Deployments → … → Redeploy*) so the variables take effect. Open the site, sign in with GitHub.
 
@@ -46,12 +47,21 @@ How to use the Studio itself: [docs/USER-GUIDE.md](docs/USER-GUIDE.md).
 record Vercel shows. Then change both URLs in the GitHub OAuth app to the new domain (you can create a second OAuth
 app instead if you want both addresses to work).
 
+### Letting other people in
+
+The admin (`pclk`) gets a **People who can sign in** section at the top of *Settings*: add a GitHub username, and that
+person can sign in straight away; *Remove* stops their access immediately (their projects are kept). Each person has
+their own projects — nothing is shared between accounts. Usernames set in `ACS_ALLOWED_GITHUB` show there too but
+can only be removed on Vercel.
+
 ### Bring over your existing projects
 
 Projects from the local version live in your computer's data folder or browser, which the website can't see:
 
 1. In the **old** Studio (the `.html` file or `http://127.0.0.1:8765`): sidebar (☰) → *App data* → **⬇ Export all** → a `.zip`.
-2. In the **online** Studio: sidebar → *App data* → **⬆ Import…** → pick that zip. Projects, images and source files are
+2. In the **online** Studio: *Settings* → **⬆ Import…** (or sidebar → *App data* → **⬆ Import…**) → pick that zip.
+   Each project appears in the sidebar as soon as it has finished uploading; an empty starter project is replaced.
+   Importing a project you deleted before brings it back. Projects, images and source files are
    copied into your account. (If the old Studio saved in the browser, the online one also offers
    *⇪ Copy browser projects* — but only for projects in the same browser *and* the same address, so the zip is the
    reliable way.)
@@ -82,12 +92,14 @@ local/acs.py                  the local companion server (still supported)
   version of deleted projects.
 - `acs_files` / `acs_chunks` — images and source files. Vercel limits a request to 4.5 MB, so the Studio sends
   larger files (lecture PDFs) in 3 MB pieces and reads them back the same way.
-- `acs_index`, `acs_deleted`, `acs_settings` — the project list, deleted ids (so another device can't bring a
-  deleted project back), and your keys and settings.
+- `acs_index`, `acs_deleted`, `acs_settings` — the project list, deleted ids (so a stale device can't bring a
+  deleted project back; an explicit import can), and your keys and settings.
+- `acs_allowed` — people the admin let in from the app.
 
 **Security**
-- Every page and API request needs a signed-in, allow-listed user. The allow-list is checked on every request,
-  so removing a name takes effect immediately.
+- Every page and API request needs a signed-in, allowed user: the admin, `ACS_ALLOWED_GITHUB`, or someone the admin
+  added in the app (table `acs_allowed`). The list is checked on every request (cached for 20 s), so removing someone
+  takes effect within seconds.
 - Data is keyed by GitHub account id. One user can never read another's data.
 - Writes must come from the site itself: SameSite cookies, plus an Origin check.
 - The web-page import only fetches public http(s) addresses on ports 80/443. Every resolved IP is checked when the

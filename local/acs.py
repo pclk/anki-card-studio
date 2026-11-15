@@ -197,6 +197,12 @@ class App:
             cur = [e for e in json.loads(f.read_bytes()) or [] if e.get("id") != pid]
             atomic_write(f, json.dumps(cur, ensure_ascii=False).encode())
 
+    def unmark_deleted(self, pid: str) -> None:
+        """an explicit import of a project deleted earlier: let it come back"""
+        ids = self.deleted()
+        if pid in ids:
+            atomic_write(self.data / "trash" / "deleted.json", json.dumps(sorted(ids - {pid})).encode())
+
     def project_dir(self, pid: str) -> Path:
         if not ID_RE.match(pid):
             raise PermissionError("bad project id")
@@ -268,7 +274,7 @@ def make_handler(app: App):
             self.send_response(204)
             self.cors()
             self.send_header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-ACS-Base-Rev")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-ACS-Base-Rev, X-ACS-Restore")
             self.send_header("Access-Control-Max-Age", "600")
             self.end_headers()
 
@@ -380,6 +386,8 @@ def make_handler(app: App):
                         return self.send(200, f.read_bytes())
                     if m == "PUT":
                         data = self.body(); json.loads(data)
+                        if self.headers.get("X-ACS-Restore") == "1":
+                            app.unmark_deleted(p[1])
                         base = self.headers.get("X-ACS-Base-Rev")
                         with app.lock:
                             # optimistic locking: a save must be based on the revision that is on disk now

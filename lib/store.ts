@@ -104,10 +104,12 @@ export async function getRev(owner: string, id: string) {
   return d == null ? null : revInfo(d);
 }
 
-/** save; with baseRev, only if the stored project is still at that revision (else 409 with the current one) */
-export async function putProject(owner: string, id: string, body: string, baseRev: string | null) {
+/** save; with baseRev, only if the stored project is still at that revision (else 409 with the current one).
+ *  restore = an explicit import of a project that was deleted before: it may come back */
+export async function putProject(owner: string, id: string, body: string, baseRev: string | null, restore = false) {
   JSON.parse(body);
   await ensureSchema();
+  if (restore) await db()("delete from acs_deleted where owner = $1 and id = $2", [owner, id]);
   const rev = revInfo(body).rev;
   // keep a copy of what is being replaced (at most one per 10 minutes, the last 30)
   await db()(
@@ -158,6 +160,23 @@ export async function deleteProject(owner: string, id: string): Promise<void> {
   await db()("delete from acs_files where owner = $1 and project = $2", [owner, id]);
   await db()("delete from acs_index where owner = $1 and id = $2", [owner, id]);
   await db()("insert into acs_deleted (owner, id) values ($1, $2) on conflict do nothing", [owner, id]);
+}
+
+/* ------------------------------------------------------------------ who may sign in (besides ACS_ALLOWED_GITHUB) */
+export const LOGIN_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
+
+export async function listAllowed(): Promise<{ login: string; added_by: string; at: string }[]> {
+  await ensureSchema();
+  return db()("select login, added_by, at from acs_allowed order by login");
+}
+export async function addAllowed(login: string, by: string): Promise<void> {
+  if (!LOGIN_RE.test(login)) throw new HttpError(400, "not a valid GitHub username");
+  await ensureSchema();
+  await db()("insert into acs_allowed (login, added_by) values ($1, $2) on conflict (login) do nothing", [login.toLowerCase(), by]);
+}
+export async function removeAllowed(login: string): Promise<void> {
+  await ensureSchema();
+  await db()("delete from acs_allowed where login = $1", [login.toLowerCase()]);
 }
 
 /* ------------------------------------------------------------------ media / source files */

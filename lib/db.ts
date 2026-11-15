@@ -73,6 +73,10 @@ export const SCHEMA: string[] = [
      complete boolean not null default false,
      updated timestamptz not null default now(),
      primary key (owner, project, kind, name))`,
+  `create table if not exists acs_allowed (
+     login text primary key,
+     added_by text not null,
+     at timestamptz not null default now())`,
   `create table if not exists acs_chunks (
      owner text not null,
      project text not null,
