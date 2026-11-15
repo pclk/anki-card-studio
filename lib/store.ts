@@ -189,15 +189,18 @@ export async function listFiles(owner: string, project: string, kind: string): P
   return r.map((x) => x.name);
 }
 
-export type FileMeta = { mime: string; size: number; chunks: number };
+export type FileMeta = { mime: string; size: number; chunks: number; etag: string };
 
 export async function fileMeta(owner: string, project: string, kind: string, name: string): Promise<FileMeta | null> {
   await ensureSchema();
-  const r = await db()<{ mime: string; size: string | number; chunks: number }>(
-    "select mime, size, chunks from acs_files where owner = $1 and project = $2 and kind = $3 and name = $4 and complete",
+  const r = await db()<{ mime: string; size: string | number; chunks: number; ts: string | number }>(
+    `select mime, size, chunks, floor(extract(epoch from updated) * 1000) as ts
+     from acs_files where owner = $1 and project = $2 and kind = $3 and name = $4 and complete`,
     [owner, project, kind, name],
   );
-  return r.length ? { mime: r[0].mime, size: Number(r[0].size), chunks: Number(r[0].chunks) } : null;
+  if (!r.length) return null;
+  const f = r[0];
+  return { mime: f.mime, size: Number(f.size), chunks: Number(f.chunks), etag: `"${Number(f.size).toString(36)}-${Number(f.ts).toString(36)}"` };
 }
 
 export async function readChunk(owner: string, project: string, kind: string, name: string, idx: number): Promise<Buffer | null> {

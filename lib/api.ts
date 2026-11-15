@@ -121,10 +121,14 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           const f = await st.fileMeta(o, id, kind, name);
           if (!f) return json(404, { ok: false, error: "not found" });
           const ci = url.searchParams.get("chunk");
+          // the browser keeps images; asking again costs a tiny "not modified" (304) when nothing changed
+          const etag = ci == null ? f.etag : f.etag.replace(/"$/, `-${ci}"`);
+          if (req.headers.get("if-none-match") === etag)
+            return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "private, no-cache" } });
           if (f.chunks > 1 && ci == null)
             return json(200, { chunked: true, chunks: f.chunks, size: f.size, type: f.mime }, { "X-ACS-Chunked": "1" });
           const b = await st.readChunk(o, id, kind, name, ci == null ? 0 : Number(ci));
-          return b ? bytes(b, f.mime) : json(404, { ok: false, error: "not found" });
+          return b ? bytes(b, f.mime, { ETag: etag, "Cache-Control": "private, no-cache" }) : json(404, { ok: false, error: "not found" });
         }
         if (m === "PUT") {
           const idx = Number(url.searchParams.get("chunk") ?? 0), total = Number(url.searchParams.get("chunks") ?? 1);

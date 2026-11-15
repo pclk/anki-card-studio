@@ -3474,7 +3474,10 @@ const S = {
 };
 const urlCache = new Map();  // filename -> objectURL
 function mediaURL(name){
-  const m = S.media[name]; if (!m || !m.blob) return null;
+  const m = S.media[name]; if (!m) return null;
+  // online version: an image stored in the account loads straight from it when shown (the browser caches it)
+  if (!m.blob && m.remote && curProject) return `${Store.base}/api/${Store.pPath(curProject, 'media', name)}`;
+  if (!m.blob) return null;
   if (!urlCache.has(name)) urlCache.set(name, URL.createObjectURL(m.blob));
   return urlCache.get(name);
 }
@@ -3494,10 +3497,19 @@ function mediaState(name){
   if (/^(data:|https?:)/i.test(name)) return 'inline';
   const m = S.media[name];
   if (!m) return 'missing';
-  if (m.blob) return 'ok';
+  if (m.blob || m.remote) return 'ok';
   if (m.origin === 'url') return m.error ? 'failed' : 'loading';
   if (m.origin === 'material') return 'snip';
   return 'missing';
+}
+/** the bytes of images that so far only exist in the account (for export, editing, packing) */
+async function ensureMedia(names, st = S, pid = curProject){
+  const todo = (names || Object.keys(st.media || {})).filter(n => st.media[n] && st.media[n].remote && !st.media[n].blob);
+  let i = 0;
+  const worker = async () => { while (i < todo.length){ const n = todo[i++];
+    try { const bl = await Store.getBlob(Store.pPath(pid, 'media', n)); if (bl){ st.media[n].blob = bl; Store.uploaded.add(bl); } } catch {} } };
+  await Promise.all(Array.from({length: Math.min(6, todo.length)}, worker));
+  return todo.length;
 }
 const cardMissing = c => cardImages(c).some(n => !['ok','inline'].includes(mediaState(n)));
 function nextId(){
@@ -3621,13 +3633,22 @@ const Store = {
   },
   async getProject(id, known){
     if (!this.on) return idbGet('project:' + id);
-    const st = await this.getJSON(this.pPath(id)); if (!st) return null;
-    // media this window already holds (same name) is not downloaded again
-    for (const [n, m] of Object.entries(st.media || {})) if (known && known[n] && known[n].blob){ m.blob = known[n].blob; }
-    const names = Object.keys(st.media || {}).filter(n => !st.media[n].blob); let i = 0;
-    const worker = async () => { while (i < names.length){ const n = names[i++];
-      try { const bl = await this.getBlob(this.pPath(id, 'media', n)); if (bl){ st.media[n].blob = bl; this.uploaded.add(bl); } } catch {} } };
-    await Promise.all(Array.from({length: 6}, worker));
+    let st = null, files = null;
+    if (this.hosted){
+      // a copy kept in this browser is used when the account still has the same revision (one tiny request)
+      const [cached, rev, list] = await Promise.all([idbGet('cache:project:' + id), this.getRev(id).catch(() => null), this.getJSON(this.pPath(id, 'media')).catch(() => null)]);
+      files = Array.isArray(list) ? new Set(list) : null;
+      if (cached && rev != null && (cached.rev || 0) === rev) st = cached;
+    }
+    if (!st){ st = await this.getJSON(this.pPath(id)); if (!st) return null; if (this.hosted) idbPut('cache:project:' + id, st); }
+    st = JSON.parse(JSON.stringify(st));
+    for (const [n, m] of Object.entries(st.media || {})){
+      delete m.remote;
+      if (known && known[n] && known[n].blob){ m.blob = known[n].blob; continue; }
+      // images load when they are shown (online version); the local server still downloads them up front
+      if (this.hosted){ if (!files || files.has(n)) m.remote = true; }
+    }
+    if (!this.hosted) await ensureMedia(null, st, id);
     return st;
   },
   /** save unless someone else saved since `baseRev` -> {ok} | {conflict, rev} */
@@ -3638,7 +3659,7 @@ const Store = {
       g.onsuccess = () => { const cur = g.result; if (baseRev != null && cur && (cur.rev || 0) !== baseRev) return res({conflict: true, rev: cur.rev || 0}); os.put(st, 'project:' + id); res({ok: true}); }; }));
     const meta = {...st, media: {}}, todo = [];
     for (const [n, m] of Object.entries(st.media || {})){
-      const e = {...m}; delete e.blob; meta.media[n] = e;
+      const e = {...m}; delete e.blob; delete e.remote; meta.media[n] = e;
       if (m.blob && !this.uploaded.has(m.blob)) todo.push([n, m.blob]);
     }
     // new images go up 4 at a time (an import can bring hundreds)
@@ -3652,6 +3673,7 @@ const Store = {
     if (r.status === 401 && this.hosted){ signInAgain(); throw new Error('signed out - sign in again to keep saving'); }
     if (r.status === 409){ const j = await r.json().catch(() => ({})); return {conflict: true, rev: j.rev || 0}; }
     if (!r.ok) throw new Error(`save: HTTP ${r.status}`);
+    if (this.hosted) idbPut('cache:project:' + id, meta);
     return {ok: true};
   },
   async delProject(id){
@@ -3725,7 +3747,7 @@ function renderStorage(){
 const WINDOW_ID = 'w' + Math.random().toString(36).slice(2, 9);
 const sync = {rev: 0, base: null, dirty: false, paused: false, state: 'ok', saved: 0, merged: 0, note: ''};
 let syncChannel = null; try { syncChannel = new BroadcastChannel('acs-sync'); } catch {}
-const plain = st => JSON.parse(JSON.stringify(st, (k, v) => (k === 'blob' || v instanceof Blob) ? undefined : v));
+const plain = st => JSON.parse(JSON.stringify(st, (k, v) => (k === 'blob' || k === 'remote' || v instanceof Blob) ? undefined : v));
 const J = x => JSON.stringify(x === undefined ? null : x);
 /** 3-way value merge: {v} or {conflict:true} */
 function mergeVal(b, l, r){ const jl = J(l), jr = J(r); if (jl === jr) return {v: l}; if (jl === J(b)) return {v: r}; if (jr === J(b)) return {v: l}; return {conflict: true}; }
@@ -3813,7 +3835,9 @@ async function syncWithRemote(reason){
 function applyMerged(m, remote){
   const keepUI = {curId: S.curId, scope: S.scope, filter: S.filter, q: S.q, order: S.order, deckFilter: S.deckFilter};
   const media = {};
-  for (const [n, e] of Object.entries(m.media || {})){ const blob = (S.media[n] && S.media[n].blob) || (remote.media && remote.media[n] && remote.media[n].blob); media[n] = blob ? {...e, blob} : {...e}; }
+  for (const [n, e] of Object.entries(m.media || {})){ const blob = (S.media[n] && S.media[n].blob) || (remote.media && remote.media[n] && remote.media[n].blob);
+    const rem = (S.media[n] && S.media[n].remote) || (remote.media && remote.media[n] && remote.media[n].remote);
+    media[n] = blob ? {...e, blob} : rem ? {...e, remote: true} : {...e}; }
   for (const n of Object.keys(S.media)) if (!media[n] || media[n].blob !== S.media[n].blob) dropURL(n);
   const srcIds = J((S.sources || []).map(x => x.id));
   Object.assign(S, {deck: m.deck || S.deck, tags: m.tags || [], cards: m.cards || [], media, generalFeedback: m.generalFeedback || '', batch: m.batch || null,
@@ -3909,7 +3933,8 @@ async function writeState(){
       const r = await Store.putProject(id, st, sync.rev);
       if (r && r.conflict){ sync.dirty = true; await syncWithRemote('conflict'); return; }
       sync.base = plain(st); sync.rev = st.rev; sync.saved = Date.now(); sync.state = 'ok';
-      const pr = projects.find(x => x.id === id); if (pr){ pr.name = projName(); pr.updated = Date.now(); pr.cards = S.cards.length; }
+      // label from what was saved: by now another project may be open
+      const pr = projects.find(x => x.id === id); if (pr){ pr.name = st.projectName || st.deck || 'Untitled'; pr.updated = Date.now(); pr.cards = (st.cards || []).length; }
       await saveIndex(); saveErrShown = false; retryDelay = 5000;
       try { syncChannel && syncChannel.postMessage({pid: id, rev: st.rev, from: WINDOW_ID}); } catch {}
     } catch (e) { console.error(e); sync.dirty = true; sync.state = 'error'; retrySave();
@@ -3974,10 +3999,17 @@ async function restore(){
 }
 function setCurrent(id){ curProject = id; try { localStorage.setItem('acs-current', id); } catch {} if (!Store.on) idbPut('currentProject', id); }
 function renderProjects(){ if (typeof renderTree === 'function') renderTree(); }
+let switchToken = 0;
 async function switchProject(id, st){
-  await writeState();
+  const token = ++switchToken;
+  // fetch first, then switch in one step: while the download runs, the open project and its data must stay a pair
+  // (a save or sync check in that gap would otherwise mix one project's cards into another)
+  const data = st !== undefined ? st : await Store.getProject(id);
+  if (token !== switchToken) return;     // another project was picked meanwhile
+  if (sync.dirty) await writeState();   // nothing changed -> nothing to upload
+  if (token !== switchToken) return;
   setCurrent(id);
-  loadState(st !== undefined ? st : await Store.getProject(id));
+  loadState(data);
   refreshAll();
 }
 async function newProject(name, st){
@@ -4041,7 +4073,8 @@ function syncTree(){
   if (S.batch) for (const it of S.batch.items){ const n = ensureNode(it.deck, it.title || it.id); if (n) it.node = n.id; }
   if (S.scope !== 'root' && !scopeNode()) S.scope = 'root';
 }
-/* collapsed tree branches (UI state, per browser): node ids and "p:<project id>" */
+/* collapsed tree branches - one remembered state per browser for every project ("p:<id>") and sub-deck (its id),
+   whichever project is open */
 const treeClosed = new Set((() => { try { return JSON.parse(localStorage.getItem('acs-tree-closed') || '[]'); } catch { return []; } })());
 const saveTreeClosed = () => { try { localStorage.setItem('acs-tree-closed', JSON.stringify([...treeClosed])); } catch {} };
 function renderTree(){
@@ -4055,23 +4088,21 @@ function renderTree(){
   const row = (cls, depth, tw, name, ct, data, togKey) => `<div class="tn ${cls}" ${data} style="padding-left:${6 + depth * 14}px"><span class="tw${togKey ? ' tog' : ''}" ${togKey ? `data-tog="${esc(togKey)}" title="Expand / collapse"` : ''}>${tw}</span><span class="nm" title="${esc(name)}">${mark(name)}</span><span class="ct">${ct}</span></div>`;
   // with a filter: show matches and the path to them, everything expanded
   const anyHit = (list, kidsOf, n) => hit(n.name) || kidsOf(n.id).some(k => anyHit(list, kidsOf, k));
-  const walk = (pid, depth) => nodeKids(pid).filter(n => !q || anyHit(S.nodes, nodeKids, n)).map(n => {
-    const kids = nodeKids(n.id).length, open = q || !treeClosed.has(n.id);
-    return row(S.scope === n.id ? 'tsel' : '', depth, kids ? (open ? '▾' : '▸') : '•', n.name, count(n) || '', `data-node="${n.id}"`, kids ? n.id : null)
-      + (kids && open ? walk(n.id, depth + 1) : '');
-  }).join('');
+  // the same drawing for every project: the open one counts cards live, the others show their saved sub-deck tree
   el.innerHTML = [...projects].sort((a, b) => natCmp(a.name, b.name)).map(p => {
-    if (p.id === curProject){
-      const body = walk(null, 1), open = q || !treeClosed.has('p:' + p.id);
-      if (q && !hit(projName()) && !body) return '';
-      return row('proj' + (S.scope === 'root' ? ' tsel' : ''), 0, S.nodes.length ? (open ? '▾' : '▸') : '•', projName(), S.cards.length || '', `data-proj="${p.id}"`, S.nodes.length ? 'p:' + p.id : null) + (open ? body : '');
-    }
-    const kidsOf = pid => (p.nodes || []).filter(n => (n.parent || null) === pid).sort((a, b) => natCmp(a.name, b.name));
-    const kids = kidsOf(null).filter(n => !q || anyHit(p.nodes, kidsOf, n));
-    if (q && !hit(p.name) && !kids.length) return '';
-    const open = q ? kids.length > 0 : p.open;
-    return row('proj other', 0, kids.length ? (open ? '▾' : '▸') : '•', p.name || 'Untitled', p.cards || '', `data-proj="${p.id}"`, kids.length ? 'o:' + p.id : null)
-      + (open ? kids.map(n => row('other', 1, '•', n.name, '', `data-proj="${p.id}" data-pnode="${n.id}"`)).join('') : '');
+    const cur = p.id === curProject, nodes = cur ? S.nodes : (p.nodes || []);
+    const kidsOf = pid => nodes.filter(n => (n.parent || null) === (pid || null)).sort((a, b) => natCmp(a.name, b.name));
+    const walk = (pid, depth) => kidsOf(pid).filter(n => !q || anyHit(nodes, kidsOf, n)).map(n => {
+      const kids = kidsOf(n.id).length, open = q || !treeClosed.has(n.id);
+      const sel = cur && S.scope === n.id ? 'tsel' : '', data = cur ? `data-node="${n.id}"` : `data-proj="${p.id}" data-pnode="${n.id}"`;
+      return row((cur ? '' : 'other ') + sel, depth, kids ? (open ? '▾' : '▸') : '•', n.name, cur ? (count(n) || '') : '', data, kids ? n.id : null)
+        + (kids && open ? walk(n.id, depth + 1) : '');
+    }).join('');
+    const name = cur ? projName() : (p.name || 'Untitled'), body = walk(null, 1);
+    if (q && !hit(name) && !body) return '';
+    const open = q || !treeClosed.has('p:' + p.id);
+    return row('proj' + (cur ? (S.scope === 'root' ? ' tsel' : '') : ' other'), 0, nodes.length ? (open ? '▾' : '▸') : '•', name,
+               (cur ? S.cards.length : p.cards) || '', `data-proj="${p.id}"`, nodes.length ? 'p:' + p.id : null) + (open ? body : '');
   }).join('') || '<div class="small muted" style="padding:6px">No match</div>';
   const sel = el.querySelector('.tsel'); if (sel && !renderTree.noScroll) sel.scrollIntoView({block: 'nearest'});
   renderScopeBar();
@@ -4094,8 +4125,7 @@ $('#tree').addEventListener('click', async e => {
   const tog = e.target.closest('[data-tog]');
   if (tog){
     const k = tog.dataset.tog;
-    if (k.startsWith('o:')){ const p = projects.find(x => x.id === k.slice(2)); if (p) p.open = !p.open; }
-    else { treeClosed.has(k) ? treeClosed.delete(k) : treeClosed.add(k); saveTreeClosed(); }
+    treeClosed.has(k) ? treeClosed.delete(k) : treeClosed.add(k); saveTreeClosed();
     renderTree.noScroll = true; renderTree(); renderTree.noScroll = false; return;
   }
   const t = e.target.closest('.tn'); if (!t) return;
@@ -4103,7 +4133,6 @@ $('#tree').addEventListener('click', async e => {
   const pid = t.dataset.proj;
   if (pid === curProject) return setScope('root');
   const p = projects.find(x => x.id === pid);
-  if (t.classList.contains('proj') && e.target.closest('.tw') && p){ p.open = !p.open; return renderTree(); }
   await switchProject(pid);
   if (t.dataset.pnode && nodeById(t.dataset.pnode)) setScope(t.dataset.pnode);
 });
@@ -4466,7 +4495,7 @@ ${text}
 SOURCE>>>`;
 }
 function buildPrompt(){
-  const p0 = readPrompt(); S.prompt = p0; save();
+  const p0 = readPrompt(); if (J(p0) !== J(S.prompt || {})){ S.prompt = p0; save(); }   // only a real change is saved
   updateModeUI(p0.pMode);
   const p = scopedPrompt(p0), srcs = scopeSources(), withSrc = useStoredSources(p);
   $('#pSrcInfo').textContent = srcs.length ? `(${srcs.length} source(s), ~${fmtK(tokEst(srcs.reduce((a, x) => a + x.chars, 0)))} tokens)` : '(none in this scope)';
@@ -4875,7 +4904,7 @@ function applyBundle(d, mode, opts = {}){
     const meta = {origin: m.origin || (m.url ? 'url' : m.hint ? 'material' : 'generated')};
     for (const k of ['url','hint','caption','credit']) if (m[k]) meta[k] = m[k];
     if (m.data){ setMediaBlob(name, b64ToBlob(m.data, m.mime || MIME[extOf(name)] || 'image/png'), meta); sum.media++; }
-    else if (prev && prev.blob && !(meta.origin === 'url' && meta.url && meta.url !== prev.url)) { /* keep existing image */ }
+    else if (prev && (prev.blob || prev.remote) && !(meta.origin === 'url' && meta.url && meta.url !== prev.url)) { /* keep existing image */ }
     else { dropURL(name); S.media[name] = Object.assign({}, meta, {blob: null, error: null}); }
   }
   for (const raw of d.cards || []){
@@ -4959,7 +4988,7 @@ function summarize({sums, imgs, errors}){
   if (parts.length) html += `<div class="note ok">Imported ${parts.join(', ')}.</div>`;
   else if (!errors.length) html += `<div class="note warn">Nothing found to import.</div>`;
   if (errors.length) html += `<div class="note bad" style="margin-top:6px"><b>Problems:</b><br>${errors.map(esc).join('<br>')}<br><span class="small">If the reply was cut off, ask Claude to "continue the JSON" or to save the bundle file instead.</span></div>`;
-  const missing = Object.entries(S.media).filter(([n, m]) => !m.blob && m.origin === 'generated').map(([n]) => n);
+  const missing = Object.entries(S.media).filter(([n, m]) => !m.blob && !m.remote && m.origin === 'generated').map(([n]) => n);
   if (missing.length) html += `<div class="note warn" style="margin-top:6px">${missing.length} generated image(s) are referenced but not loaded yet (${esc(missing.slice(0, 4).join(', '))}${missing.length > 4 ? '…' : ''}). Drop <b>anki_bundle.json</b> (or the image files) to add them.</div>`;
   return {html, ok: parts.length > 0};
 }
@@ -4996,7 +5025,7 @@ $('#btnImport').onclick = async () => {
 };
 function renderDeckSummary(){
   const c = S.cards, by = k => c.filter(x => x.status === k).length;
-  const imgs = Object.keys(S.media).length, missing = Object.values(S.media).filter(m => !m.blob).length;
+  const imgs = Object.keys(S.media).length, missing = Object.values(S.media).filter(m => !m.blob && !m.remote).length;
   $('#deckSummary').innerHTML = c.length ? `
     <div><b>${esc(S.deck)}</b></div>
     <div class="row small"><span class="pill">${c.length} cards</span><span class="pill">${c.filter(x => x.type === 'basic').length} basic</span><span class="pill">${c.filter(x => x.type === 'cloze').length} cloze</span>
@@ -5035,7 +5064,7 @@ async function fetchImageFromUrl(url, width = 1000){
   return blob;
 }
 async function fetchUrlImages(){
-  const todo = Object.entries(S.media).filter(([, m]) => m.origin === 'url' && m.url && !m.blob && !m.error);
+  const todo = Object.entries(S.media).filter(([, m]) => m.origin === 'url' && m.url && !m.blob && !m.remote && !m.error);
   await Promise.all(todo.map(async ([name, m]) => {
     try { const b = await fetchImageFromUrl(m.url); setMediaBlob(name, b); }
     catch (e) { m.error = (e && e.message) || 'download blocked'; if (/Failed to fetch|NetworkError|Load failed/i.test(m.error)) m.error = 'download blocked by the site (CORS) or offline'; }
@@ -5524,7 +5553,7 @@ $('#btnAddImg').onclick = () => openImageDialog({target: {f: curCard().type === 
 /* ====================================================================== APP DATA (all projects + settings) */
 async function packState(st){
   const out = {...st, media: {}};
-  for (const [n, m] of Object.entries(st.media || {})){ const e = {...m}; delete e.blob; if (m.blob){ e.data = await blobToB64(m.blob); e.mime = m.blob.type; } out.media[n] = e; }
+  for (const [n, m] of Object.entries(st.media || {})){ const e = {...m}; delete e.blob; delete e.remote; if (m.blob){ e.data = await blobToB64(m.blob); e.mime = m.blob.type; } out.media[n] = e; }
   return out;
 }
 function unpackState(st){
@@ -5540,6 +5569,8 @@ $('#btnExportApp').onclick = async () => {
   z.file('projects.json', JSON.stringify({format: 'anki-studio/app-v1', exported: new Date().toISOString(), current: curProject, projects}, null, 2));
   for (const p of projects){
     const st = p.id === curProject ? snapshot() : await Store.getProject(p.id); if (!st) continue;
+    toast(`Exporting ${p.name || p.id}…`, 60000);
+    await ensureMedia(null, st, p.id);
     z.file(`projects/${p.id}.json`, JSON.stringify(await packState(st)));
     for (const src of st.sources || []){
       const d = await Store.getSource(p.id, src.id).catch(() => null); if (d) z.file(`projects/${p.id}/sources/${src.id}.json`, JSON.stringify(d));
@@ -5569,6 +5600,7 @@ async function importAppZip(f){
       const zf = z.file(`projects/${p.id}.json`); if (!zf) continue;
       const st = unpackState(JSON.parse(await zf.async('string')));
       const id = projects.some(x => x.id === p.id) ? 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) : p.id;
+      if (id !== p.id) st.projectName = (st.projectName || p.name || 'Project') + ' (imported)';   // a copy keeps its own name
       await Store.putProject(id, st, undefined, (done, all) => toast(`Importing ${n} of ${list.length}: ${p.name || p.id} - images ${done}/${all}`, 60000), true);
       for (const src of st.sources || []){
         const jf = z.file(`projects/${p.id}/sources/${src.id}.json`); if (!jf) continue;
@@ -5944,7 +5976,7 @@ function openImageDialog(ctx){
   $('#commonsRes').innerHTML = '';
   if (!dlg.open) dlg.showModal();
   if (ctx.blob) addSourceBlob(ctx.blob, 'Pasted image');
-  else if (ctx.replace && mediaState(ctx.replace) === 'ok') addSourceBlob(S.media[ctx.replace].blob, ctx.replace + ' (current)', true);
+  else if (ctx.replace && mediaState(ctx.replace) === 'ok') ensureMedia([ctx.replace]).then(() => { const b = S.media[ctx.replace] && S.media[ctx.replace].blob; if (b) addSourceBlob(b, ctx.replace + ' (current)', true); });
   else if (m.hint && (S.sources || []).some(x => x.kind === 'pdf')) openProjectPdfsInDialog(m.hint);
   else if (curSource) showSource(curSource);
   else clearStage();
@@ -6291,6 +6323,7 @@ CREATE INDEX ix_cards_nid on cards (nid); CREATE INDEX ix_cards_sched on cards (
   zip.file('collection.anki2', db.export());
   db.close();
   const mediaMap = {}; let i = 0;
+  if (await ensureMedia([...used.keys()])) {}   // images that so far only exist in the account
   for (const [orig, out] of used){ const m = S.media[orig]; if (!m || !m.blob) continue; zip.file(String(i), m.blob); mediaMap[i] = out; i++; }
   for (const [name, bl] of (extra && extra.media) || []){ zip.file(String(i), bl); mediaMap[i] = name; i++; }
   zip.file('media', JSON.stringify(mediaMap));
