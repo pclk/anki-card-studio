@@ -1,0 +1,34 @@
+{
+  "name": "anki-card-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Anki Card Studio as a hosted web app: review AI-made Anki cards from any device.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test scripts/api.test.ts",
+    "db:migrate": "tsx scripts/migrate.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.1",
+    "htmlparser2": "^10.1.0",
+    "ipaddr.js": "^2.5.0",
+    "next": "^16.4.6",
+    "next-auth": "^5.0.0-beta.32",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "undici": "^7.30.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
