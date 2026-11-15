@@ -14,6 +14,7 @@
  *
  * Kept free of Next.js so the tests can call it directly.
  */
+import { gunzipSync } from "node:zlib";
 import * as st from "./store";
 import { HttpError } from "./store";
 import { fetchReadable } from "./fetch-readable";
@@ -111,7 +112,12 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           const d = await st.getProject(o, id);
           return d == null ? json(404, { ok: false, error: "not found" }) : json(200, d);
         }
-        if (m === "PUT") return json(200, await st.putProject(o, id, await req.text(), req.headers.get("x-acs-base-rev"), req.headers.get("x-acs-restore") === "1"));
+        if (m === "PUT") {
+          // the Studio gzips big projects (X-ACS-Encoding: gzip); at most 64 MB unpacked
+          const raw = Buffer.from(await req.arrayBuffer());
+          const text = req.headers.get("x-acs-encoding") === "gzip" ? gunzipSync(raw, { maxOutputLength: 64 * 1024 * 1024 }).toString("utf8") : raw.toString("utf8");
+          return json(200, await st.putProject(o, id, text, req.headers.get("x-acs-base-rev"), req.headers.get("x-acs-restore") === "1"));
+        }
         if (m === "DELETE") { await st.deleteProject(o, id); return json(200, { ok: true }); }
       }
       if (p.length === 3 && st.KINDS.has(p[2]) && m === "GET") return json(200, await st.listFiles(o, id, p[2]));
@@ -143,6 +149,8 @@ export async function handleApi(req: Request, parts: string[], user: User | null
   } catch (e) {
     if (e instanceof HttpError) return json(e.status, e.body ?? { ok: false, error: e.message });
     if (e instanceof SyntaxError) return json(400, { ok: false, error: "invalid JSON" });
+    const code = String((e as { code?: string })?.code || "");
+    if (code.startsWith("Z_") || code === "ERR_BUFFER_TOO_LARGE") return json(400, { ok: false, error: "bad or too large compressed body" });
     console.error(e);
     return json(500, { ok: false, error: "server error" });
   }

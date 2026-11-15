@@ -181,3 +181,12 @@ test("only the admin manages who can sign in", async () => {
   assert.equal(j.added.length, 0);
   assert.ok(!(await allowedLogins(true)).includes("friend-1"));
 });
+
+test("projects may be sent gzipped", async () => {
+  const { gzipSync } = await import("node:zlib");
+  const body = JSON.stringify({ rev: 1, cards: Array.from({ length: 2000 }, (_, i) => ({ id: "c" + i, front: "x".repeat(50) })) });
+  const r = await call(A, "PUT", "project/pg", gzipSync(body), { "x-acs-encoding": "gzip", "content-type": "application/json" });
+  assert.equal(r.status, 200);
+  assert.equal((await (await call(A, "GET", "project/pg")).json()).cards.length, 2000);
+  assert.equal((await call(A, "PUT", "project/pg", Buffer.from("not gzip"), { "x-acs-encoding": "gzip" })).status, 400);
+});
