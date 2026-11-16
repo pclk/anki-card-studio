@@ -93,6 +93,12 @@ figcaption{font-size:.78em;color:#59636e}
 .nightMode .aa-purpose,.night_mode .aa-purpose{border-color:#3d444d;color:#c9d1d9}
 .nightMode .aa-purpose summary,.night_mode .aa-purpose summary{color:#9198a1}
 table{border-collapse:collapse;margin:10px auto;font-size:.88em}
+/* narrow screens: nothing sticks out of the card. Long words wrap; wide tables, equations and code scroll sideways */
+.card{overflow-wrap:break-word}
+:not(pre)>code{overflow-wrap:anywhere}
+table{display:block;width:fit-content;max-width:100%;overflow-x:auto}
+math[display=block],.katex-display{display:block;max-width:100%;overflow-x:auto;overflow-y:hidden}
+pre{max-width:100%}
 td,th{border:1px solid #d0d7de;padding:4px 9px;vertical-align:top}
 th{background:rgba(127,127,127,.12)}
 ul,ol{margin:6px 0;padding-left:1.4em}

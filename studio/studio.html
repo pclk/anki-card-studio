@@ -1485,6 +1485,12 @@ figcaption{font-size:.78em;color:#59636e}
 .nightMode .aa-purpose,.night_mode .aa-purpose{border-color:#3d444d;color:#c9d1d9}
 .nightMode .aa-purpose summary,.night_mode .aa-purpose summary{color:#9198a1}
 table{border-collapse:collapse;margin:10px auto;font-size:.88em}
+/* narrow screens: nothing sticks out of the card. Long words wrap; wide tables, equations and code scroll sideways */
+.card{overflow-wrap:break-word}
+:not(pre)>code{overflow-wrap:anywhere}
+table{display:block;width:fit-content;max-width:100%;overflow-x:auto}
+math[display=block],.katex-display{display:block;max-width:100%;overflow-x:auto;overflow-y:hidden}
+pre{max-width:100%}
 td,th{border:1px solid #d0d7de;padding:4px 9px;vertical-align:top}
 th{background:rgba(127,127,127,.12)}
 ul,ol{margin:6px 0;padding-left:1.4em}
@@ -3400,6 +3406,12 @@ figcaption{font-size:.78em;color:#59636e}
 .nightMode .aa-purpose,.night_mode .aa-purpose{border-color:#3d444d;color:#c9d1d9}
 .nightMode .aa-purpose summary,.night_mode .aa-purpose summary{color:#9198a1}
 table{border-collapse:collapse;margin:10px auto;font-size:.88em}
+/* narrow screens: nothing sticks out of the card. Long words wrap; wide tables, equations and code scroll sideways */
+.card{overflow-wrap:break-word}
+:not(pre)>code{overflow-wrap:anywhere}
+table{display:block;width:fit-content;max-width:100%;overflow-x:auto}
+math[display=block],.katex-display{display:block;max-width:100%;overflow-x:auto;overflow-y:hidden}
+pre{max-width:100%}
 td,th{border:1px solid #d0d7de;padding:4px 9px;vertical-align:top}
 th{background:rgba(127,127,127,.12)}
 ul,ol{margin:6px 0;padding-left:1.4em}
@@ -5605,6 +5617,21 @@ $('#whyOnCard').onchange = e => { const c = curCard(); if (!c) return; c.whyOnCa
 $('#whyEdit').addEventListener('input', e => { const c = curCard(); if (!c) return; c.why = e.target.value; autosize(e.target); syncHl(e.target); save(); if (whyOn(c)) renderPreviewSoon(); });
 $('#whyEdit').addEventListener('keydown', e => { if (e.key === 'Escape'){ e.preventDefault(); whyEditing(false); renderWhy(curCard()); } });
 $('#exWhy').onchange = e => { S.whyAll = e.target.checked; save(); };
+/* sideways scrollers in the preview (code, wide tables, equations) fade out on the side that has more,
+   since phones hide scrollbars; re-checked when the card's size changes (images, maths, rotating the phone) */
+const HS_CSS = `.hs-r{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent)}
+.hs-l{-webkit-mask-image:linear-gradient(to left,#000 calc(100% - 34px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 34px),transparent)}
+.hs-l.hs-r{-webkit-mask-image:linear-gradient(to right,transparent,#000 34px,#000 calc(100% - 34px),transparent);mask-image:linear-gradient(to right,transparent,#000 34px,#000 calc(100% - 34px),transparent)}`;
+let scrollRO = null;
+function watchScrollers(pc){
+  const mark = el => { const max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle('hs-l', max > 1 && el.scrollLeft > 1); el.classList.toggle('hs-r', max > 1 && el.scrollLeft < max - 1); };
+  const scan = () => pc.querySelectorAll('pre,table,math,.katex-display').forEach(el => {
+    mark(el); if (!el.dataset.hs){ el.dataset.hs = 1; el.addEventListener('scroll', () => mark(el), {passive: true}); } });
+  if (scrollRO) scrollRO.disconnect();
+  if (window.ResizeObserver){ scrollRO = new ResizeObserver(() => requestAnimationFrame(scan)); scrollRO.observe(pc); }
+  requestAnimationFrame(scan);
+}
 function renderPreview(){
   const c = curCard(); if (!c) return;
   renderWhy(c);
@@ -5615,13 +5642,14 @@ function renderPreview(){
   if (nums.length > 1) $('#clozeNote').textContent = `${nums.length} cloze cards (c${nums.join(', c')}) shown together`;
   $$('#sideSeg button').forEach(b => b.classList.toggle('on', b.dataset.side === side));
   const night = $('#nightPrev').checked; host.classList.toggle('night', night);
-  const style = `<style>:host{display:flex;flex-direction:column}${CARD_CSS}${HLJS_CSS}.card{flex:1 0 auto}@keyframes yank{from{background:rgba(255,196,0,.45)}to{background:rgba(255,196,0,0)}}.yank{position:absolute;inset:-6px -8px;border-radius:8px;pointer-events:none;animation:yank .3s ease-out forwards;mix-blend-mode:multiply}.nightMode .yank{mix-blend-mode:screen}</style>`;
+  const style = `<style>:host{display:flex;flex-direction:column}${CARD_CSS}${HLJS_CSS}.card{flex:1 0 auto}${HS_CSS}@keyframes yank{from{background:rgba(255,196,0,.45)}to{background:rgba(255,196,0,0)}}.yank{position:absolute;inset:-6px -8px;border-radius:8px;pointer-events:none;animation:yank .3s ease-out forwards;mix-blend-mode:multiply}.nightMode .yank{mix-blend-mode:screen}</style>`;
   shadow.innerHTML = style + `<div class="card ${night ? 'nightMode' : ''}" id="pc"></div>`;
   const pc = shadow.getElementById('pc');
   sanitizeInto(pc, cardHTML(c, side, 0));
   highlightCode(pc);
   renderMath(pc);
   attachSourceVisual(c, pc);
+  watchScrollers(pc);
   pc.querySelectorAll('img').forEach(im => {
     const name = im.getAttribute('src'); const st = mediaState(name);
     if (st === 'ok') im.src = mediaURL(name);
@@ -5868,11 +5896,20 @@ $('#undoBtn').onclick = () => {
     so.style.transform = `rotate(-14deg) scale(${.8 + k * .35})`; sd.style.transform = `rotate(14deg) scale(${.8 + k * .35})`;
     if (SET.swipe.effects){ gOk.classList.remove('flash'); gDrop.classList.remove('flash'); gOk.style.opacity = dx > 0 ? k * .95 : 0; gDrop.style.opacity = dx < 0 ? k * .95 : 0; }
   };
+  // the nearest element under the finger (inside the card) that can scroll sideways
+  const hScroller = e => {
+    for (const el of e.composedPath()){
+      if (el === host || el.nodeType !== 1) break;
+      if (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return el;
+    }
+    return null;
+  };
+  const canScrollX = (el, dir) => dir > 0 ? el.scrollLeft < el.scrollWidth - el.clientWidth - 1 : el.scrollLeft > 1;
   const reset = () => { host.style.transform = ''; host.style.opacity = ''; so.style.opacity = sd.style.opacity = 0; if (!gOk.classList.contains('flash')) gOk.style.opacity = 0; if (!gDrop.classList.contains('flash')) gDrop.style.opacity = 0; };
   host.addEventListener('touchstart', e => {
     if (e.touches.length !== 1 || !curCard()){ st = null; return; }
     const t = e.touches[0];
-    st = {x: t.clientX, y: t.clientY, t: performance.now(), mode: null, dx: 0, dy: 0};
+    st = {x: t.clientX, y: t.clientY, t: performance.now(), mode: null, dx: 0, dy: 0, sc: hScroller(e)};
   }, {passive: true});
   host.addEventListener('touchmove', e => {
     if (!st) return;
@@ -5883,6 +5920,9 @@ $('#undoBtn').onclick = () => {
       const deg = Math.atan2(Math.abs(st.dy), Math.abs(st.dx)) * 180 / Math.PI;
       // within the allowed angle -> it's a swipe (we take the gesture); steeper -> the card scrolls as usual
       st.mode = deg <= SET.swipe.angle && e.cancelable ? 'swipe' : 'scroll';
+      // started on something that scrolls sideways (code, a wide table or equation): it scrolls first.
+      // Only once it is already at its end in that direction does the same movement swipe the card.
+      if (st.mode === 'swipe' && st.sc && canScrollX(st.sc, st.dx < 0 ? 1 : -1)) st.mode = 'scroll';
       if (st.mode === 'swipe'){ host.classList.remove('back', 'fly'); host.classList.add('swiping'); }
     }
     if (st.mode !== 'swipe') return;
