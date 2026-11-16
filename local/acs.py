@@ -21,7 +21,8 @@ What it does
         projects/<id>/sources/       imported source files + extracted text
         apps/                        put Studio .html versions here (served at /apps/...)
         trash/                       deleted projects (never hard-deleted)
-  * serves the Studio: / opens the .html next to this script or in apps/ (a list when there are several)
+  * serves the Studio: / opens the .html next to this script, in ../studio/ (the repo layout) or in apps/
+    (a list when there are several)
   * open the Studio through the server (http://127.0.0.1:8765/...) so it can reach the data folder.
     An .html double-clicked from disk (file://) is only allowed with --allow-file-pages, because
     websites can fake that kind of origin too.
@@ -210,7 +211,10 @@ class App:
 
     def html_files(self):
         seen, out = set(), []
-        for d in (self.data / "apps", self.script_dir):
+        # apps/ in the data folder, next to this script, and the repo's studio/ folder (local/acs.py -> ../studio)
+        for d in (self.data / "apps", self.script_dir, self.script_dir.parent / "studio"):
+            if not d.is_dir():
+                continue
             for f in sorted(d.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True):
                 if f.name not in seen:
                     seen.add(f.name)

@@ -207,15 +207,13 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;height:
 .review.phone #btnCards{display:inline-flex}
 .review.phone .status-bar,.review.phone #fbWrap,.review.phone #paneSeg{display:none}
 .review.phone #editorCol > .panel:first-child{padding:8px 10px !important}
-.review.phone.pane-edit .preview-col{display:block}
-.review.phone #fieldsPanel,.review.phone #imgPanel{display:flex}
 .review.phone .prev-hint,.review.phone .kbd{display:none}
 .review.phone #curTimer{min-width:0}
 .review.phone #edType{padding:3px 6px}
 .review.phone .preview-wrap{gap:8px}
 .review.phone .preview-wrap > .row:first-child{order:3}
 .review.phone #whyBox{order:4}
-.review.phone .preview-host{height:calc(100dvh - var(--hdr-h) - 14px);min-height:300px;overflow-y:auto;overscroll-behavior:contain;border-radius:14px;touch-action:manipulation}
+.review.phone .preview-host{min-height:calc(100dvh - var(--hdr-h) - 14px);overflow:visible;border-radius:14px;touch-action:manipulation}
 body.rv-phone main{padding:6px 6px 0}
 body.rv-phone:has(#tab-review.active) #scopeBar{display:none}
 .review.phone .preview-host{padding-top:40px}
@@ -237,6 +235,8 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 #hudStatus.s-ok{background:#16a34a} #hudStatus.s-drop{background:#dc2626} #hudStatus.s-change{background:#d97706}
 #hudStatus:empty{display:none}
 /* request-change box under the card */
+.ph-only{display:none} .review.phone .ph-only{display:block}
+.review.phone #fieldsPanel{scroll-margin-top:calc(var(--hdr-h) + 8px)}
 #mobileBar{display:none}
 .review.phone #mobileBar{display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px}
 #mobileBar .mrow{display:flex;gap:6px;align-items:flex-end}
@@ -271,8 +271,8 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 .whyview code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;background:rgba(127,127,127,.15);border-radius:4px;padding:.05em .3em}
 #whyEditWrap{margin-top:6px}
 #leaderMenu .lm-row[data-li]{cursor:pointer} #leaderMenu .lm-row[data-li]:hover{background:var(--panel2)}
-.review.compact.pane-preview #fieldsPanel,.review.compact.pane-preview #imgPanel{display:none}
-.review.compact.pane-edit .preview-col{display:none}
+.review.compact:not(.phone).pane-preview #fieldsPanel,.review.compact:not(.phone).pane-preview #imgPanel{display:none}
+.review.compact:not(.phone).pane-edit .preview-col{display:none}
 /* ---- timer never shifts the layout */
 #curTimer{flex:none;min-width:70px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .ci .tm{font-variant-numeric:tabular-nums}
@@ -646,7 +646,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
           <label class="check small" title="Show the source page / passage inside Source (needs the source in the Sources step)"><input type="checkbox" id="srcPrev" checked> Source picture</label>
         </div>
         <div class="preview-host" id="previewHost"></div>
-        <div id="phoneHud"><button id="hudPrev" aria-label="Previous card">‹</button><span id="hudPos"></span><span id="hudStatus"></span><span class="spacer"></span><button id="hudNext" aria-label="Next card">›</button></div>
+        <div id="phoneHud"><button id="hudPrev" aria-label="Previous card">‹</button><span id="hudPos"></span><span id="hudStatus"></span><span class="spacer"></span><button id="hudEdit" aria-label="Edit this card" title="Edit this card">✎</button><button id="hudNext" aria-label="Next card">›</button></div>
         <div class="swipe-stamp st-ok" id="stampOk">APPROVE</div><div class="swipe-stamp st-drop" id="stampDrop">EXCLUDE</div>
         <div id="whyBox" class="whybox" hidden>
           <div class="row" style="gap:8px"><b class="small">Why this card</b><span class="spacer"></span>
@@ -4950,7 +4950,8 @@ function applyBundle(d, mode, opts = {}){
   const isRevision = !!(opts.revision || d.revision);
   if (mode === 'replace'){ S.cards = []; for (const k of Object.keys(S.media)) dropURL(k); S.media = {}; }
   if (d.deck && (mode === 'replace' || !S.cards.length) && !(S.batch && S.batch.items && S.batch.items.length && !isProject)) S.deck = d.deck;
-  const bundleDeck = d.deck && d.deck !== S.deck ? d.deck : null;   // a sub-deck (e.g. one lecture of a batch)
+  // a sub-deck (e.g. one lecture of a batch); a revision never moves cards between decks
+  const bundleDeck = !isRevision && d.deck && d.deck !== S.deck ? d.deck : null;
   const idMap = {};
   if (Array.isArray(d.tags) && d.tags.length) S.tags = d.tags;
   for (const m of d.media || []){
@@ -4989,7 +4990,8 @@ function applyBundle(d, mode, opts = {}){
       if (origId) idMap[origId] = n.id;
       const card = Object.assign(n, {status: 'new', feedback: '', revised: !!opts.revision}, isProject ? pickStatus(raw) : {});
       const after = raw.after && cardById(raw.after);
-      if (after){ let i = S.cards.indexOf(after) + 1; while (i < S.cards.length && S.cards[i].after === raw.after) i++; card.after = raw.after; S.cards.splice(i, 0, card); }
+      if (after){ let i = S.cards.indexOf(after) + 1; while (i < S.cards.length && S.cards[i].after === raw.after) i++; card.after = raw.after; S.cards.splice(i, 0, card);
+        if (!card.deck && after.deck) card.deck = after.deck; }   // a split card stays in its original's deck
       else S.cards.push(card);
       if (after && typeof after.ord === 'number' && typeof card.ord !== 'number') card.ord = after.ord + 0.01;
       sum.added++;
@@ -5256,7 +5258,7 @@ function renderFields(c){
     ${f !== 'source' ? '<button data-act="code" title="Code block (asks for the language; escapes the selection)">&lt;/&gt;</button><button data-act="math" title="Maths: \\( … \\)">∑</button>' : ''}${f === 'back' ? '<button data-act="answer" title="Direct-answer block">Answer</button>' : ''}
     ${f !== 'source' ? `<select data-act="box" title="Insert a styled box"><option value="">Box…</option>${BOX_KINDS.map(k => `<option value="${k}">${BOX_TITLES[k]}</option>`).join('')}</select><button data-act="img" title="Insert image here">🖼</button>` : ''}
     ${f === 'text' ? '<button data-act="cloze" title="Make cloze (new number)">[…] cloze</button><button data-act="clozeSame" title="Cloze with same number as last">[…] same #</button>' : ''}`;
-  panel.innerHTML = FIELDS[c.type].map(f => `<div class="field"><div class="fh"><b>${FIELD_LABEL[f]}</b>${tb(f)}</div><div class="hl-wrap"><pre class="hl-pre" aria-hidden="true"></pre><textarea data-f="${f}" rows="${f === 'source' ? 1 : f === 'front' ? 3 : 6}" spellcheck="false"></textarea></div></div>`).join('')
+  panel.innerHTML = '<h3 class="ph-only" style="margin:0">✎ Edit card</h3>' + FIELDS[c.type].map(f => `<div class="field"><div class="fh"><b>${FIELD_LABEL[f]}</b>${tb(f)}</div><div class="hl-wrap"><pre class="hl-pre" aria-hidden="true"></pre><textarea data-f="${f}" rows="${f === 'source' ? 1 : f === 'front' ? 3 : 6}" spellcheck="false"></textarea></div></div>`).join('')
     + `<label class="f">Tags<span class="hint">space-separated</span><input type="text" id="edTags"></label>`;
   for (const f of FIELDS[c.type]) showField(panel.querySelector(`textarea[data-f="${f}"]`), c[f]);
   $('#edTags').value = c.tags.join(' ');
@@ -5317,7 +5319,7 @@ function insertIntoField(f, before, after = '', placeholder = ''){
   const s = useLast ? lastField.start : ta.value.length, e = useLast ? lastField.end : ta.value.length;
   const sel = ta.value.slice(s, e) || placeholder;
   ta.value = ta.value.slice(0, s) + before + sel + after + ta.value.slice(e);
-  c[f] = ta.value; autosize(ta); syncHl(ta); markEdited(c); ta.focus();
+  c[f] = ta.dataset.src = ta.value; ta.dataset.typed = '1'; autosize(ta); syncHl(ta); markEdited(c); ta.focus();
   ta.selectionStart = s + before.length; ta.selectionEnd = s + before.length + sel.length; trackCursor(ta);
   save(); renderPreview(); renderList(); renderImages(c);
 }
@@ -5760,6 +5762,7 @@ $('#mbNext').onclick = () => {
   else move(1);
 };
 $('#hudPrev').onclick = () => move(-1);
+$('#hudEdit').onclick = () => { const f = $('#fieldsPanel'); f.scrollIntoView({behavior: 'smooth', block: 'start'}); };
 $('#hudNext').onclick = () => move(1);
 $('#mbChange').onclick = () => { leader = {shown: false}; showLeader($('#mbChange')); };
 /* ---- swipe the card (touch): right = approve, left = exclude, tap = flip.
