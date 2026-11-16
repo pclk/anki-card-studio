@@ -1,26 +1,35 @@
 /**
  * Postgres access. Production uses Neon's HTTP driver (one round trip per statement, no connection pool to manage
- * inside serverless functions). Tests swap in PGlite (Postgres compiled to WASM) through setDb().
+ * inside serverless functions). Writes use request-scoped WebSocket transactions. Tests swap in PGlite (Postgres compiled to WASM) through setDb().
  */
-import { neon } from "@neondatabase/serverless";
+import { AsyncLocalStorage } from "node:async_hooks";
+import WebSocket from "ws";
+import { Pool, neonConfig, neon } from "@neondatabase/serverless";
 
 export type Query = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>;
 
+type Transaction = <T>(work: (q: Query) => Promise<T>) => Promise<T>;
+const context = new AsyncLocalStorage<Query>();
+let transact: Transaction | null = null;
 let query: Query | null = null;
 let ready: Promise<void> | null = null;
 
-export function setDb(q: Query | null): void {
+export function setDb(q: Query | null, transaction: Transaction | null = null): void {
   query = q;
+  transact = transaction;
   ready = null;
 }
 
 export function db(): Query {
+  const active = context.getStore();
+  if (active) return active;
   if (!query) {
     const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
     // local development without Neon: a Postgres kept in a folder (PGlite). Never used on Vercel.
     if (!url && process.env.ACS_PGLITE_DIR && !process.env.VERCEL) {
       const dir = process.env.ACS_PGLITE_DIR;
       const pg = import("@electric-sql/pglite").then(({ PGlite }) => new PGlite(dir));
+      transact = async (work) => (await pg).transaction(async tx => work((async (text: string, params: unknown[] = []) => (await tx.query(text, params)).rows) as Query));
       query = (async (text: string, params: unknown[] = []) => (await (await pg).query(text, params)).rows) as Query;
       return query;
     }
@@ -98,6 +107,11 @@ export const SCHEMA: string[] = [
      primary key (owner, project, kind, name, idx))`,
 ];
 
+SCHEMA.push('create table if not exists acs_upload_files (like acs_files including all)',
+  'create table if not exists acs_upload_chunks (like acs_chunks including all)',
+  "alter table acs_files add column if not exists upload_id text not null default ''",
+  "alter table acs_upload_files add column if not exists upload_id text not null default ''");
+
 export async function ensureSchema(): Promise<void> {
   if (!ready) {
     ready = (async () => {
@@ -108,4 +122,31 @@ export async function ensureSchema(): Promise<void> {
     });
   }
   return ready;
+}
+
+/** One request-scoped connection; nested storage calls share the transaction. */
+export async function transaction<T>(owner: string, work: () => Promise<T>): Promise<T> {
+  if (context.getStore()) return work();
+  await ensureSchema();
+  const run = async (q: Query) => context.run(q, async () => {
+    await q("select pg_advisory_xact_lock(hashtextextended($1, 0))", [owner]);
+    return work();
+  });
+  if (transact) return transact(run);
+  neonConfig.webSocketConstructor = WebSocket;
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const result = await run((async (text: string, params: unknown[] = []) => (await client!.query(text, params)).rows) as Query);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try { await client?.query("ROLLBACK"); } catch { /* preserve original error */ }
+    throw error;
+  } finally {
+    client?.release();
+    await pool.end();
+  }
 }

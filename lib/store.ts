@@ -101,7 +101,7 @@ export async function getProject(owner: string, id: string): Promise<string | nu
 
 export async function projectBytes(owner: string, id: string): Promise<number> {
   await ensureSchema();
-  const r = await db()<{ n: string }>("select length(data) as n from acs_projects where owner = $1 and id = $2", [owner, id]);
+  const r = await db()<{ n: string }>("select octet_length(data) as n from acs_projects where owner = $1 and id = $2", [owner, id]);
   return r.length ? Number(r[0].n) : 0;
 }
 
@@ -113,8 +113,17 @@ export async function getRev(owner: string, id: string) {
 /** save; with baseRev, only if the stored project is still at that revision (else 409 with the current one).
  *  restore = an explicit import of a project that was deleted before: it may come back */
 export async function putProject(owner: string, id: string, body: string, baseRev: string | null, restore = false) {
-  JSON.parse(body);
+  const parsed = JSON.parse(body);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new HttpError(400, "a project is a JSON object");
+  const validRev = (v: number) => Number.isInteger(v) && v >= 0 && v <= 2147483647;
+  const incomingRev = (parsed.rev === undefined ? 0 : parsed.rev);
+  if (!validRev(incomingRev) || (baseRev != null && baseRev !== '' && (!/^[0-9]+$/.test(baseRev) || !validRev(Number(baseRev)))))
+    throw new HttpError(400, "invalid revision");
+  if (baseRev != null && baseRev !== '' && incomingRev <= Number(baseRev))
+    throw new HttpError(400, "revision must increase");
   await ensureSchema();
+  if (!restore && (await deletedIds(owner)).has(id)) throw new HttpError(410, "project deleted; explicitly restore to save");
   if (restore) await db()("delete from acs_deleted where owner = $1 and id = $2", [owner, id]);
   const rev = revInfo(body).rev;
   // keep a copy of what is being replaced (at most one per 10 minutes, the last 30)
@@ -133,11 +142,12 @@ export async function putProject(owner: string, id: string, body: string, baseRe
     if (!upd.length) {
       const cur = await getRev(owner, id);
       if (cur) throw new HttpError(409, "conflict", { ok: false, error: "conflict", ...cur });
-      await db()(
+      const inserted = await db()(
         `insert into acs_projects (owner, id, data, rev) values ($1, $2, $3, $4)
-         on conflict (owner, id) do nothing`,
+         on conflict (owner, id) do nothing returning rev`,
         [owner, id, body, rev],
       );
+      if (!inserted.length) throw new HttpError(409, "conflict", { ok: false, error: "conflict", ...await getRev(owner, id) });
     }
   } else {
     await db()(
@@ -162,6 +172,8 @@ export async function deleteProject(owner: string, id: string): Promise<void> {
     [owner, id],
   );
   await db()("delete from acs_projects where owner = $1 and id = $2", [owner, id]);
+  await db()("delete from acs_upload_chunks where owner = $1 and project = $2", [owner, id]);
+  await db()("delete from acs_upload_files where owner = $1 and project = $2", [owner, id]);
   await db()("delete from acs_chunks where owner = $1 and project = $2", [owner, id]);
   await db()("delete from acs_files where owner = $1 and project = $2", [owner, id]);
   await db()("delete from acs_index where owner = $1 and id = $2", [owner, id]);
@@ -222,44 +234,70 @@ export async function readChunk(owner: string, project: string, kind: string, na
  * the last piece arrives. A file small enough for one request is just piece 0 of 1.
  */
 export async function writeChunk(owner: string, project: string, kind: string, name: string, mime: string,
-                                 idx: number, total: number, bytes: Buffer): Promise<void> {
+                                 idx: number, total: number, bytes: Buffer, uploadId = ""): Promise<void> {
   if (!Number.isInteger(idx) || !Number.isInteger(total) || total < 1 || total > 4096 || idx < 0 || idx >= total)
     throw new HttpError(400, "bad chunk number");
+  if (total > 1 && !/^[A-Za-z0-9_-]{1,80}$/.test(uploadId)) throw new HttpError(400, "upload session required");
   if (bytes.length > MAX_CHUNK + 1024) throw new HttpError(413, "piece too large");
   await ensureSchema();
   const q = db();
+  if (uploadId) {
+    for (const table of ['acs_files', 'acs_upload_files']) {
+      const found = await q<{upload_id: string; chunks: number}>(`select upload_id,chunks from ${table} where owner=$1 and project=$2 and kind=$3 and name=$4`, [owner,project,kind,name]);
+      if (found[0]?.upload_id !== uploadId) continue;
+      if (found[0].chunks !== total) throw new HttpError(409, "upload session changed");
+      const chunks = table === 'acs_files' ? 'acs_chunks' : 'acs_upload_chunks';
+      const old = await q<{same: boolean}>(`select data=decode($6,'base64') as same from ${chunks} where owner=$1 and project=$2 and kind=$3 and name=$4 and idx=$5`, [owner,project,kind,name,idx,bytes.toString('base64')]);
+      if (old.length) { if (old[0].same) return; throw new HttpError(409, "upload piece changed"); }
+      if (table === 'acs_files') throw new HttpError(409, "upload already completed");
+    }
+  }
   if (idx === 0) {
-    await q("delete from acs_chunks where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);
+    await q("delete from acs_upload_chunks where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);
     await q(
-      `insert into acs_files (owner, project, kind, name, mime, size, chunks, complete, updated)
+      `insert into acs_upload_files (owner, project, kind, name, mime, size, chunks, complete, updated)
        values ($1, $2, $3, $4, $5, 0, $6, false, now())
        on conflict (owner, project, kind, name) do update
        set mime = excluded.mime, size = 0, chunks = excluded.chunks, complete = false, updated = now()`,
       [owner, project, kind, name, mime || "application/octet-stream", total],
     );
+    await q('update acs_upload_files set upload_id=$5 where owner=$1 and project=$2 and kind=$3 and name=$4', [owner,project,kind,name,uploadId]);
   } else {
-    const f = await q<{ chunks: number }>(
-      "select chunks from acs_files where owner = $1 and project = $2 and kind = $3 and name = $4",
+    const f = await q<{ upload_id: string; chunks: number; complete: boolean }>(
+      "select upload_id, chunks, complete from acs_upload_files where owner = $1 and project = $2 and kind = $3 and name = $4",
       [owner, project, kind, name],
     );
-    if (!f.length || Number(f[0].chunks) !== total) throw new HttpError(409, "upload not started (send piece 0 first)");
+    if (!f.length || f[0].upload_id !== uploadId || f[0].complete || Number(f[0].chunks) !== total) throw new HttpError(409, "upload not started (send piece 0 first)");
   }
   await q(
-    `insert into acs_chunks (owner, project, kind, name, idx, data) values ($1, $2, $3, $4, $5, decode($6, 'base64'))
+    `insert into acs_upload_chunks (owner, project, kind, name, idx, data) values ($1, $2, $3, $4, $5, decode($6, 'base64'))
      on conflict (owner, project, kind, name, idx) do update set data = excluded.data`,
     [owner, project, kind, name, idx, bytes.toString("base64")],
   );
   await q(
-    `update acs_files set size = (select coalesce(sum(length(data)), 0) from acs_chunks c
+    `update acs_upload_files set size = (select coalesce(sum(octet_length(data)), 0) from acs_upload_chunks c
        where c.owner = $1 and c.project = $2 and c.kind = $3 and c.name = $4),
-     complete = (select count(*) from acs_chunks c where c.owner = $1 and c.project = $2 and c.kind = $3 and c.name = $4) = chunks,
+     complete = (select count(*) from acs_upload_chunks c where c.owner = $1 and c.project = $2 and c.kind = $3 and c.name = $4) = chunks,
      updated = now()
      where owner = $1 and project = $2 and kind = $3 and name = $4`,
     [owner, project, kind, name],
   );
+  const [state] = await q<{complete: boolean}>('select complete from acs_upload_files where owner=$1 and project=$2 and kind=$3 and name=$4', [owner,project,kind,name]);
+  if (state.complete) {
+    const args = [owner,project,kind,name];
+    await q('delete from acs_chunks where owner=$1 and project=$2 and kind=$3 and name=$4', args);
+    await q('delete from acs_files where owner=$1 and project=$2 and kind=$3 and name=$4', args);
+    await q('insert into acs_files select owner,project,kind,name,mime,size,chunks,complete,updated,upload_id from acs_upload_files where owner=$1 and project=$2 and kind=$3 and name=$4', args);
+    await q('insert into acs_chunks select * from acs_upload_chunks where owner=$1 and project=$2 and kind=$3 and name=$4', args);
+    await q('delete from acs_upload_chunks where owner=$1 and project=$2 and kind=$3 and name=$4', args);
+    await q('delete from acs_upload_files where owner=$1 and project=$2 and kind=$3 and name=$4', args);
+  }
+
 }
 
 export async function deleteFile(owner: string, project: string, kind: string, name: string): Promise<void> {
+  for (const table of ['acs_upload_chunks','acs_upload_files'])
+    await db()(`delete from ${table} where owner=$1 and project=$2 and kind=$3 and name=$4`, [owner,project,kind,name]);
   await ensureSchema();
   await db()("delete from acs_chunks where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);
   await db()("delete from acs_files where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);

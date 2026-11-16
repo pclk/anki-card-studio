@@ -134,3 +134,23 @@ runs on Vercel.
   need, or upgrade if you import many large lectures.
 - **Web import:** a linked PDF over 4 MB can't come through the server. Download it and add the file instead.
 - **Vercel Hobby** is for personal, non-commercial use.
+
+### Source generation and regression checks
+
+Edit browser code in `studio/src/` (ordered by `manifest.json`) and the skill in `skill/anki/`.
+Run `npm run build:studio` to regenerate the standalone `studio/studio.html`, including the bundled sanitizer.
+Generated assets are checked against their canonical sources in CI.
+
+- `npm test`: API, storage, input validation, sanitizer and generated-asset regressions.
+- `npm run test:local`: isolated Python companion HTTP tests.
+- `npm run test:e2e`: Chromium desktop and phone-emulation tests; installs via `npx playwright install chromium`.
+- `ACS_TEST_POSTGRES_URL=… npm run test:postgres`: real PostgreSQL concurrent saves, quotas, upload sessions, locks and rollback. Use a disposable database; tests create and remove dedicated schemas.
+
+Large uploads use a unique upload-session ID; staging preserves the previous completed file until promotion.
+Re-sending identical pieces is safe; changing bytes within a session is rejected. Superseded sessions cannot append pieces.
+Active storage quotas include settings, project indexes and incomplete uploads. Recovery history has a separate bounded
+allowance (the account quota, or 64 MB when unlimited), with at most 30 revisions per project. Old recovery copies are
+pruned automatically so saving or deleting a project does not consume its active quota twice.
+
+Browser tests use local development authentication. Live GitHub OAuth, Neon/Vercel networking, physical phones and
+importing exported files into the Anki desktop application require integration checks in those environments.

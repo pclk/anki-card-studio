@@ -14,6 +14,7 @@
  *
  * Kept free of Next.js so the tests can call it directly.
  */
+import { transaction } from "./db";
 import { gunzipSync } from "node:zlib";
 import * as st from "./store";
 import { HttpError } from "./store";
@@ -46,7 +47,7 @@ function sameOrigin(req: Request): boolean {
   }
 }
 
-export async function handleApi(req: Request, parts: string[], user: User | null): Promise<Response> {
+async function handleApiInner(req: Request, parts: string[], user: User | null): Promise<Response> {
   try {
     if (!user) return json(401, { ok: false, error: "sign in required", signIn: "/api/auth/signin?callbackUrl=/" });
     if (!sameOrigin(req)) return json(403, { ok: false, error: "cross-site request refused" });
@@ -127,7 +128,6 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           // the Studio gzips big projects (X-ACS-Encoding: gzip); at most 64 MB unpacked
           const raw = Buffer.from(await req.arrayBuffer());
           const text = req.headers.get("x-acs-encoding") === "gzip" ? gunzipSync(raw, { maxOutputLength: 64 * 1024 * 1024 }).toString("utf8") : raw.toString("utf8");
-          await us.checkQuota(o, Math.max(0, text.length - (await st.projectBytes(o, id))));
           return json(200, await st.putProject(o, id, text, req.headers.get("x-acs-base-rev"), req.headers.get("x-acs-restore") === "1"));
         }
         if (m === "DELETE") { await st.deleteProject(o, id); return json(200, { ok: true }); }
@@ -139,6 +139,8 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           const f = await st.fileMeta(o, id, kind, name);
           if (!f) return json(404, { ok: false, error: "not found" });
           const ci = url.searchParams.get("chunk");
+          if (ci != null && (!/^\d+$/.test(ci) || !Number.isSafeInteger(Number(ci)) || Number(ci) >= f.chunks))
+            return json(400, { ok: false, error: "bad chunk number" });
           // the browser keeps images; asking again costs a tiny "not modified" (304) when nothing changed
           const etag = ci == null ? f.etag : f.etag.replace(/"$/, `-${ci}"`);
           if (req.headers.get("if-none-match") === etag)
@@ -152,8 +154,7 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           const idx = Number(url.searchParams.get("chunk") ?? 0), total = Number(url.searchParams.get("chunks") ?? 1);
           const type = (req.headers.get("content-type") || "application/octet-stream").split(";")[0];
           const body = Buffer.from(await req.arrayBuffer());
-          await us.checkQuota(o, body.length);
-          await st.writeChunk(o, id, kind, name, type, idx, total, body);
+          await st.writeChunk(o, id, kind, name, type, idx, total, body, url.searchParams.get("upload") || "");
           return json(200, { ok: true });
         }
         if (m === "DELETE") { await st.deleteFile(o, id, kind, name); return json(200, { ok: true }); }
@@ -198,6 +199,8 @@ async function adminApi(req: Request, p: string[], me: User): Promise<Response> 
   if (p.length === 2) {
     if (m === "PATCH") return json(200, { ok: true, user: await us.updateUser(owner, await body(), envAdmins, me.owner) });
     if (m === "DELETE") {
+      const target = await us.getUserRow(owner, true);
+      if (target && envAdmins.includes(target.login)) return json(400, { ok: false, error: "environment admin cannot be deleted" });
       if (owner === me.owner) return json(400, { ok: false, error: "you can't delete your own account here" });
       await us.wipeUser(owner, url.searchParams.get("forget") === "1");
       return json(200, { ok: true });
@@ -248,4 +251,30 @@ async function adminApi(req: Request, p: string[], me: User): Promise<Response> 
     }
   }
   return json(404, { ok: false, error: "unknown admin endpoint" });
+}
+
+/** Serialize writes per account and roll back errors, including quota failures. */
+export async function handleApi(req: Request, parts: string[], user: User | null): Promise<Response> {
+  if (!user || !sameOrigin(req) || ["GET", "HEAD", "OPTIONS"].includes(req.method))
+    return handleApiInner(req, parts, user);
+  let owner = user.owner;
+  if (user.admin && parts[0] === "admin" && parts[1] === "users" && parts[2]) {
+    try { owner = decodeURIComponent(parts[2]); } catch { /* handler validates it */ }
+  }
+  try {
+    return await transaction(owner, async () => {
+      const before = await us.usage(owner);
+      const response = await handleApiInner(req, parts, user);
+      if (!response.ok) throw response;
+      await us.trimHistory(owner);
+      const after = await us.usage(owner);
+      if (after.total > before.total) await us.checkQuota(owner, 0);
+      return response;
+    });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    if (e instanceof HttpError) return json(e.status, e.body ?? { ok: false, error: e.message });
+    console.error(e);
+    return json(503, { ok: false, error: "storage temporarily unavailable" });
+  }
 }

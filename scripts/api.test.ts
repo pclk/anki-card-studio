@@ -15,11 +15,12 @@ const B: User = { owner: "gh:2", login: "bob" };
 
 before(async () => {
   const pg = new PGlite();
-  setDb((async (text: string, params: unknown[] = []) => (await pg.query(text, params)).rows) as never);
+  setDb((async (text: string, params: unknown[] = []) => (await pg.query(text, params)).rows) as never, async work => pg.transaction(async tx => work((async (text: string, params: unknown[] = []) => (await tx.query(text, params)).rows) as never)));
 });
 
 function call(user: User | null, method: string, path: string, body?: BodyInit, headers: Record<string, string> = {}) {
   const url = new URL("http://studio.test/api/" + path);
+  if (url.searchParams.has("chunks") && !url.searchParams.has("upload")) url.searchParams.set("upload", "test-session");
   const req = new Request(url, { method, body, headers: { host: "studio.test", ...(method !== "GET" ? { origin: "http://studio.test" } : {}), ...headers } });
   return handleApi(req, url.pathname.replace(/^\/api\//, "").split("/"), user);
 }
@@ -112,7 +113,7 @@ test("large files travel in pieces", async () => {
   for (let i = 0; i < n; i++) parts.push(Buffer.from(await (await call(A, "GET", `project/p1/sources/s1.pdf?chunk=${i}`)).arrayBuffer()));
   assert.ok(Buffer.concat(parts).equals(big));
   // re-uploading replaces it
-  await call(A, "PUT", "project/p1/sources/s1.pdf?chunk=0&chunks=1", Buffer.from("small"), { "content-type": "application/pdf" });
+  await call(A, "PUT", "project/p1/sources/s1.pdf?chunk=0&chunks=1&upload=replacement", Buffer.from("small"), { "content-type": "application/pdf" });
   assert.equal(await (await call(A, "GET", "project/p1/sources/s1.pdf")).text(), "small");
   assert.equal((await call(A, "PUT", "project/p1/sources/x.pdf?chunk=1&chunks=2", Buffer.from("x"))).status, 409, "piece 0 first");
 });
@@ -291,4 +292,54 @@ test("admin: delete everything an account stored", async () => {
   const j = await (await call(admin, "GET", "admin/users")).json();
   assert.ok(!j.users.some((u: { login: string }) => u.login === "carol"));
   assert.equal((await call(admin, "DELETE", "admin/users/gh:99")).status, 400, "not your own account");
+});
+
+ test("project storage counts UTF-8 bytes", async () => {
+  const { projectBytes } = await import("../lib/store");
+  const body = JSON.stringify({ rev: 1, cards: [], title: "中文😀" });
+  assert.equal((await call(A, "PUT", "project/unicode", body)).status, 200);
+  assert.equal(await projectBytes(A.owner, "unicode"), Buffer.byteLength(body));
+});
+
+test("simultaneous first saves report one conflict", async () => {
+  const results = await Promise.all(["first", "second"].map(title => call(A, "PUT", "project/race", JSON.stringify({ rev: 1, title }), { "x-acs-base-rev": "0" })));
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+});
+
+test("quota checks roll back writes and allow same-size file replacement", async () => {
+  const u = (await as({owner: 'gh:quota', login: 'quota'}))!;
+  const admin = (await as(ADMIN))!;
+  await call(admin, 'PATCH', 'admin/users/gh:quota', JSON.stringify({quota_mb: 1}));
+  const body = Buffer.alloc(700000);
+  assert.equal((await call(u, 'PUT', 'project/q/media/a.png', body)).status, 200);
+  assert.equal((await call(u, 'PUT', 'project/q/media/a.png', body)).status, 200);
+  assert.equal((await call(u, 'PUT', 'project/q/media/b.png', body)).status, 413);
+  assert.equal((await call(u, 'GET', 'project/q/media/b.png')).status, 404);
+  assert.equal((await call(u, 'DELETE', 'project/q/media/a.png')).status, 200);
+  assert.equal((await call(u, 'PUT', 'project/q/media/b.png', body)).status, 200);
+});
+
+test("failed restore keeps the deletion marker", async () => {
+  await call(A, 'DELETE', 'project/nohistory');
+  const { db } = await import('../lib/db');
+  // The account must exist for the admin endpoint.
+  await as(A);
+  const admin = (await as(ADMIN))!;
+  assert.equal((await call(admin, 'POST', 'admin/users/gh:1/project/nohistory/restore')).status, 404);
+  assert.equal((await db()('select 1 from acs_deleted where owner=$1 and id=$2', [A.owner, 'nohistory'])).length, 1);
+});
+
+test("registry outage refuses the caller instead of restoring unrestricted access", async () => {
+  const { db } = await import('../lib/db');
+  const original = db();
+  const log = console.error;
+  try {
+    console.error = () => {};
+    setDb((async () => { throw new Error('simulated registry outage'); }) as never);
+    forgetUser();
+    await assert.rejects(applyRegistry({owner: 'gh:outage', login: 'outage', admin: true}, null, []), (e: any) => e.status === 503);
+  } finally {
+    setDb(original, async work => { await original("BEGIN"); try { const result = await work(original); await original("COMMIT"); return result; } catch(e) { await original("ROLLBACK"); throw e; } });
+    console.error = log;
+  }
 });

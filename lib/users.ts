@@ -63,22 +63,23 @@ export async function appAdmins(): Promise<string[]> {
 /* ------------------------------------------------------------------ storage use and limits */
 export async function usage(owner: string): Promise<{ projects: number; projectBytes: number; files: number; fileBytes: number; total: number }> {
   await ensureSchema();
-  const [p] = await db()<{ n: string; b: string }>("select count(*) as n, coalesce(sum(length(data)), 0) as b from acs_projects where owner = $1", [owner]);
+  const [p] = await db()<{ n: string; b: string }>("select count(*) as n, coalesce(sum(octet_length(data)), 0) as b from acs_projects where owner = $1", [owner]);
   const [f] = await db()<{ n: string; b: string }>("select count(*) as n, coalesce(sum(size), 0) as b from acs_files where owner = $1", [owner]);
   const projectBytes = Number(p.b), fileBytes = Number(f.b);
-  return { projects: Number(p.n), projectBytes, files: Number(f.n), fileBytes, total: projectBytes + fileBytes };
+  const [extra] = await db()<{ bytes: string }>(`select coalesce(sum(n),0) as bytes from (
+    select octet_length(data) as n from acs_settings where owner=$1
+    union all select octet_length(entry) from acs_index where owner=$1
+    union all select octet_length(data) from acs_upload_chunks where owner=$1
+  ) usage`, [owner]);
+  return { projects: Number(p.n), projectBytes, files: Number(f.n), fileBytes, total: projectBytes + fileBytes + Number(extra.bytes) };
 }
 
-const usageCache = new Map<string, { at: number; total: number }>();
-/** refuse a write that would take the account over its storage limit */
+/** Called inside the account write transaction, after mutation. */
 export async function checkQuota(owner: string, adding: number): Promise<void> {
-  const row = await getUserRow(owner);
+  const row = await getUserRow(owner, true);
   if (!row || row.quota_mb == null) return;
-  let u = usageCache.get(owner);
-  if (!u || Date.now() - u.at > 30_000) { u = { at: Date.now(), total: (await usage(owner)).total }; usageCache.set(owner, u); }
-  if (u.total + adding > row.quota_mb * 1024 * 1024)
-    throw new HttpError(413, "storage limit reached", { ok: false, error: `storage limit reached (${row.quota_mb} MB) - ask the admin for more space or delete old projects` });
-  u.total += adding;
+  if ((await usage(owner)).total + adding > row.quota_mb * 1024 * 1024)
+    throw new HttpError(413, `storage limit reached (${row.quota_mb} MB) - ask the admin for more space or delete old projects`);
 }
 
 /* ------------------------------------------------------------------ admin: list and change accounts */
@@ -87,7 +88,7 @@ export async function listUsers(allowed: string[], envAdmins: string[]) {
   const rows = await db()<UserRow & { projects: string; pbytes: string; files: string; fbytes: string; updated: string | null }>(
     `select u.*,
        (select count(*) from acs_projects p where p.owner = u.owner) as projects,
-       (select coalesce(sum(length(data)), 0) from acs_projects p where p.owner = u.owner) as pbytes,
+       (select coalesce(sum(octet_length(data)), 0) from acs_projects p where p.owner = u.owner) as pbytes,
        (select count(*) from acs_files f where f.owner = u.owner) as files,
        (select coalesce(sum(size), 0) from acs_files f where f.owner = u.owner) as fbytes,
        (select max(updated) from acs_projects p where p.owner = u.owner) as updated
@@ -100,6 +101,7 @@ export async function listUsers(allowed: string[], envAdmins: string[]) {
     first_seen: r.first_seen, last_seen: r.last_seen, allowed: allowed.includes(r.login) || r.owner.startsWith("dev:"),
     projects: Number(r.projects), bytes: Number(r.pbytes) + Number(r.fbytes), files: Number(r.files), updated: r.updated,
   }));
+  for (const user of users) user.bytes = (await usage(user.owner)).total;
   // allowed but never signed in yet
   const pending = allowed.filter((l) => !seen.has(l)).map((login) => ({ login, envAdmin: envAdmins.includes(login) }));
   return { users, pending };
@@ -132,17 +134,17 @@ export async function updateUser(owner: string, patch: { role?: string; status?:
     sets.push("signed_out = now()");
   }
   if (sets.length) await db()(`update acs_users set ${sets.join(", ")} where owner = $1`, args);
-  forgetUser(owner); usageCache.delete(owner);
+  forgetUser(owner);
   return (await getUserRow(owner, true))!;
 }
 
 /** remove everything an account has stored (and, with forget, the account's row) */
 export async function wipeUser(owner: string, forget: boolean): Promise<void> {
   await ensureSchema();
-  for (const t of ["acs_chunks", "acs_files", "acs_history", "acs_projects", "acs_index", "acs_deleted", "acs_settings"])
+  for (const t of ["acs_upload_chunks", "acs_upload_files", "acs_chunks", "acs_files", "acs_history", "acs_projects", "acs_index", "acs_deleted", "acs_settings"])
     await db()(`delete from ${t} where owner = $1`, [owner]);
   if (forget) await db()("delete from acs_users where owner = $1", [owner]);
-  forgetUser(owner); usageCache.delete(owner);
+  forgetUser(owner);
 }
 
 /* ------------------------------------------------------------------ admin: one account's data */
@@ -151,7 +153,7 @@ export async function userProjects(owner: string) {
   const idx = await db()<{ id: string; entry: string }>("select id, entry from acs_index where owner = $1", [owner]);
   const del = new Set((await db()<{ id: string }>("select id from acs_deleted where owner = $1", [owner])).map((r) => r.id));
   const proj = await db()<{ id: string; rev: number; updated: string; bytes: string; head: string }>(
-    "select id, rev, updated, length(data) as bytes, left(data, 400) as head from acs_projects where owner = $1", [owner]);
+    "select id, rev, updated, octet_length(data) as bytes, left(data, 400) as head from acs_projects where owner = $1", [owner]);
   const files = await db()<{ project: string; n: string; b: string }>(
     "select project, count(*) as n, coalesce(sum(size), 0) as b from acs_files where owner = $1 group by project", [owner]);
   const hist = await db()<{ id: string; n: string }>("select id, count(*) as n from acs_history where owner = $1 group by id", [owner]);
@@ -208,7 +210,7 @@ export async function restoreProject(owner: string, id: string): Promise<void> {
 export async function projectHistory(owner: string, id: string) {
   await ensureSchema();
   return (await db()<{ rev: number; at: string; bytes: string }>(
-    "select rev, at, length(data) as bytes from acs_history where owner = $1 and id = $2 order by at desc", [owner, id]))
+    "select rev, at, octet_length(data) as bytes from acs_history where owner = $1 and id = $2 order by at desc", [owner, id]))
     .map((r) => ({ rev: Number(r.rev), at: r.at, bytes: Number(r.bytes) }));
 }
 
@@ -224,6 +226,7 @@ export async function restoreRevision(owner: string, id: string, at: string): Pr
     `insert into acs_projects (owner, id, data, rev) values ($1, $2, $3, $4)
      on conflict (owner, id) do update set data = excluded.data, rev = excluded.rev, updated = now()`,
     [owner, id, JSON.stringify(j), j.rev]);
+  await restoreProject(owner, id);
 }
 
 export async function projectFiles(owner: string, id: string) {
@@ -238,11 +241,23 @@ export async function applyRegistry(u: User, sessionStart: number | null, envAdm
   try {
     await touchUser(u.owner, u.login, u.name, u.image);
     const row = await getUserRow(u.owner);
+    if (!row) return null;
     if (row?.signed_out && sessionStart != null && sessionStart < new Date(row.signed_out).getTime()) return null;
     const envAdmin = envAdmins.includes(u.login.toLowerCase());
     return { ...u, admin: envAdmin || row?.role === "admin", status: envAdmin ? "active" : row?.status || "active" };
   } catch (e) {
     console.error("user registry unavailable", e);
-    return u;
+    throw new HttpError(503, "account verification temporarily unavailable");
   }
+}
+
+/** Recovery copies have a separate bounded budget, so deletion frees active space. */
+export async function trimHistory(owner: string): Promise<void> {
+  const row = await getUserRow(owner, true);
+  const budget = (row?.quota_mb ?? 64) * 1024 * 1024;
+  await db()(`delete from acs_history where ctid in (
+    select tid from (select ctid as tid,
+      sum(octet_length(data)) over (order by at desc, ctid desc) as bytes,
+      row_number() over (partition by id order by at desc, ctid desc) as n
+      from acs_history where owner=$1) ranked where bytes > $2 or n > 30)`, [owner,budget]);
 }

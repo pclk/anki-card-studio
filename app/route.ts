@@ -24,7 +24,10 @@ async function studioHtml(): Promise<string> {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  if (!(await currentUser())) {
+  let user;
+  try { user = await currentUser(); }
+  catch { return new Response("Account verification temporarily unavailable. Please retry.", { status: 503, headers: {"Cache-Control": "no-store"} }); }
+  if (!user) {
     const u = new URL(req.url);
     return Response.redirect(new URL(`/api/auth/signin?callbackUrl=${encodeURIComponent(u.pathname + u.search)}`, u), 302);
   }

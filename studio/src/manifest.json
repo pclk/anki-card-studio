@@ -1,0 +1,19 @@
+[
+  "00-core.js",
+  "01-sync.js",
+  "02-tree.js",
+  "03-sources.js",
+  "04-prompt.js",
+  "05-batch.js",
+  "06-import.js",
+  "07-review.js",
+  "08-app-data.js",
+  "09-yank.js",
+  "10-sidebar.js",
+  "11-settings.js",
+  "12-image-dialog.js",
+  "13-revise.js",
+  "14-export.js",
+  "15-analytics.js",
+  "16-source-picture.js"
+]

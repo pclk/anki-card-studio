@@ -305,6 +305,8 @@ def make_handler(app: App):
                 if not self.origin_ok():
                     return self.err(403, "origin not allowed")
                 return self.api(method, p[1:], q)
+            except (ValueError, TypeError) as e:
+                self.err(400, str(e))
             except PermissionError as e:
                 self.err(403, str(e))
             except FileNotFoundError:
@@ -365,7 +367,7 @@ def make_handler(app: App):
             if p == ["open"] and m == "POST":
                 sub = (q.get("path") or [""])[0]
                 target = (d / sub).resolve()
-                if not str(target).startswith(str(d.resolve())):
+                if not target.is_relative_to(d.resolve()):
                     raise PermissionError("outside data folder")
                 open_in_file_manager(target if target.exists() else d)
                 return self.send(200, {"ok": True, "path": str(target)})
@@ -389,17 +391,23 @@ def make_handler(app: App):
                             raise FileNotFoundError
                         return self.send(200, f.read_bytes())
                     if m == "PUT":
-                        data = self.body(); json.loads(data)
-                        if self.headers.get("X-ACS-Restore") == "1":
-                            app.unmark_deleted(p[1])
+                        data = self.body(); parsed = json.loads(data)
+                        if not isinstance(parsed, dict): raise ValueError("project must be an object")
+                        rev = parsed.get("rev", 0)
+                        if type(rev) is not int or not 0 <= rev <= 2147483647: raise ValueError("invalid revision")
                         base = self.headers.get("X-ACS-Base-Rev")
                         with app.lock:
+                            restore = self.headers.get("X-ACS-Restore") == "1"
+                            if p[1] in app.deleted() and not restore: return self.err(410, "project deleted")
+                            if base is not None and base != "":
+                                if not base.isdigit() or int(base) > 2147483647 or rev <= int(base): raise ValueError("invalid revision")
                             # optimistic locking: a save must be based on the revision that is on disk now
                             if base is not None and base != "" and f.exists():
                                 cur = app.rev_of(f)
                                 if str(cur["rev"]) != base:
                                     return self.send(409, {"ok": False, "error": "conflict", **cur})
                             backup(f); atomic_write(f, data)
+                            if restore: app.unmark_deleted(p[1])
                         return self.send(200, {"ok": True, **app.rev_of(f)})
                     if m == "DELETE":
                         with app.lock:
