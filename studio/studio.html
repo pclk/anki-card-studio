@@ -220,6 +220,10 @@ body.rv-phone main{padding:6px 6px 0}
 body.rv-phone:has(#tab-review.active) #scopeBar{display:none}
 .review.phone .preview-host{padding-top:40px}
 body.rv-phone{--hdr-h:40px}
+/* a card flying off the screen (swipe) must never make the page wider than the screen: phone browsers would zoom out
+   to fit it. clip (unlike hidden) creates no scroll container, so sticky headers and page scrolling are unaffected */
+html,body{overflow-x:clip}
+@supports not (overflow:clip){ html,body{overflow-x:hidden} }
 body.rv-phone header{height:40px;gap:6px;padding:0 6px}
 body.rv-phone header h1{display:none}
 body.rv-phone nav.tabs button{padding:10px 7px 9px;font-size:13px}
