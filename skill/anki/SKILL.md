@@ -197,6 +197,8 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
 5. `deck.validate()`. "Registered but not used" is fine for images the user already has.
 6. `deck.save(revision=True)` → **`anki_revision.json`**. Reply with one line per changed card (what changed), plus the explanations note if any.
 
+**Formatting pass** (the prompt says so, and each card's feedback starts "Formatting pass"): the user has already reviewed these cards. Change only how they're written: code into `code()` blocks, names into inline `<code>`, missing code/definitions onto the card (rule 2), maths into `tex()`. Never change what a card tests, its answer, `why`, images or tags; never delete, merge or split. The feedback comes from automatic checks and can be wrong: leave fine cards out. Save only the cards you changed.
+
 If asked to fill gaps, add cards for important uncovered concepts, continuing the numbering.
 
 ## Bundle format (fallback when writing JSON by hand)

@@ -208,6 +208,8 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;height:
 .review.phone .status-bar,.review.phone #fbWrap,.review.phone #paneSeg{display:none}
 .review.phone #editorCol > .panel:first-child{padding:8px 10px !important}
 .review.phone .prev-hint,.review.phone .kbd{display:none}
+.df-field{margin:6px 0 10px}.df{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:6px;overflow-x:auto;margin-top:3px}
+.df>div{white-space:pre;padding:0 8px}.df-add{background:rgba(46,160,67,.16)}.df-del{background:rgba(248,81,73,.16)}.df-ctx{color:var(--muted)}.df-gap{color:var(--muted);text-align:center}
 .review.phone #curTimer{min-width:0}
 .review.phone #edType{padding:3px 6px}
 .review.phone .preview-wrap{gap:8px}
@@ -588,7 +590,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
       <div class="row" style="margin-top:8px;gap:6px">
         <select id="filter" style="flex:1;width:auto">
           <option value="all">All cards</option><option value="new">Unreviewed</option><option value="ok">Approved</option>
-          <option value="change">Change requested</option><option value="drop">Excluded</option><option value="edited">Field-edited</option><option value="missing">Missing images</option>
+          <option value="change">Change requested</option><option value="drop">Excluded</option><option value="recheck">Re-check (formatting pass)</option><option value="edited">Field-edited</option><option value="missing">Missing images</option>
         </select>
       </div>
       <div class="stack" style="margin-top:6px;gap:6px">
@@ -625,7 +627,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
         </div>
         <label class="f" id="fbWrap">What should the AI change?<span class="hint">Filled in → card is marked "Request change" and goes into the revision prompt.</span>
           <textarea id="edFeedback" rows="2" placeholder="e.g. Answer is too long; add a labelled diagram of the valves; split into two cards"></textarea></label>
-        <details id="prevWrap" hidden><summary class="small">Show previous version &amp; feedback</summary><div id="prevBox" class="small note" style="margin-top:6px;white-space:pre-wrap"></div></details>
+        <details id="prevWrap" hidden><summary class="small" id="prevSum">Show previous version &amp; feedback</summary><div id="prevBox" class="small note" style="margin-top:6px"></div></details>
       </div>
       <div class="panel stack" style="padding:12px" id="fieldsPanel"></div>
       <div class="panel stack" style="padding:12px" id="imgPanel">
@@ -671,6 +673,17 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 
 <!-- =============================================================== REVISE -->
 <section class="tab" id="tab-revise">
+  <div class="panel stack" id="fmtPanel" style="margin-bottom:14px">
+    <h2 style="margin:0">Formatting pass</h2>
+    <p class="small muted" style="margin:0">Fix how cards are written (code as plain text, code squeezed into one line, questions that depend on code or notes the card doesn't show) without reviewing them again. Claude only changes presentation. Approved cards stay approved; the ones it changed get a quick <b>Re-check</b> with a before/after diff. Cards in the selected sub-deck only.</p>
+    <div class="row" style="flex-wrap:wrap;gap:10px">
+      <label class="f">Which cards<select id="fmtScope"><option value="flag">Flagged by the checks</option><option value="flagok">Flagged + every approved card</option><option value="all">Every card that isn't excluded</option></select></label>
+      <label class="f">Status<select id="fmtStatus"><option value="any">Any</option><option value="new">Unreviewed only</option><option value="ok">Approved only</option></select></label>
+      <label class="f">Cards per prompt<select id="fmtSize"><option>25</option><option selected>40</option><option>60</option></select></label>
+    </div>
+    <div id="fmtStats" class="small"></div>
+    <div id="fmtBatches" class="stack" style="gap:6px"></div>
+  </div>
   <div class="grid2">
     <div class="panel stack">
       <h2>1 · Ask Claude for changes</h2>
@@ -983,6 +996,8 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
 4. "Something is broken": check every field, every image (`contact_sheet()`), the cloze syntax and the ref.
 5. `deck.validate()`. "Registered but not used" is fine for images the user already has.
 6. `deck.save(revision=True)` → **`anki_revision.json`**. Reply with one line per changed card (what changed), plus the explanations note if any.
+
+**Formatting pass** (the prompt says so, and each card's feedback starts "Formatting pass"): the user has already reviewed these cards. Change only how they're written: code into `code()` blocks, names into inline `<code>`, missing code/definitions onto the card (rule 2), maths into `tex()`. Never change what a card tests, its answer, `why`, images or tags; never delete, merge or split. The feedback comes from automatic checks and can be wrong: leave fine cards out. Save only the cards you changed.
 
 If asked to fill gaps, add cards for important uncovered concepts, continuing the numbering.
 
@@ -4539,7 +4554,9 @@ function showTab(name){
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
 function updateTabCounts(){
   const n = S.cards.filter(c => c.status === 'new').length, ch = S.cards.filter(c => c.status === 'change').length;
-  $('#tabReviewCount').textContent = S.cards.length ? `${n} left` : ''; $('#tabReviewCount').hidden = !S.cards.length;
+  const rc = S.cards.filter(c => c.recheck).length;
+  $('#tabReviewCount').textContent = S.cards.length ? `${n} left` + (rc ? ` · ${rc} re-check` : '') : '';
+  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (formatting pass)${rc ? ' · ' + rc : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
   $('#tabReviseCount').textContent = ch ? String(ch) : ''; $('#tabReviseCount').hidden = !ch;
 }
 
@@ -5017,7 +5034,8 @@ function extractBundles(text){
 }
 /** Apply a bundle. mode: 'merge' | 'replace'. Returns summary. */
 function applyBundle(d, mode, opts = {}){
-  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || ''};
+  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0};
+  const fmtSeen = new Set();   // formatting-pass batches this reply answers
   const isProject = d.format === PROJECT_FORMAT;
   const isRevision = !!(opts.revision || d.revision);
   if (mode === 'replace'){ S.cards = []; for (const k of Object.keys(S.media)) dropURL(k); S.media = {}; }
@@ -5037,7 +5055,8 @@ function applyBundle(d, mode, opts = {}){
   }
   for (const raw of d.cards || []){
     if (!raw) continue;
-    if (raw.delete){ const c = cardById(raw.id); if (c){ c.status = 'drop'; c.revised = true; sum.deleted++; } continue; }
+    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); continue; }   // a formatting pass never removes cards
+      if (c){ c.status = 'drop'; c.revised = true; sum.deleted++; } continue; }
     const n = normCard(raw);
     if (!n.deck && bundleDeck) n.deck = bundleDeck;
     const origId = n.id;
@@ -5050,7 +5069,18 @@ function applyBundle(d, mode, opts = {}){
     }
     const existing = n.id && cardById(n.id);
     if (existing){
-      if (!isProject){
+      if (!isProject && isRevision && existing.fmt){
+        // formatting pass: the card keeps its review status. If it was approved and really changed, it waits for a
+        // quick re-check (with a diff); if the AI sent it back unchanged, nothing happens.
+        fmtSeen.add(existing.fmt); delete existing.fmt;
+        const same = n.type === existing.type && FIELDS[existing.type].every(f => (n[f] || '') === (existing[f] || ''));
+        if (same){ sum.fmtSame++; continue; }
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), feedback: ''};
+        existing.revised = true; existing.edited = false;
+        sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
+        // keep the review state and any feedback the user already wrote
+        for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
+      } else if (!isProject){
         existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
@@ -5076,11 +5106,13 @@ function applyBundle(d, mode, opts = {}){
     d.order.forEach((id, i) => { const c = cardById(idMap[id] || id); if (c) c.ord = base + i; });
     sum.ordered = d.order.length;
   }
+  // cards of an answered formatting batch that the reply left out were fine as they were
+  if (fmtSeen.size) for (const c of S.cards) if (c.fmt && fmtSeen.has(c.fmt)){ delete c.fmt; sum.fmtSame++; }
   if (!isProject && !isRevision) markBatch(d, sum, idMap);
   syncTree();
   return sum;
 }
-const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
+const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
 
 async function importFiles(files, mode, opts = {}){
   const sums = []; let imgs = 0; const errors = [];
@@ -5107,7 +5139,7 @@ async function importFiles(files, mode, opts = {}){
   return {sums, imgs, errors};
 }
 function summarize({sums, imgs, errors}){
-  const t = sums.reduce((a, s) => ({added: a.added + s.added, updated: a.updated + s.updated, deleted: a.deleted + s.deleted, media: a.media + s.media}), {added: 0, updated: 0, deleted: 0, media: 0});
+  const t = sums.reduce((a, s) => ({added: a.added + s.added, updated: a.updated + s.updated, deleted: a.deleted + s.deleted, media: a.media + s.media, recheck: a.recheck + (s.recheck || 0), fmtSame: a.fmtSame + (s.fmtSame || 0), fmtUpd: a.fmtUpd + (s.fmtUpd || 0)}), {added: 0, updated: 0, deleted: 0, media: 0, recheck: 0, fmtSame: 0, fmtUpd: 0});
   const parts = [];
   if (t.added) parts.push(`${t.added} new card${t.added > 1 ? 's' : ''}`);
   if (t.updated) parts.push(`${t.updated} updated`);
@@ -5115,11 +5147,13 @@ function summarize({sums, imgs, errors}){
   if (t.media + imgs) parts.push(`${t.media + imgs} image${t.media + imgs > 1 ? 's' : ''}`);
   let html = '';
   if (parts.length) html += `<div class="note ok">Imported ${parts.join(', ')}.</div>`;
-  else if (!errors.length) html += `<div class="note warn">Nothing found to import.</div>`;
+  else if (!errors.length && !t.fmtSame) html += `<div class="note warn">Nothing found to import.</div>`;
+  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">Formatting pass: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
+  if (!parts.length && t.fmtSame && !errors.length) return {html, ok: true, recheck: 0, plain: 0};
   if (errors.length) html += `<div class="note bad" style="margin-top:6px"><b>Problems:</b><br>${errors.map(esc).join('<br>')}<br><span class="small">If the reply was cut off, ask Claude to "continue the JSON" or to save the bundle file instead.</span></div>`;
   const missing = Object.entries(S.media).filter(([n, m]) => !m.blob && !m.remote && m.origin === 'generated').map(([n]) => n);
   if (missing.length) html += `<div class="note warn" style="margin-top:6px">${missing.length} generated image(s) are referenced but not loaded yet (${esc(missing.slice(0, 4).join(', '))}${missing.length > 4 ? '…' : ''}). Drop <b>anki_bundle.json</b> (or the image files) to add them.</div>`;
-  return {html, ok: parts.length > 0};
+  return {html, ok: parts.length > 0, recheck: t.recheck, plain: t.added + t.deleted + t.updated - t.fmtUpd};
 }
 async function afterImport(){
   if (!S.curId || !cardById(S.curId)) S.curId = (S.cards.find(c => c.status === 'new') || S.cards[0] || {}).id || null;
@@ -5231,6 +5265,49 @@ function ordered(cards, mode){
 }
 const allDecks = () => [...new Set(S.cards.map(cardDeck))];
 const deckIndex = d => allDecks().indexOf(d);
+/* ---- formatting-pass checks: the Studio's copy of the skill's validate() rules for self-contained cards, plus
+   code written as plain text. Each returns short problems, phrased as instructions for the AI. */
+const FMT_STD = new Set(('add addAll get set put remove contains containsKey size isEmpty equals hashCode toString compareTo length charAt ' +
+  'substring indexOf append map filter reduce forEach collect stream of iterate limit sum count apply accept test andThen compose ' +
+  'next hasNext getClass clone push pop peek poll offer join start run call sort split strip trim format println print ' +
+  'keys values items extend insert copy update lower upper').split(' '));
+const FMT_EXT = new RegExp(String.raw`\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)` +
+  String.raw`|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram|table|method|class|function|definition|output|scenario|setup) (?:above|earlier|before|from (?:the )?(?:lecture|notes|slides?|tutorial|lab|textbook|reading))` +
+  String.raw`|(?:figure|fig\.|listing|slide|table) ?[1-9]\d*(?:\.\d+)?\b(?!\s*[-+×*/=<>])` +
+  String.raw`|as (?:shown|seen|defined|discussed|described|introduced|covered) (?:above|earlier|before|in (?:the )?(?:lecture|notes|slides?|class|tutorial|lab|textbook|reading))` +
+  String.raw`|(?:in|from) (?:the )?(?:lecture|lecture notes|slides?|notes|textbook|tutorial|recitation|reading|handout)s?\b(?! on\b)` +
+  String.raw`|(?:in|from|of) (?:lecture|L) ?\d+)`, 'i');
+const FMT_CARDREF = /\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram) above|as (?:shown|seen|defined) above)/i;
+// code-looking text: statements, calls ending in ;, lambdas, generics, declarations
+const FMT_CODELIKE = /(?:\b[A-Za-z_]\w*(?:\.\w+)*\([^()\n]{0,60}\)\s*;)|(?:\b(?:int|double|boolean|String|var|final|void|char|long)\s+[a-z]\w*\s*(?:=|;|\())|(?:\bnew\s+[A-Z]\w*(?:<[^>]*>)?\s*\()|(?:\b[a-z]\w*\s*->\s*[\w(])|(?:\b[A-Z]\w*<[A-Z?][\w<>?, ]*>)|(?:\breturn\s+[^.?!]{1,40};)|(?:\b(?:public|private|protected|static)\s+(?:static\s+|final\s+|abstract\s+)*(?:class|interface|void|int|double|boolean|String|[A-Z]\w*)\b)/;
+function fmtProse(h){ return decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<code[^>]*>[\s\S]*?<\/code>/gi, ' ').replace(/<[^>]+>/g, ' ')); }
+const unCloze = s => String(s || '').replace(/\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}/g, '$1');
+function decodeEnt(s){ return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&'); }
+function formatIssues(c){
+  const out = [], cloze = c.type === 'cloze';
+  const q = unCloze((cloze ? c.text : c.front) || ''), a = cloze ? '' : String(c.back || ''), ex = String(c.extra || '');
+  const plainQ = decodeEnt(q.replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' '));
+  const plainAll = decodeEnt((q + ' ' + a + ' ' + ex).replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' '));
+  const m = FMT_EXT.exec(plainQ) || FMT_CARDREF.exec(plainAll);
+  if (m) out.push(`It depends on something the reader can't see ("${m[0]}"): put that code, figure or definition on the card itself.`);
+  if (!/<pre/i.test(q)){
+    const txt = decodeEnt([...q.matchAll(/<code[^>]*>([\s\S]*?)<\/code>/gi)].map(x => x[1]).join(' ') + ' ' + plainQ).replace(/<[^>]+>/g, '');
+    const call = [...txt.matchAll(/\b([a-z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(/g)].find(x => !FMT_STD.has(x[2]));
+    if (call) out.push(`The question uses ${call[1]}.${call[2]}(…) but the front doesn't show ${call[2]}'s code: if answering depends on what it does (parameters, body, fields), show it in a code block on the front.`);
+  }
+  for (const [name, h] of [[cloze ? 'Text' : 'Front', q], ['Back', a], ['Extra', ex]]){
+    const p = fmtProse(h), hit = FMT_CODELIKE.exec(p);
+    if (hit){ out.push(`${name} has code written as plain text ("${hit[0].trim().slice(0, 40)}"): format it as code (code blocks for statements/snippets, <code> for names).`); break; }
+  }
+  for (const [name, h] of [[cloze ? 'Text' : 'Front', q], ['Back', a], ['Extra', ex]]){
+    const long = [...h.matchAll(/<code[^>]*>([\s\S]*?)<\/code>/gi)].map(x => decodeEnt(x[1].replace(/<[^>]+>/g, ''))).find(t => (t.match(/;/g) || []).length >= 2 || /\n/.test(t.trim()) || /\{[\s\S]*\}/.test(t) && t.length > 40);
+    if (long && !/<pre/i.test(h)){ out.push(`${name} squeezes several lines of code into inline <code> ("${long.trim().slice(0, 40)}…"): use a code block.`); break; }
+  }
+  return out;
+}
+
+/** set a card's review status; any decision on a card also settles a pending formatting re-check */
+function setCardStatus(c, st){ c.status = st; if (c.recheck) delete c.recheck; }
 function filtered(){
   const q = S.q.toLowerCase();
   return ordered(S.cards.filter(c => {
@@ -5238,6 +5315,7 @@ function filtered(){
     if (S.deckFilter && cardDeck(c) !== S.deckFilter) return false;
     if (S.filter === 'edited' && !c.edited) return false;
     if (S.filter === 'missing' && !cardMissing(c)) return false;
+    if (S.filter === 'recheck' && !c.recheck) return false;
     if (['new','ok','change','drop'].includes(S.filter) && c.status !== S.filter) return false;
     if (q && !(c.id + ' ' + FIELDS[c.type].map(f => c[f]).join(' ') + ' ' + c.tags.join(' ')).toLowerCase().includes(q)) return false;
     return true;
@@ -5257,12 +5335,12 @@ $('#orderSel').onchange = e => { S.order = e.target.value; save(); renderReview(
 $('#deckFilter').onchange = e => { S.deckFilter = e.target.value; renderReview(); };
 function cardTitle(c){ return stripHtml(c.type === 'cloze' ? c.text.replace(/\{\{c\d+::([\s\S]*?)(::[\s\S]*?)?\}\}/g, '[$1]') : c.front) || '(empty)'; }
 const listRow = c => `<div class="ci ${c.id === S.curId ? 'cur' : ''} ${c.status}" data-id="${esc(c.id)}">
-    <span class="dot ${c.status}"></span><div style="min-width:0"><div class="id">${esc(c.id)} · ${c.type}${S.order === 'mixed' && typeof c.ord === 'number' ? ' · #' + (Math.round(c.ord % 100000) + 1) : ''}${c.edited ? ' · <span style="color:#8250df">edited</span>' : ''}${cardMissing(c) ? ' · <span style="color:var(--warn)">img?</span>' : ''}</div><div class="t">${esc(cardTitle(c))}</div></div><span class="tm ${c.id === S.curId ? 'live' : ''}" data-tm="${esc(c.id)}">${fmtTime(c.time)}</span></div>`;
+    <span class="dot ${c.status}"></span><div style="min-width:0"><div class="id">${esc(c.id)} · ${c.type}${S.order === 'mixed' && typeof c.ord === 'number' ? ' · #' + (Math.round(c.ord % 100000) + 1) : ''}${c.edited ? ' · <span style="color:#8250df">edited</span>' : ''}${c.recheck ? ' · <span style="color:var(--warn)">re-check</span>' : ''}${cardMissing(c) ? ' · <span style="color:var(--warn)">img?</span>' : ''}</div><div class="t">${esc(cardTitle(c))}</div></div><span class="tm ${c.id === S.curId ? 'live' : ''}" data-tm="${esc(c.id)}">${fmtTime(c.time)}</span></div>`;
 /* the card list is rebuilt only when the cards shown (or their order) change; otherwise only rows that differ are
    replaced, so moving or swiping touches 2-3 rows instead of rebuilding ~1000 */
 let listState = {key: null, rows: new Map(), sigs: new Map()};
 // everything a row's HTML depends on (strings compare by reference when unchanged, so this is fast)
-const rowSig = c => [c.id === S.curId, c.status, c.type, fmtTime(c.time), !!c.edited, c.front, c.text, c.back, S.order, c.ord, cardMissing(c)];
+const rowSig = c => [c.id === S.curId, c.status, c.type, fmtTime(c.time), !!c.edited, !!c.recheck, c.front, c.text, c.back, S.order, c.ord, cardMissing(c)];
 function renderList(){
   const list = filtered(), box = $('#cardItems');
   const key = curProject + '|' + list.map(c => c.id).join('|');
@@ -5310,7 +5388,9 @@ function move(delta){
 }
 function nextUnreviewed(){
   const list = filtered(); const i = list.findIndex(c => c.id === S.curId);
-  const nxt = list.slice(i + 1).find(c => c.status === 'new') || list.find(c => c.status === 'new' && c.id !== S.curId);
+  // in the Re-check view "next" means the next card still waiting for a re-check
+  const pending = S.filter === 'recheck' ? (c => c.recheck) : (c => c.status === 'new');
+  const nxt = list.slice(i + 1).find(pending) || list.find(c => pending(c) && c.id !== S.curId);
   if (nxt) select(nxt.id); else { move(1); toast('All cards in this view are reviewed 🎉'); }
 }
 
@@ -5326,15 +5406,20 @@ function renderReview(){
   const list = filtered(), pos = list.findIndex(x => x.id === c.id);
   $('#curLabel').textContent = `${c.id}  (${pos >= 0 ? pos + 1 : '–'} / ${list.length})`;
   $('#hudPos').textContent = `${pos >= 0 ? pos + 1 : '–'} / ${list.length}`;
-  { const stt = {ok: '✓ Approved', drop: '✕ Excluded', change: '✎ Change'}[c.status] || ''; $('#hudStatus').textContent = stt; $('#hudStatus').className = stt ? 's-' + c.status : ''; }
+  { const stt = c.recheck ? '⟳ Re-check' : {ok: '✓ Approved', drop: '✕ Excluded', change: '✎ Change'}[c.status] || ''; $('#hudStatus').textContent = stt; $('#hudStatus').className = stt ? 's-' + (c.recheck ? 'change' : c.status) : ''; }
   $('#curTimer').textContent = '⏱ ' + fmtTime(c.time, true);
-  $('#curBadges').innerHTML = `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> ${c.edited ? '<span class="pill edited" title="You edited this card\'s fields directly">field-edited</span>' : ''}`;
+  $('#curBadges').innerHTML = badgesHTML(c);
   $('#edType').value = c.type;
   $('#stOk').classList.toggle('on', c.status === 'ok'); $('#stChange').classList.toggle('on', c.status === 'change'); $('#stDrop').classList.toggle('on', c.status === 'drop');
   if (document.activeElement !== $('#edFeedback')) $('#edFeedback').value = c.feedback || '';
   syncMobileBar();
   $('#prevWrap').hidden = !c.prev;
-  if (c.prev) $('#prevBox').textContent = (c.prev.feedback ? `Your feedback: ${c.prev.feedback}\n\n` : '') + FIELDS[c.prev.type].filter(f => c.prev[f]).map(f => `${FIELD_LABEL[f]}: ${stripHtml(c.prev[f])}`).join('\n');
+  if (c.prev){
+    $('#prevBox').innerHTML = prevDiffHTML(c);
+    $('#prevSum').textContent = c.recheck ? 'What the formatting pass changed' : 'Show previous version & feedback';
+    // a re-check is about the changes, so show them straight away (once per card, so closing it sticks)
+    if ($('#prevWrap').dataset.card !== c.id){ $('#prevWrap').dataset.card = c.id; $('#prevWrap').open = !!c.recheck; }
+  }
   renderFields(c);
   renderImages(c);
   renderPreview();
@@ -5487,21 +5572,55 @@ $('#edType').onchange = e => {
 };
 $('#edFeedback').addEventListener('input', e => {
   const c = curCard(); c.feedback = e.target.value;
-  if (c.feedback.trim() && c.status !== 'change'){ c.status = 'change'; renderReviewSoft(); }
+  if (c.feedback.trim() && c.status !== 'change'){ setCardStatus(c, 'change'); renderReviewSoft(); }
   save();
 });
+/* line diff (longest common subsequence) of each field's indented HTML: the previous version against the current one */
+function lineDiff(a, b){
+  if (a.length * b.length > 250000) return [...a.map(t => ['-', t]), ...b.map(t => ['+', t])];
+  const L = Array.from({length: a.length + 1}, () => new Uint16Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < a.length && j < b.length){ if (a[i] === b[j]){ out.push([' ', a[i]]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) out.push(['-', a[i++]]); else out.push(['+', b[j++]]); }
+  while (i < a.length) out.push(['-', a[i++]]); while (j < b.length) out.push(['+', b[j++]]);
+  return out;
+}
+function prevDiffHTML(c){
+  const p = c.prev, fields = [...new Set([...(FIELDS[p.type] || []), ...(FIELDS[c.type] || [])])];
+  let h = p.feedback ? `<div style="margin-bottom:6px"><b>Your feedback:</b> ${esc(p.feedback)}</div>` : '';
+  if (p.type !== c.type) h += `<div>Type: ${esc(p.type)} → ${esc(c.type)}</div>`;
+  let changed = 0;
+  for (const f of fields){
+    const a = String(p[f] || ''), b = String(c[f] || ''); if (a === b) continue; changed++;
+    const fa = (f === 'source' ? a : formatHTML(a)).split('\n'), fb = (f === 'source' ? b : formatHTML(b)).split('\n');
+    const d = lineDiff(fa, fb);
+    // keep 2 lines of context around each change
+    const keep = d.map((x, k) => x[0] !== ' ' || d.slice(Math.max(0, k - 2), k + 3).some(y => y[0] !== ' '));
+    let rows = '', gap = false;
+    d.forEach((x, k) => { if (!keep[k]){ if (!gap) rows += '<div class="df-gap">⋯</div>'; gap = true; return; } gap = false;
+      rows += `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`; });
+    h += `<div class="df-field"><b>${esc(FIELD_LABEL[f] || f)}</b><div class="df">${rows}</div></div>`;
+  }
+  if (!changed) h += '<div class="muted">No field changes.</div>';
+  return h;
+}
+function badgesHTML(c){
+  return `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> `
+    + (c.recheck ? '<span class="pill warn" title="Approved before, then reformatted by a formatting pass: check the changes (see below the card), then approve or exclude it">re-check</span> ' : '')
+    + (c.edited ? '<span class="pill edited" title="You edited this card\'s fields directly">field-edited</span>' : '');
+}
 function renderReviewSoft(){ const c = curCard(); renderList(); updateTabCounts(); $('#stOk').classList.toggle('on', c.status === 'ok'); $('#stChange').classList.toggle('on', c.status === 'change'); $('#stDrop').classList.toggle('on', c.status === 'drop');
-  $('#curBadges').innerHTML = `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> ${c.edited ? '<span class="pill edited" title="You edited this card\'s fields directly">field-edited</span>' : ''}`; }
+  $('#curBadges').innerHTML = badgesHTML(c); }
 function setStatus(st){
   const c = curCard(); if (!c) return;
-  c.status = (c.status === st && st !== 'ok') ? 'new' : st;
+  setCardStatus(c, (c.status === st && st !== 'ok' && !c.recheck) ? 'new' : st);
   save();
   if (st === 'change' && c.status === 'change'){ renderReviewSoft(); $('#edFeedback').focus(); return; }
   if (st === 'ok' || st === 'drop') { renderReviewSoft(); setTimeout(nextUnreviewed, 120); return; }
   renderReview();
 }
 $('#stOk').onclick = () => setStatus('ok'); $('#stChange').onclick = () => setStatus('change'); $('#stDrop').onclick = () => setStatus('drop');
-$('#stReset').onclick = () => { const c = curCard(); c.status = 'new'; save(); renderReview(); };
+$('#stReset').onclick = () => { const c = curCard(); setCardStatus(c, 'new'); save(); renderReview(); };
 $('#btnPrev').onclick = () => move(-1); $('#btnNext').onclick = () => move(1);
 $('#btnAddCard').onclick = () => {
   const c = curCard(); const id = nextId();
@@ -5514,7 +5633,7 @@ $('#btnApproveAll').onclick = () => {
   const list = filtered().filter(c => c.status === 'new');
   if (!list.length) return toast('No unreviewed cards in this view');
   if (!confirm(`Approve ${list.length} unreviewed card(s) in the current view?`)) return;
-  list.forEach(c => c.status = 'ok'); save(); renderReview();
+  list.forEach(c => setCardStatus(c, 'ok')); save(); renderReview();
 };
 $('#sideSeg').onclick = e => { const b = e.target.closest('button'); if (b){ side = b.dataset.side; renderPreview(); } };
 
@@ -5887,7 +6006,7 @@ $('#mbNote').addEventListener('input', syncMobileBar);
 $('#mbNext').onclick = () => {
   const c = curCard(); if (!c) return;
   const t = $('#mbNote').value.trim();
-  if (t){ c.feedback = t; c.status = 'change'; save(); $('#edFeedback').value = t; toast('Change requested'); delete $('#mbNote').dataset.card; renderReviewSoft(); setTimeout(nextUnreviewed, 120); }
+  if (t){ c.feedback = t; setCardStatus(c, 'change'); save(); $('#edFeedback').value = t; toast('Change requested'); delete $('#mbNote').dataset.card; renderReviewSoft(); setTimeout(nextUnreviewed, 120); }
   else move(1);
 };
 $('#hudPrev').onclick = () => move(-1);
@@ -5939,7 +6058,7 @@ function offerUndo(info){
 $('#undoBtn').onclick = () => {
   const u = undoInfo; if (!u) return; undoInfo = null; $('#undoPill').classList.remove('show');
   const c = cardById(u.id); if (!c) return;
-  c.status = u.prev || 'new'; save(); select(u.id); toast('Undone');
+  c.status = u.prev || 'new'; if (u.recheck) c.recheck = true; save(); select(u.id); toast('Undone');
 };
 (function swipe(){
   const host = $('#previewHost'), so = $('#stampOk'), sd = $('#stampDrop'), gOk = $('#swipeGlow .g-ok'), gDrop = $('#swipeGlow .g-drop');
@@ -5998,7 +6117,7 @@ $('#undoBtn').onclick = () => {
     const far = Math.abs(s0.dx) > need, fast = Math.abs(s0.dx) > 40 && Math.abs(s0.dx) / dt > 0.65;
     if (e.type === 'touchend' && (far || fast)){
       const dir = s0.dx > 0 ? 1 : -1, c = curCard(), r = host.getBoundingClientRect();
-      const info = {id: c.id, prev: c.status, status: dir > 0 ? 'ok' : 'drop'};
+      const info = {id: c.id, prev: c.status, recheck: !!c.recheck, status: dir > 0 ? 'ok' : 'drop'};
       burst(dir, {x: r.left + r.width / 2 + s0.dx * .5, y: Math.max(80, Math.min(innerHeight - 80, r.top + Math.min(r.height, innerHeight) * .42 + s0.dy * .5))});
       // a frozen copy of this card flies away; the real card box draws the next card underneath at once,
       // so the old card never shows again
@@ -6011,7 +6130,7 @@ $('#undoBtn').onclick = () => {
       host.classList.remove('swiping'); host.style.transition = 'none'; host.style.transform = ''; host.style.opacity = '0';
       so.style.opacity = sd.style.opacity = 0;
       // set (never toggle) the status, then draw the next card straight away into the hidden real box
-      c.status = info.status; save(); nextUnreviewed();   // nextUnreviewed re-renders list, counts and preview
+      setCardStatus(c, info.status); save(); nextUnreviewed();   // nextUnreviewed re-renders list, counts and preview
       requestAnimationFrame(() => {
         host.style.transition = '';
         host.animate([{transform: 'scale(.95)', opacity: 0}, {transform: 'scale(1)', opacity: 1}], {duration: 220, easing: 'ease-out', fill: 'none'});
@@ -6082,7 +6201,7 @@ function runLeader(item){
   hideLeader();
   const c = curCard(); if (!c) return;
   if (item.text){ c.feedback = c.feedback && c.feedback.trim() && !c.feedback.includes(item.text) ? c.feedback.trim() + '\n' + item.text : (c.feedback && c.feedback.includes(item.text) ? c.feedback : item.text); }
-  c.status = 'change'; save();
+  setCardStatus(c, 'change'); save();
   $('#edFeedback').value = c.feedback || '';
   renderReviewSoft();
   if (item.then === 'focus'){
@@ -6457,6 +6576,7 @@ $('#dlgUse').onclick = async () => {
 
 /* ====================================================================== REVISE */
 function renderReviseSummary(){
+  renderFmtPass();
   const ch = S.cards.filter(c => c.status === 'change'), un = S.cards.filter(c => c.status === 'new');
   $('#reviseSummary').innerHTML = !S.cards.length ? '<div class="note warn">No cards yet.</div>'
     : `<div class="note ${ch.length ? '' : 'warn'}"><b>${ch.length}</b> card(s) marked “Request change”${ch.filter(c => !c.feedback.trim()).length ? ` - <span style="color:var(--warn)">${ch.filter(c => !c.feedback.trim()).length} without a comment</span>` : ''}. ${un.length ? `${un.length} still unreviewed.` : ''}
@@ -6510,10 +6630,62 @@ REVISE_CARDS>>>`;
   if ($('#rvContext').checked && others.length) txt += `\n\n## Other cards already in the deck (do not duplicate; change them only if the general feedback requires it)\n` + others.map(c => `${c.id}: ${cardTitle(c).slice(0, 110)}`).join('\n');
   $('#rvOut').value = txt;
 };
+/* ---- formatting pass: batches of cards sent to Claude for presentation-only fixes (see formatIssues) */
+function fmtCandidates(){
+  const scope = $('#fmtScope').value, stf = $('#fmtStatus').value;
+  return ordered(S.cards.filter(c => inScope(c) && c.status !== 'drop' && !c.fmt && (stf === 'any' || c.status === stf)
+    && (scope === 'all' || formatIssues(c).length || (scope === 'flagok' && c.status === 'ok'))), S.order || 'source');
+}
+function renderFmtPass(){
+  if (!$('#fmtPanel')) return;
+  const cand = fmtCandidates(), size = +$('#fmtSize').value || 40, sent = S.cards.filter(c => c.fmt);
+  const flagged = S.cards.filter(c => inScope(c) && c.status !== 'drop' && formatIssues(c).length);
+  const by = k => flagged.filter(c => c.status === k).length;
+  $('#fmtStats').innerHTML = `Checks flag <b>${flagged.length}</b> card(s) here: ${by('new')} unreviewed, ${by('ok')} approved, ${by('change')} change requested.`
+    + (sent.length ? ` <b>${sent.length}</b> sent and waiting for Claude's reply <button class="btn" id="fmtForget" style="padding:1px 8px">Forget sent</button>` : '');
+  const batches = []; for (let i = 0; i < cand.length; i += size) batches.push(cand.slice(i, i + size));
+  $('#fmtBatches').innerHTML = batches.length ? batches.map((b, k) => `<div class="row" style="gap:8px"><button class="btn primary" data-fmtb="${k}">📋 Copy prompt ${k + 1} of ${batches.length}</button>`
+      + `<span class="small muted">${b.length} card(s): ${esc(b[0].id)} … ${esc(b[b.length - 1].id)}</span></div>`).join('')
+      + `<div class="small muted">Paste each prompt into a Claude chat (the same one as the original cards is best), then drop the <code>anki_revision.json</code> it returns into <i>2 · Apply Claude's revision</i>. A copied batch leaves this list until its reply is applied.</div>`
+    : `<div class="small muted">${sent.length ? 'Everything selected has been sent.' : 'No cards to send with these settings.'}</div>`;
+  $$('#fmtBatches [data-fmtb]').forEach(btn => btn.onclick = () => {
+    const b = batches[+btn.dataset.fmtb], label = 'f' + Date.now().toString(36);
+    copyText(fmtPrompt(b)); b.forEach(c => c.fmt = label); save(); renderFmtPass();
+    toast(`Prompt for ${b.length} cards copied`);
+  });
+  const fg = $('#fmtForget'); if (fg) fg.onclick = () => { if (!confirm(`Forget the ${sent.length} sent card(s)? They become available to send again.`)) return; sent.forEach(c => delete c.fmt); save(); renderFmtPass(); };
+}
+function fmtPrompt(cards){
+  const names = new Set(cards.flatMap(cardImages));
+  const media = [...names].filter(n => S.media[n]).map(n => { const m = S.media[n]; const e = {filename: n, origin: m.origin}; for (const k of ['url','hint','caption','credit']) if (m[k]) e[k] = m[k]; return e; });
+  const block = {format: FORMAT, deck: S.deck, tags: S.tags, existing_ids: S.cards.map(c => c.id), media,
+    cards: cards.map(c => { const o = cardForAI(c, false), iss = formatIssues(c);
+      o.feedback = iss.length ? 'Formatting pass - the checks found: ' + iss.join(' ') : 'Formatting pass - no automatic flag: check it against the rules and leave it out unless something needs fixing.';
+      return o; })};
+  const rules = `This is a **formatting pass, not a content review**: I have already reviewed these cards.
+- Do NOT change what a card tests, its answer, its "why", its images or its tags. Do not delete, merge or split cards.
+- Fix only how the card is written:
+  1. **Code:** statements and snippets go in a code block (\`<pre><code class="language-java">…</code></pre>\`, or \`code(src, "java")\` with anki_helper.py), never as plain text and never squeezed into one inline \`<code>\`. Names of classes, methods, variables and types go in inline \`<code>\`.
+  2. **Self-contained:** the card must carry everything needed to answer it - the reader has no notes, slides or other cards. If the question depends on code, a definition or a figure (e.g. what a method it calls does), put it on the front, cut down to what matters. Remove references to the notes, slides, lectures or other cards.
+  3. Maths as LaTeX (\\( … \\)), comparisons as tables, long answers as bullets.
+- Each card's "feedback" says what the automatic checks found. They can be wrong: if a card is fine, leave it out.
+- Return ONLY the cards you changed, with their ids unchanged. Then list each changed card in one line: what changed.`;
+  return (promptMode() === 'skill'
+    ? `Use the **anki** skill's revision workflow for a formatting pass on these Anki cards. Give me **anki_revision.json** with only the cards you changed.\n\n${rules}`
+    : `Please do a formatting pass on these Anki cards. Output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block (JSON with "revision": true and a "cards" list; each card keeps its id, type and all its fields).\n\n${rules}`)
+    + `\n\n<<<REVISE_CARDS\n${JSON.stringify(block, null, 1)}\nREVISE_CARDS>>>`;
+}
+['fmtScope', 'fmtStatus', 'fmtSize'].forEach(id => $('#' + id).onchange = renderFmtPass);
 $('#btnCopyRevision').onclick = () => { if (!$('#rvOut').value) $('#btnMakeRevision').click(); if ($('#rvOut').value) copyText($('#rvOut').value); };
 async function applyRevisionResult(r){
   const s = summarize(r); $('#reviseResult').innerHTML = s.html;
   await afterImport();
+  // a reply that only answers a formatting pass opens the Re-check view; one with ordinary revisions opens those
+  if (s.ok && s.recheck && !s.plain){
+    S.filter = 'recheck'; $('#filter').value = 'recheck'; S.curId = S.cards.find(c => c.recheck).id;
+    toast(`Formatting pass applied - ${s.recheck || 'some'} approved card(s) to re-check`); renderFmtPass(); return;
+  }
+  if (s.ok) renderFmtPass();
   if (s.ok){ S.filter = 'new'; $('#filter').value = 'new'; const first = S.cards.find(c => c.revised && c.status === 'new'); if (first) S.curId = first.id; toast('Revision applied - review the revised cards'); }
 }
 wireDrop($('#reviseDrop'), $('#reviseFile'), async files => applyRevisionResult(await importFiles(files, 'merge', {revision: true})));
