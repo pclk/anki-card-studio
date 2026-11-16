@@ -3537,10 +3537,13 @@ function setMediaBlob(name, blob, extra = {}){
 }
 const cardById = id => S.cards.find(c => c.id === id);
 const curCard = () => cardById(S.curId);
+const imgMemo = new WeakMap();   // card -> {src: [field strings], out}: the regex scan runs again only when a field changes
 function cardImages(c){
+  const fs = FIELDS[c.type] || [], src = fs.map(f => c[f]), hit = imgMemo.get(c);
+  if (hit && hit.src.length === src.length && hit.src.every((v, i) => v === src[i])) return hit.out.slice();
   const out = [];
-  for (const f of FIELDS[c.type] || []) for (const m of String(c[f] || '').matchAll(/<img[^>]*?src\s*=\s*["']([^"']+)["']/gi)) if (!out.includes(m[1])) out.push(m[1]);
-  return out;
+  for (const f of fs) for (const m of String(c[f] || '').matchAll(/<img[^>]*?src\s*=\s*["']([^"']+)["']/gi)) if (!out.includes(m[1])) out.push(m[1]);
+  imgMemo.set(c, {src, out}); return out.slice();
 }
 function mediaState(name){
   if (/^(data:|https?:)/i.test(name)) return 'inline';
@@ -3687,10 +3690,10 @@ const Store = {
       // a copy kept in this browser is used when the account still has the same revision (one tiny request)
       const [cached, rev, list] = await Promise.all([idbGet('cache:project:' + id), this.getRev(id).catch(() => null), this.getJSON(this.pPath(id, 'media')).catch(() => null)]);
       files = Array.isArray(list) ? new Set(list) : null;
-      if (cached && rev != null && (cached.rev || 0) === rev) st = cached;
+      // kept as {rev, json}: storing one string is far cheaper than cloning the whole card graph into IndexedDB
+      if (cached && rev != null && (cached.rev || 0) === rev) st = typeof cached.json === 'string' ? JSON.parse(cached.json) : JSON.parse(JSON.stringify(cached));
     }
-    if (!st){ st = await this.getJSON(this.pPath(id)); if (!st) return null; if (this.hosted) idbPut('cache:project:' + id, st); }
-    st = JSON.parse(JSON.stringify(st));
+    if (!st){ st = await this.getJSON(this.pPath(id)); if (!st) return null; if (this.hosted) idbPut('cache:project:' + id, {rev: st.rev || 0, json: JSON.stringify(st)}); }
     for (const [n, m] of Object.entries(st.media || {})){
       delete m.remote;
       if (known && known[n] && known[n].blob){ m.blob = known[n].blob; continue; }
@@ -3718,7 +3721,7 @@ const Store = {
     await Promise.all(Array.from({length: Math.min(4, todo.length)}, worker));
     const headers = {'Content-Type': 'application/json'}; if (baseRev != null) headers['X-ACS-Base-Rev'] = String(baseRev);
     if (restore) headers['X-ACS-Restore'] = '1';
-    let body = JSON.stringify(meta);
+    const json = JSON.stringify(meta); let body = json;
     // the online version: send it gzipped (cards compress ~10x: less mobile data, and big projects stay under 4.5 MB)
     if (this.hosted && typeof CompressionStream === 'function' && body.length > 20000){
       body = await new Response(new Blob([body]).stream().pipeThrough(new CompressionStream('gzip'))).blob(); headers['X-ACS-Encoding'] = 'gzip';
@@ -3727,8 +3730,8 @@ const Store = {
     if (r.status === 401 && this.hosted){ signInAgain(); throw new Error('signed out - sign in again to keep saving'); }
     if (r.status === 409){ const j = await r.json().catch(() => ({})); return {conflict: true, rev: j.rev || 0}; }
     if (!r.ok) throw new Error(`save: HTTP ${r.status}`);
-    if (this.hosted) idbPut('cache:project:' + id, meta);
-    return {ok: true};
+    if (this.hosted) idbPut('cache:project:' + id, {rev: meta.rev || 0, json});
+    return {ok: true, json};
   },
   async delProject(id){
     if (this.on) return this.req('DELETE', this.pPath(id));
@@ -3978,7 +3981,7 @@ const projName = () => S.projectName || S.deck || 'Untitled';
 let saving = Promise.resolve(), saveErrShown = false;
 async function writeState(){
   if (!curProject) return;
-  const id = curProject;
+  const id = curProject; let relabel = false;
   saving = saving.then(async () => {
     if (sync.paused || id !== curProject) return;
     const st = snapshot(); st.rev = sync.rev + 1; st.savedAt = Date.now(); st.savedBy = WINDOW_ID;
@@ -3986,16 +3989,18 @@ async function writeState(){
     try {
       const r = await Store.putProject(id, st, sync.rev);
       if (r && r.conflict){ sync.dirty = true; await syncWithRemote('conflict'); return; }
-      sync.base = plain(st); sync.rev = st.rev; sync.saved = Date.now(); sync.state = 'ok';
+      sync.base = r && r.json ? JSON.parse(r.json) : plain(st); sync.rev = st.rev; sync.saved = Date.now(); sync.state = 'ok';
       // label from what was saved: by now another project may be open
-      const pr = projects.find(x => x.id === id); if (pr){ pr.name = st.projectName || st.deck || 'Untitled'; pr.updated = Date.now(); pr.cards = (st.cards || []).length; }
+      const pr = projects.find(x => x.id === id);
+      if (pr){ const nm = st.projectName || st.deck || 'Untitled', nc = (st.cards || []).length; if (pr.name !== nm || pr.cards !== nc) relabel = true; pr.name = nm; pr.updated = Date.now(); pr.cards = nc; }
       await saveIndex(); saveErrShown = false; retryDelay = 5000;
       try { syncChannel && syncChannel.postMessage({pid: id, rev: st.rev, from: WINDOW_ID}); } catch {}
     } catch (e) { console.error(e); sync.dirty = true; sync.state = 'error'; retrySave();
       if (!saveErrShown){ saveErrShown = true; toast('⚠ Could not save: ' + e.message + (Store.hosted ? (navigator.onLine === false ? ' - you are offline; it will save when you are back online' : ' - retrying') : Store.on ? ' - is acs.py still running?' : ''), 5000); } }
     renderSyncInfo();
   });
-  await saving; renderProjects();
+  await saving;
+  if (relabel) renderProjects();   // the sidebar only changes when a name or card count does (it costs ~10 ms per save on a phone otherwise)
 }
 async function saveIndex(){
   const merged = await Store.putIndex(projects);
@@ -5184,10 +5189,31 @@ function renderOrderControls(){
 $('#orderSel').onchange = e => { S.order = e.target.value; save(); renderReview(); };
 $('#deckFilter').onchange = e => { S.deckFilter = e.target.value; renderReview(); };
 function cardTitle(c){ return stripHtml(c.type === 'cloze' ? c.text.replace(/\{\{c\d+::([\s\S]*?)(::[\s\S]*?)?\}\}/g, '[$1]') : c.front) || '(empty)'; }
+const listRow = c => `<div class="ci ${c.id === S.curId ? 'cur' : ''} ${c.status}" data-id="${esc(c.id)}">
+    <span class="dot ${c.status}"></span><div style="min-width:0"><div class="id">${esc(c.id)} · ${c.type}${S.order === 'mixed' && typeof c.ord === 'number' ? ' · #' + (Math.round(c.ord % 100000) + 1) : ''}${c.edited ? ' · <span style="color:#8250df">edited</span>' : ''}${cardMissing(c) ? ' · <span style="color:var(--warn)">img?</span>' : ''}</div><div class="t">${esc(cardTitle(c))}</div></div><span class="tm ${c.id === S.curId ? 'live' : ''}" data-tm="${esc(c.id)}">${fmtTime(c.time)}</span></div>`;
+/* the card list is rebuilt only when the cards shown (or their order) change; otherwise only rows that differ are
+   replaced, so moving or swiping touches 2-3 rows instead of rebuilding ~1000 */
+let listState = {key: null, rows: new Map(), sigs: new Map()};
+// everything a row's HTML depends on (strings compare by reference when unchanged, so this is fast)
+const rowSig = c => [c.id === S.curId, c.status, c.type, fmtTime(c.time), !!c.edited, c.front, c.text, c.back, S.order, c.ord, cardMissing(c)];
 function renderList(){
-  const list = filtered();
-  $('#cardItems').innerHTML = list.map(c => `<div class="ci ${c.id === S.curId ? 'cur' : ''} ${c.status}" data-id="${esc(c.id)}">
-    <span class="dot ${c.status}"></span><div style="min-width:0"><div class="id">${esc(c.id)} · ${c.type}${S.order === 'mixed' && typeof c.ord === 'number' ? ' · #' + (Math.round(c.ord % 100000) + 1) : ''}${c.edited ? ' · <span style="color:#8250df">edited</span>' : ''}${cardMissing(c) ? ' · <span style="color:var(--warn)">img?</span>' : ''}</div><div class="t">${esc(cardTitle(c))}</div></div><span class="tm ${c.id === S.curId ? 'live' : ''}" data-tm="${esc(c.id)}">${fmtTime(c.time)}</span></div>`).join('') || '<div class="muted small" style="padding:8px">No cards match.</div>';
+  const list = filtered(), box = $('#cardItems');
+  const key = curProject + '|' + list.map(c => c.id).join('|');
+  if (!list.length){ box.innerHTML = '<div class="muted small" style="padding:8px">No cards match.</div>'; listState = {key: null, rows: new Map(), sigs: new Map()}; }
+  else if (key !== listState.key || box.children.length !== list.length){
+    const rows = new Map(list.map(c => [c.id, listRow(c)]));
+    box.innerHTML = [...rows.values()].join('');
+    listState = {key, rows, sigs: new Map(list.map(c => [c.id, rowSig(c)]))};
+  } else {
+    list.forEach((c, i) => {
+      // cheap check first: only rebuild a row's HTML when something it shows may have changed
+      const sg = rowSig(c), prev = listState.sigs.get(c.id);
+      if (prev && prev.length === sg.length && prev.every((v, k) => v === sg[k])) return;
+      listState.sigs.set(c.id, sg);
+      const h = listRow(c);
+      if (listState.rows.get(c.id) !== h){ listState.rows.set(c.id, h); const el = box.children[i]; if (el) el.outerHTML = h; }
+    });
+  }
   const n = S.cards.length || 1, cnt = k => S.cards.filter(c => c.status === k).length;
   $('#progBar').innerHTML = `<i style="width:${cnt('ok') / n * 100}%;background:var(--ok)"></i><i style="width:${cnt('change') / n * 100}%;background:var(--warn)"></i><i style="width:${cnt('drop') / n * 100}%;background:var(--bad)"></i>`;
   const total = S.cards.reduce((a, c) => a + (c.time || 0), 0);
@@ -5253,6 +5279,12 @@ function renderFields(c){
     const tg = $('#edTags'); if (tg !== document.activeElement) tg.value = c.tags.join(' ');
     return;
   }
+  if (panel.dataset.type === c.type && !panel.dataset.dirty && panel.querySelector('#edTags')){   // same kind of card: keep the toolbars, swap the values
+    panel.dataset.card = c.id;
+    for (const f of FIELDS[c.type]){ const ta = panel.querySelector(`textarea[data-f="${f}"]`); if (ta) showField(ta, c[f]); }
+    $('#edTags').value = c.tags.join(' ');
+    return;
+  }
   panel.dataset.card = c.id; panel.dataset.type = c.type; delete panel.dataset.dirty;
   const tb = f => `<button data-act="b" title="Bold"><b>B</b></button><button data-act="i" title="Italic"><i>I</i></button><button data-act="u" title="Underline"><u>U</u></button><button data-act="sub" title="Subscript">x₂</button><button data-act="sup" title="Superscript">x²</button><button data-act="ul" title="Bullet list">• list</button><button data-act="br" title="Line break">↵</button>
     ${f !== 'source' ? '<button data-act="code" title="Code block (asks for the language; escapes the selection)">&lt;/&gt;</button><button data-act="math" title="Maths: \\( … \\)">∑</button>' : ''}${f === 'back' ? '<button data-act="answer" title="Direct-answer block">Answer</button>' : ''}
@@ -5267,7 +5299,10 @@ function renderFields(c){
 function showField(ta, v){
   v = v || '';
   ta.value = ta.dataset.f === 'source' ? v : formatHTML(v);
-  ta.dataset.src = v; autosize(ta); syncHl(ta);
+  ta.dataset.src = v; delete ta.dataset.typed; sizeSoon(ta);
+  // colour it after the card is on screen: highlighting several fields is the slowest part of moving to the next card
+  const pre = ta.previousElementSibling; if (pre && pre.classList.contains('hl-pre')) pre.textContent = ta.value + (ta.value.endsWith('\n') ? ' ' : '');
+  const want = ta.value; requestAnimationFrame(() => setTimeout(() => { if (ta.value === want && ta.isConnected) syncHl(ta); }, 0));
 }
 /** paint the HTML in a field editor (textarea text is transparent; the <pre> behind it shows the colours) */
 function syncHl(ta){
@@ -5282,6 +5317,17 @@ function syncHl(ta){
 document.addEventListener('scroll', e => { if (e.target.matches && e.target.matches('.hl-wrap textarea')) e.target.previousElementSibling.scrollTop = e.target.scrollTop; }, true);
 function markEdited(c){ if (!c.edited){ c.edited = true; renderReviewSoft(); } }
 function autosize(ta){ ta.style.height = 'auto'; ta.style.height = Math.min(420, ta.scrollHeight + 4) + 'px'; }
+/* fit several editors at once: all writes, then all reads, then all writes = one page layout instead of one per field */
+const sizeQ = new Set();
+function sizeSoon(ta){
+  if (!sizeQ.size) queueMicrotask(() => {
+    const tas = [...sizeQ].filter(t => t.isConnected); sizeQ.clear();
+    tas.forEach(t => t.style.height = 'auto');
+    const hs = tas.map(t => t.scrollHeight);
+    tas.forEach((t, i) => t.style.height = Math.min(420, hs[i] + 4) + 'px');
+  });
+  sizeQ.add(ta);
+}
 let lastField = null;  // {f, start, end}
 $('#fieldsPanel').addEventListener('input', e => {
   const c = curCard(); if (!c) return;
@@ -5752,7 +5798,7 @@ function syncMobileBar(){
   if (document.activeElement !== ta && ta.dataset.card !== c.id){ ta.value = c.status === 'change' ? (c.feedback || '') : ''; ta.dataset.card = c.id; }
   $('#mbNext').textContent = ta.value.trim() ? 'Request change ›' : 'Next ›';
   $('#mbNext').classList.toggle('warn', !!ta.value.trim());
-  ta.style.height = 'auto'; ta.style.height = Math.min(110, ta.scrollHeight + 2) + 'px';
+  if (ta.dataset.sized !== ta.value && ta.offsetParent){ ta.dataset.sized = ta.value; ta.style.height = 'auto'; ta.style.height = Math.min(110, ta.scrollHeight + 2) + 'px'; }
 }
 $('#mbNote').addEventListener('input', syncMobileBar);
 $('#mbNext').onclick = () => {
@@ -5859,14 +5905,27 @@ $('#undoBtn').onclick = () => {
       const dir = s0.dx > 0 ? 1 : -1, c = curCard(), r = host.getBoundingClientRect();
       const info = {id: c.id, prev: c.status, status: dir > 0 ? 'ok' : 'drop'};
       burst(dir, {x: r.left + r.width / 2 + s0.dx * .5, y: Math.max(80, Math.min(innerHeight - 80, r.top + Math.min(r.height, innerHeight) * .42 + s0.dy * .5))});
-      host.classList.add('fly'); host.style.transform = `translate(${dir * 130}vw, ${s0.dy * 1.5}px) rotate(${dir * 24}deg)`; host.style.opacity = '0';
+      // a frozen copy of this card flies away; the real card box draws the next card underneath at once,
+      // so the old card never shows again
+      const ghost = document.createElement('div');
+      ghost.className = 'preview-host swipe-ghost';
+      ghost.style.cssText = `position:absolute;left:${host.offsetLeft}px;top:${host.offsetTop}px;width:${host.offsetWidth}px;height:${host.offsetHeight}px;` +
+        `margin:0;z-index:8;pointer-events:none;transform:${host.style.transform}`;
+      ghost.attachShadow({mode: 'open'}).innerHTML = host.shadowRoot ? host.shadowRoot.innerHTML : host.innerHTML;
+      host.parentNode.insertBefore(ghost, host.nextSibling);
+      host.classList.remove('swiping'); host.style.transition = 'none'; host.style.transform = ''; host.style.opacity = '0';
+      so.style.opacity = sd.style.opacity = 0;
+      // set (never toggle) the status, then draw the next card straight away into the hidden real box
+      c.status = info.status; save(); nextUnreviewed();   // nextUnreviewed re-renders list, counts and preview
+      requestAnimationFrame(() => {
+        host.style.transition = '';
+        host.animate([{transform: 'scale(.95)', opacity: 0}, {transform: 'scale(1)', opacity: 1}], {duration: 220, easing: 'ease-out', fill: 'none'});
+        host.style.opacity = '';
+      });
+      ghost.animate([{transform: ghost.style.transform, opacity: 1}, {transform: `translate(${dir * 130}vw, ${s0.dy * 1.5}px) rotate(${dir * 24}deg)`, opacity: 0}],
+                    {duration: 280, easing: 'cubic-bezier(.4,0,.9,.6)', fill: 'forwards'}).onfinish = () => ghost.remove();
       if (navigator.vibrate) try { navigator.vibrate(dir > 0 ? 14 : [10, 40, 10]); } catch {}
-      setTimeout(() => {
-        host.classList.remove('fly'); reset();
-        setStatus(info.status);
-        host.animate([{transform: 'scale(.94)', opacity: 0}, {transform: 'scale(1)', opacity: 1}], {duration: 180, easing: 'ease-out'});
-        offerUndo(info);
-      }, 230);
+      offerUndo(info);
     } else { host.classList.add('back'); reset(); setTimeout(() => host.classList.remove('back'), 300); }
   };
   host.addEventListener('touchend', end); host.addEventListener('touchcancel', end);
