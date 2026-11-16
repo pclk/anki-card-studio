@@ -99,6 +99,12 @@ export async function getProject(owner: string, id: string): Promise<string | nu
   return r.length ? r[0].data : null;
 }
 
+export async function projectBytes(owner: string, id: string): Promise<number> {
+  await ensureSchema();
+  const r = await db()<{ n: string }>("select length(data) as n from acs_projects where owner = $1 and id = $2", [owner, id]);
+  return r.length ? Number(r[0].n) : 0;
+}
+
 export async function getRev(owner: string, id: string) {
   const d = await getProject(owner, id);
   return d == null ? null : revInfo(d);

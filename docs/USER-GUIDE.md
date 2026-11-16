@@ -120,18 +120,22 @@ Use this when a single chat would skim, e.g. 40 lecture PDFs where you want one 
 
 ## Workflow
 
-1. **Prompt tab.** Pick the AI (Claude + skill, or another AI), describe what to cover, and choose card types (Basic / Cloze), detail level and image sources. Click **Copy prompt**. In *Another AI* mode, also get **⬇ anki_helper.py**.
-2. **Chat.** Attach your material (PDF, .docx, .pptx, screenshots) and paste the prompt. In *Another AI* mode, also attach `anki_helper.py` if the AI has code execution.
+1. **Checker tab** (optional). Set how strict the card-quality checks are: each check is *error*, *warn* or *off*, and the limits are numbers (minimum "why" words, maximum front length, cloze numbers per note, …). **What it looks for** under each check says exactly how it decides. The settings are kept for all projects. Claude gets the changed ones in every prompt (`deck.configure_checks(...)`), and Analytics, Review, Revise and Export use the same settings.
+2. **Prompt tab.** Pick the AI (Claude + skill, or another AI), describe what to cover, and choose card types (Basic / Cloze), detail level and image sources. Click **Copy prompt**. In *Another AI* mode, also get **⬇ anki_helper.py**.
+3. **Chat.** Attach your material (PDF, .docx, .pptx, screenshots) and paste the prompt. In *Another AI* mode, also attach `anki_helper.py` if the AI has code execution.
    Claude reads the material, crops figures straight from your PDF, draws diagrams, writes the cards, validates them and saves **`anki_bundle.json`**. That file holds the cards and all images.
-3. **Import tab.** Drop `anki_bundle.json` onto the page. You can also paste Claude's reply text; the `<<<ANKI_CARDS … ANKI_CARDS>>>` blocks are found automatically, and several blocks are combined.
-4. **Review tab.** Go through the cards one at a time:
+4. **Bring the cards back** (on the Prompt tab, under the prompt). Drop `anki_bundle.json` there. You can also paste Claude's reply text; the `<<<ANKI_CARDS … ANKI_CARDS>>>` blocks are found automatically, and several blocks are combined. Multi-prompt results can also go into the queue's own drop zone.
+5. **Analytics tab** (can be hidden in *Settings → Tabs*). The deck's makeup: cards, basic/cloze, approved, images, how many pass every check. Then a row per check with how many cards fail it (tap a check's name for what it looks for; **Show cards** opens just those cards in Review), length histograms against your limits, and a table per sub-deck.
+6. **Review tab.** Go through the cards one at a time:
    - The live preview uses the exact Anki template. <kbd>Space</kbd> flips the card. Cloze notes show each `c1`/`c2` card separately.
    - You can edit any field (HTML) using the toolbar: bold, lists, styled boxes, answer block, cloze, image.
    - <kbd>Q</kbd> excludes the card. <kbd>W</kbd> opens the request-change menu. <kbd>D</kbd> approves and jumps to the next unreviewed card. <kbd>R</kbd> resets it. On a phone, swipe right to approve and left to exclude. <kbd>⌘</kbd> / <kbd>→</kbd> next, <kbd>←</kbd> previous, <kbd>Tab</kbd> flip. You can change every key in Settings.
    - **Images:** paste a screenshot (Ctrl/⌘+V) into any field, or click 🖼. In the crop dialog you can open your PDF, go to a page, drag a box around the figure and click Insert. You can also paste from the clipboard, load an image URL or search Wikimedia Commons there.
+   - **Checker:** under the card's status, the checks this card fails (with your settings). It updates as you edit.
    - **"✂ Snip needed"** means Claude asked you to grab a figure from your material. The dialog shows its hint and opens the PDF at the page it mentions.
-5. **Revise tab.** Click **Build revision prompt** and paste it into the same Claude chat. It contains every card marked "Request change", with its current content (including your own edits) and your comment. Then drop Claude's `anki_revision.json` (or paste the reply). Revised cards come back as unreviewed, marked "revised", and the previous version stays viewable. Cards marked "I don't understand this card" also get a step-by-step explanation: in the reply if there are one or two, otherwise in `anki_explanations.md`. Repeat as often as you like.
-6. **Export tab.** **Build .apkg** produces a ready-to-import deck with the images bundled. Double-click it, or use *File → Import* in Anki.
+7. **Revise tab.** Click **Build revision prompt** and paste it into the same Claude chat. It contains every card marked "Request change", with its current content (including your own edits) and your comment. Then drop Claude's `anki_revision.json` (or paste the reply). Revised cards come back as unreviewed, marked "revised", and the previous version stays viewable. Cards marked "I don't understand this card" also get a step-by-step explanation: in the reply if there are one or two, otherwise in `anki_explanations.md`. Repeat as often as you like.
+   - **Formatting pass** (top of Revise) fixes how cards are written without reviewing them again, using the Checker's presentation checks (outside references, unshown code, code as plain text, code without a language). Choose which cards, then **Build queue**. It works like the multi-prompt queue: **Copy next prompt** (or <kbd>N</kbd>) per batch, then drop each `anki_revision.json` into the queue (any order; each is matched to its prompt and ticked off). Cards keep their status; approved cards that Claude changed get a **Re-check** with a before/after diff (Review → filter *Re-check*).
+8. **Export tab.** It starts with the Checker's verdict on the cards about to be exported. **Build .apkg** produces a ready-to-import deck with the images bundled. Double-click it, or use *File → Import* in Anki.
 
 Your work autosaves in the browser (IndexedDB). Use **💾 Save project** to keep a portable copy or move it to another computer, and **📂 Open** to load it again.
 
@@ -175,6 +179,17 @@ Images are shrunk to at most 1400 px and recompressed (PNG for diagrams, JPEG fo
 Both include the styled boxes (`aa-key`, `aa-why`, `aa-example`, `aa-mnemonic`, `aa-warning`, `aa-compare`, `aa-clinical`, `aa-note`, `aa-method`, `aa-check`), code-block and syntax-highlighting styles, and support night mode. Cards should never set their own colours: the note type handles light and dark.
 
 Every card has a stable ID. Importing a re-exported deck updates the existing notes instead of duplicating them.
+
+## User management (online version, admins)
+
+*Settings → Users → Open user management* lists every account with its projects, storage use and last activity, plus usernames that are allowed but haven't signed in yet. Add a GitHub username at the top. For each account:
+- **Role:** user or admin (admins can open user management). Admins set in `ACS_ADMIN_GITHUB` can't be changed here.
+- **Status:** active, **read-only** (they can look around, but nothing is saved), or **disabled** (they see a "disabled" screen; their data is kept).
+- **Storage limit** in MB, with current use. Saves that would go over it are refused.
+- **Sign out everywhere** ends all their sessions; **Remove sign-in access** takes them off the list.
+- **Projects:** edit a project's JSON (their open windows pick the change up), rename, download, delete or restore, see **History** (saved copies) and put an older version back, and list or delete its images and source files.
+- **Settings:** view or edit their settings as JSON, or reset them.
+- **Danger zone:** delete all their data, or delete it and forget the account.
 
 ## Requirements and limits
 

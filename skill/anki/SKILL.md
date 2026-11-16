@@ -202,6 +202,21 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
 
 If asked to fill gaps, add cards for important uncovered concepts, continuing the numbering.
 
+## What the checker looks for
+
+`validate()` runs these card-quality checks with the settings from `configure_checks()` (defaults in brackets). Write cards that pass them first time. Tag `multi-ok` / `refs-ok` only when a flag is genuinely wrong.
+- **why** [warn, ≥45 words]: `why=` is non-empty, and has at least the minimum words once HTML is removed.
+- **front_max_chars** [300]: basic fronts, counting characters after removing `<pre>`, inline `<code>`, `\( … \)` / `\[ … \]` maths and tags.
+- **back_max_words** [no limit]: words on the back (or cloze text + extra), code blocks and tags removed.
+- **cloze_max_deletions** [3]: distinct `cN` numbers in one cloze note.
+- **multi_question** [error]: basic cards. The front has 2+ numbered items (`<ol>`, or lines starting `1.` `2)` `(a)` `i.`) answered one by one on the back. Or the front has 2+ `?` outside code (a warning). Or the back maps 3+ numbered items (`1 → A; 2 → C…`).
+- **outside_refs** [error]: the question says "previous/next/other card", "the example/code/figure … above" or "… from the notes/lecture/slides", "Figure 3", "Slide 12", "Listing 4", "Table 2", "as shown/defined in the lecture/notes", "in/from the notes/slides/lecture/textbook", or "from L04". The back and extra are only checked for references to other cards and "… above". "Question 3.1" / "Exercise 2" / "Example 4" labels are warnings.
+- **unshown_code** [warn]: the question has no code block, but calls a method on a variable (`p1.distanceTo(p2)`) that isn't a common library method.
+- **code_as_text** [warn]: outside code tags, any of: `foo(x);`, `int x = …`, `new Foo(`, `x -> …`, `List<Integer>`, `return …;`, or `public static …`. Also inline `<code>` with 2+ `;`, a line break, or `{ … }` over 40 characters, when the field has no code block.
+- **code_language** [warn]: a `<pre>` without `language-…` (use `code(text, lang)`).
+- **ref_quote_min_chars** [25] and **ref_page** [warn]: quotes long enough to find, and a page for file references.
+- **unused_images** [warn] and **order_window** [3]: as before.
+
 ## Bundle format (fallback when writing JSON by hand)
 
 ```

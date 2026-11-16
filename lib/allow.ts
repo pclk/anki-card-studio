@@ -3,6 +3,7 @@
  * people the admin adds in the app (table acs_allowed). Kept apart from auth.ts so it has no Next.js dependency.
  */
 import { listAllowed } from "./store";
+import { appAdmins } from "./users";
 
 const split = (v: string | undefined) => (v || "").split(/[\s,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
 
@@ -18,6 +19,7 @@ export async function allowedLogins(fresh = false): Promise<string[]> {
     let added: string[] = [];
     try {
       added = (await listAllowed()).map((r) => r.login);
+      added.push(...(await appAdmins()));   // people given the admin role in the app can always sign in
     } catch (e) {
       console.error("allow-list lookup failed", e);
     }

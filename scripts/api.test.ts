@@ -190,3 +190,105 @@ test("projects may be sent gzipped", async () => {
   assert.equal((await (await call(A, "GET", "project/pg")).json()).cards.length, 2000);
   assert.equal((await call(A, "PUT", "project/pg", Buffer.from("not gzip"), { "x-acs-encoding": "gzip" })).status, 400);
 });
+
+/* ---- user management (lib/users.ts + admin API) */
+import { applyRegistry, forgetUser } from "../lib/users";
+const ENV_ADMINS = ["pclk"];
+const as = async (u: User, sat: number | null = null) => applyRegistry(u, sat, ENV_ADMINS);
+const ADMIN: User = { owner: "gh:99", login: "pclk" };
+const C: User = { owner: "gh:3", login: "carol", name: "Carol" };
+
+test("admin: accounts are registered and listed with their usage", async () => {
+  const admin = (await as(ADMIN))!;
+  assert.equal(admin.admin, true);
+  const c = (await as(C))!;
+  await call(c, "PUT", "project/cp1", JSON.stringify({ rev: 1, projectName: "Carol's deck", cards: [{ id: "c1" }] }));
+  await call(c, "PUT", "projects", JSON.stringify([{ id: "cp1", name: "Carol's deck", cards: 1, updated: 1 }]));
+  const j = await (await call(admin, "GET", "admin/users")).json();
+  const row = j.users.find((u: { login: string }) => u.login === "carol");
+  assert.ok(row && row.projects === 1 && row.bytes > 0 && row.status === "active");
+  assert.equal((await call(c, "GET", "admin/users")).status, 403, "non-admins can't");
+});
+
+test("admin: read and replace a user's project; the owner's rev moves on", async () => {
+  const admin = (await as(ADMIN))!;
+  const list = await (await call(admin, "GET", "admin/users/gh:3/projects")).json();
+  assert.equal(list[0].name, "Carol's deck");
+  const p = await (await call(admin, "GET", "admin/users/gh:3/project/cp1")).json();
+  p.cards.push({ id: "c2" });
+  const r = await (await call(admin, "PUT", "admin/users/gh:3/project/cp1", JSON.stringify(p))).json();
+  assert.equal(r.rev, 2);
+  const mine = await (await call((await as(C))!, "GET", "project/cp1")).json();
+  assert.equal(mine.cards.length, 2);
+  assert.equal(mine.savedBy, "admin");
+  await call(admin, "PATCH", "admin/users/gh:3/project/cp1", JSON.stringify({ name: "Renamed" }));
+  const idx = await (await call((await as(C))!, "GET", "projects")).json();
+  assert.equal(idx[0].name, "Renamed");
+});
+
+test("admin: delete, restore and roll back a user's project", async () => {
+  const admin = (await as(ADMIN))!;
+  await call(admin, "DELETE", "admin/users/gh:3/project/cp1");
+  assert.ok(["[]", "null"].includes(await (await call((await as(C))!, "GET", "projects")).text()));
+  await call(admin, "POST", "admin/users/gh:3/project/cp1/restore");
+  const back = await (await call((await as(C))!, "GET", "project/cp1")).json();
+  assert.equal(back.projectName, "Renamed");
+  const hist = await (await call(admin, "GET", "admin/users/gh:3/project/cp1/history")).json();
+  assert.ok(hist.length >= 1);
+  const old = hist[hist.length - 1];
+  assert.equal((await call(admin, "POST", "admin/users/gh:3/project/cp1/history", JSON.stringify({ at: old.at }))).status, 200);
+});
+
+test("admin: settings of a user", async () => {
+  const admin = (await as(ADMIN))!;
+  await call((await as(C))!, "PUT", "settings", JSON.stringify({ version: 2 }));
+  assert.equal((await (await call(admin, "GET", "admin/users/gh:3/settings")).json()).version, 2);
+  await call(admin, "PUT", "admin/users/gh:3/settings", JSON.stringify({ version: 2, swipe: { dist: 30 } }));
+  assert.equal((await (await call((await as(C))!, "GET", "settings")).json()).swipe.dist, 30);
+});
+
+test("admin: read-only and disabled accounts", async () => {
+  const admin = (await as(ADMIN))!;
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ status: "readonly" })); forgetUser();
+  let c = (await as(C))!;
+  assert.equal(c.status, "readonly");
+  assert.equal((await call(c, "GET", "project/cp1")).status, 200, "can still read");
+  const w = await call(c, "PUT", "settings", "{}");
+  assert.equal(w.status, 403); assert.equal((await w.json()).readonly, true);
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ status: "disabled" })); forgetUser();
+  c = (await as(C))!;
+  assert.equal((await (await call(c, "GET", "ping")).json()).user.status, "disabled");
+  assert.equal((await call(c, "GET", "projects")).status, 403);
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ status: "active" })); forgetUser();
+  assert.equal((await call((await as(C))!, "GET", "projects")).status, 200);
+  assert.equal((await call(admin, "PATCH", "admin/users/gh:99", JSON.stringify({ status: "disabled" }))).status, 400, "admins can't be restricted");
+});
+
+test("admin: sign out everywhere ends older sessions", async () => {
+  const admin = (await as(ADMIN))!;
+  const started = Date.now() - 60_000;
+  assert.ok(await as(C, started));
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ signOut: true })); forgetUser();
+  assert.equal(await as(C, started), null, "a session from before is refused");
+  assert.ok(await as(C, Date.now() + 1000), "signing in again works");
+});
+
+test("admin: storage limit and admin role", async () => {
+  const admin = (await as(ADMIN))!;
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ quota_mb: 1 })); forgetUser();
+  const big = "x".repeat(1_200_000);
+  const r = await call((await as(C))!, "PUT", "project/cp2", JSON.stringify({ rev: 1, blob: big }));
+  assert.equal(r.status, 413);
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ quota_mb: null, role: "admin" })); forgetUser();
+  assert.equal((await as(C))!.admin, true);
+  assert.equal((await call((await as(C))!, "GET", "admin/users")).status, 200);
+  await call(admin, "PATCH", "admin/users/gh:3", JSON.stringify({ role: "user" })); forgetUser();
+});
+
+test("admin: delete everything an account stored", async () => {
+  const admin = (await as(ADMIN))!;
+  assert.equal((await call(admin, "DELETE", "admin/users/gh:3?forget=1")).status, 200);
+  const j = await (await call(admin, "GET", "admin/users")).json();
+  assert.ok(!j.users.some((u: { login: string }) => u.login === "carol"));
+  assert.equal((await call(admin, "DELETE", "admin/users/gh:99")).status, 400, "not your own account");
+});

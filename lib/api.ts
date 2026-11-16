@@ -19,7 +19,8 @@ import * as st from "./store";
 import { HttpError } from "./store";
 import { fetchReadable } from "./fetch-readable";
 import type { User } from "./user";
-import { envLogins, adminLogins, forgetAllowedCache } from "./allow";
+import { envLogins, adminLogins, forgetAllowedCache, allowedLogins } from "./allow";
+import * as us from "./users";
 
 export const API_VERSION = "2";
 
@@ -55,7 +56,17 @@ export async function handleApi(req: Request, parts: string[], user: User | null
     const o = user.owner;
 
     if (p.length === 1 && p[0] === "ping")
-      return json(200, { ok: true, version: API_VERSION, hosted: true, dataDir: "", user: { login: user.login, name: user.name ?? null, image: user.image ?? null, admin: !!user.admin } });
+      return json(200, { ok: true, version: API_VERSION, hosted: true, dataDir: "", user: { login: user.login, name: user.name ?? null, image: user.image ?? null, admin: !!user.admin, status: user.status || "active" } });
+
+    // the admin's controls on this account
+    if (user.status === "disabled") return json(403, { ok: false, disabled: true, error: "this account has been disabled by the admin" });
+    if (user.status === "readonly" && !["GET", "HEAD"].includes(m) && p[0] !== "fetch")
+      return json(403, { ok: false, readonly: true, error: "this account is read-only (set by the admin) - changes are not saved" });
+
+    if (p[0] === "admin") {
+      if (!user.admin) return json(403, { ok: false, error: "admins only" });
+      return await adminApi(req, p.slice(1), user);
+    }
 
     // who may sign in: admins only (ACS_ADMIN_GITHUB, default pclk)
     if (p[0] === "people") {
@@ -116,6 +127,7 @@ export async function handleApi(req: Request, parts: string[], user: User | null
           // the Studio gzips big projects (X-ACS-Encoding: gzip); at most 64 MB unpacked
           const raw = Buffer.from(await req.arrayBuffer());
           const text = req.headers.get("x-acs-encoding") === "gzip" ? gunzipSync(raw, { maxOutputLength: 64 * 1024 * 1024 }).toString("utf8") : raw.toString("utf8");
+          await us.checkQuota(o, Math.max(0, text.length - (await st.projectBytes(o, id))));
           return json(200, await st.putProject(o, id, text, req.headers.get("x-acs-base-rev"), req.headers.get("x-acs-restore") === "1"));
         }
         if (m === "DELETE") { await st.deleteProject(o, id); return json(200, { ok: true }); }
@@ -139,7 +151,9 @@ export async function handleApi(req: Request, parts: string[], user: User | null
         if (m === "PUT") {
           const idx = Number(url.searchParams.get("chunk") ?? 0), total = Number(url.searchParams.get("chunks") ?? 1);
           const type = (req.headers.get("content-type") || "application/octet-stream").split(";")[0];
-          await st.writeChunk(o, id, kind, name, type, idx, total, Buffer.from(await req.arrayBuffer()));
+          const body = Buffer.from(await req.arrayBuffer());
+          await us.checkQuota(o, body.length);
+          await st.writeChunk(o, id, kind, name, type, idx, total, body);
           return json(200, { ok: true });
         }
         if (m === "DELETE") { await st.deleteFile(o, id, kind, name); return json(200, { ok: true }); }
@@ -154,4 +168,84 @@ export async function handleApi(req: Request, parts: string[], user: User | null
     console.error(e);
     return json(500, { ok: false, error: "server error" });
   }
+}
+
+/*
+ * Admin API (admins only): every account and its data.
+ *   GET    admin/users                                   accounts + usage, and allowed usernames not signed in yet
+ *   PATCH  admin/users/<owner>                           {role, status, quota_mb, signOut}
+ *   DELETE admin/users/<owner>[?forget=1]                delete all of the account's data (and its row)
+ *   GET    admin/users/<owner>/projects                  projects incl. deleted ones, sizes, history counts
+ *   GET|PUT|DELETE admin/users/<owner>/settings
+ *   GET|PUT|PATCH|DELETE admin/users/<owner>/project/<id>   raw JSON / replace / {name} rename / delete
+ *   POST   admin/users/<owner>/project/<id>/restore      bring back a deleted project
+ *   GET    admin/users/<owner>/project/<id>/history      saved copies; POST .../history {at} puts one back
+ *   GET    admin/users/<owner>/project/<id>/files        media and source files
+ *   GET|DELETE admin/users/<owner>/project/<id>/files/<kind>/<name>
+ */
+const OWNER_RE = /^(gh|dev):[A-Za-z0-9_.-]{1,64}$/;
+
+async function adminApi(req: Request, p: string[], me: User): Promise<Response> {
+  const m = req.method, url = new URL(req.url);
+  const envAdmins = adminLogins();
+  if (p.length === 1 && p[0] === "users" && m === "GET") return json(200, await us.listUsers(await allowedLogins(true), envAdmins));
+  if (p[0] !== "users" || p.length < 2) return json(404, { ok: false, error: "unknown admin endpoint" });
+  const owner = p[1];
+  if (!OWNER_RE.test(owner)) return json(400, { ok: false, error: "bad account id" });
+  if (!(await us.getUserRow(owner, true))) return json(404, { ok: false, error: "no such account" });
+  const body = async () => JSON.parse((await req.text()) || "{}");
+
+  if (p.length === 2) {
+    if (m === "PATCH") return json(200, { ok: true, user: await us.updateUser(owner, await body(), envAdmins, me.owner) });
+    if (m === "DELETE") {
+      if (owner === me.owner) return json(400, { ok: false, error: "you can't delete your own account here" });
+      await us.wipeUser(owner, url.searchParams.get("forget") === "1");
+      return json(200, { ok: true });
+    }
+  }
+  if (p.length === 3 && p[2] === "projects" && m === "GET") return json(200, await us.userProjects(owner));
+  if (p.length === 3 && p[2] === "settings") {
+    if (m === "GET") return json(200, await st.getSettings(owner));
+    if (m === "PUT") { await st.putSettings(owner, await req.text()); return json(200, { ok: true }); }
+    if (m === "DELETE") { await st.putSettings(owner, "null"); return json(200, { ok: true }); }
+  }
+  if (p.length >= 4 && p[2] === "project") {
+    const id = st.checkId(p[3]);
+    if (p.length === 4) {
+      if (m === "GET") {
+        const d = await st.getProject(owner, id);
+        return d == null ? json(404, { ok: false, error: "not found" }) : json(200, d);
+      }
+      if (m === "PUT") {
+        // replace the stored project; the revision goes up so the owner's open windows pick the change up
+        const j = JSON.parse(await req.text());
+        if (!j || typeof j !== "object" || Array.isArray(j)) return json(400, { ok: false, error: "a project is a JSON object" });
+        const cur = await st.getRev(owner, id);
+        j.rev = (cur?.rev || 0) + 1; j.savedAt = Date.now(); j.savedBy = "admin";
+        const r = await st.putProject(owner, id, JSON.stringify(j), null);
+        await st.putIndex(owner, [{ id, name: j.projectName || j.deck || "Untitled", cards: Array.isArray(j.cards) ? j.cards.length : 0, updated: Date.now() }]);
+        return json(200, r);
+      }
+      if (m === "PATCH") { await us.renameProject(owner, id, (await body()).name); return json(200, { ok: true }); }
+      if (m === "DELETE") { await st.deleteProject(owner, id); return json(200, { ok: true }); }
+    }
+    if (p.length === 5 && p[4] === "restore" && m === "POST") { await us.restoreProject(owner, id); return json(200, { ok: true }); }
+    if (p.length === 5 && p[4] === "history") {
+      if (m === "GET") return json(200, await us.projectHistory(owner, id));
+      if (m === "POST") { await us.restoreRevision(owner, id, String((await body()).at || "")); return json(200, { ok: true }); }
+    }
+    if (p.length === 5 && p[4] === "files" && m === "GET") return json(200, await us.projectFiles(owner, id));
+    if (p.length === 7 && p[4] === "files" && st.KINDS.has(p[5])) {
+      const kind = p[5], name = st.checkName(p[6]);
+      if (m === "DELETE") { await st.deleteFile(owner, id, kind, name); return json(200, { ok: true }); }
+      if (m === "GET") {
+        const f = await st.fileMeta(owner, id, kind, name);
+        if (!f) return json(404, { ok: false, error: "not found" });
+        const parts: Buffer[] = [];
+        for (let i = 0; i < f.chunks; i++) { const b = await st.readChunk(owner, id, kind, name, i); if (b) parts.push(b); }
+        return bytes(Buffer.concat(parts), f.mime, { "Content-Disposition": `attachment; filename="${name.replace(/"/g, "")}"` });
+      }
+    }
+  }
+  return json(404, { ok: false, error: "unknown admin endpoint" });
 }

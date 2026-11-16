@@ -23,6 +23,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (profile) {
         token.login = (profile as { login?: string }).login;
         token.ghid = String((profile as { id?: string | number }).id ?? "");
+        token.sat = Date.now();   // when this session started ("sign out everywhere" refuses older ones)
       }
       return token;
     },
@@ -30,6 +31,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const u = session.user as typeof session.user & { login?: string; ghid?: string };
       u.login = token.login as string | undefined;
       u.ghid = token.ghid as string | undefined;
+      (u as { sat?: number }).sat = Number(token.sat || 0);
       return session;
     },
   },

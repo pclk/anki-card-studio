@@ -223,8 +223,27 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;height:
 .ana-key{display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:4px}.ana-key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 .ana-scroll{overflow-x:auto}
 @media (max-width:700px){ .ana-tbl th:nth-child(4),.ana-tbl td:nth-child(4){display:none} .ana-tbl td,.ana-tbl th{padding:6px 4px} .ana-tbl td:first-child{min-width:120px} .ana-tbl .btn{padding:2px 6px!important;font-size:12px} }
-.ck-grid{display:grid;grid-template-columns:1fr 112px;gap:5px 10px;align-items:center;font-size:13px}
-.ck-grid h4{grid-column:1/-1;margin:8px 0 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+#admDlg{width:min(1200px,98vw);height:min(860px,94vh);border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);padding:0}
+.adm{display:flex;flex-direction:column;height:100%}.adm-top{padding:12px 16px;border-bottom:1px solid var(--line);gap:8px}
+.adm-body{flex:1;display:grid;grid-template-columns:300px 1fr;min-height:0}
+.adm-list{border-right:1px solid var(--line);padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.adm-detail{overflow-y:auto;padding:14px 18px}
+.adm-u{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.adm-u:hover{background:var(--panel2)}.adm-u.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.adm-u img{width:28px;height:28px;border-radius:50%;flex:none}.adm-u .t{min-width:0;flex:1}.adm-u .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adm-st{font-size:10px;padding:0 6px;border-radius:9px;border:1px solid var(--line);white-space:nowrap}
+.adm-st.disabled{color:var(--bad);border-color:var(--bad)}.adm-st.readonly{color:var(--warn);border-color:var(--warn)}.adm-st.admin{color:var(--accent);border-color:var(--accent)}
+.adm-sec{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}.adm-sec h3{margin:0 0 8px;font-size:14px}
+.adm-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;align-items:end}
+.adm-json{width:100%;min-height:320px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;tab-size:2}
+.adm-danger{border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
+@media (max-width:760px){ .adm-body{grid-template-columns:1fr;grid-template-rows:auto 1fr} .adm-list{border-right:0;border-bottom:1px solid var(--line);max-height:34vh} }
+#curChecks summary{cursor:pointer}#curChecks ul{margin:6px 0 0;padding-left:18px}#curChecks li{margin:2px 0}#curChecks .E{color:var(--bad)}#curChecks .W{color:var(--warn)}
+.ck-grid{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.ck-grid h4{margin:12px 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ck-row{display:grid;grid-template-columns:1fr 130px;gap:2px 12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.ck-how{grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5}.ck-how summary{cursor:pointer;font-size:11.5px;color:var(--accent);width:max-content}
+.ck-how[open]{background:var(--panel2);border-radius:6px;padding:6px 8px;margin-top:2px}
 .ck-grid select,.ck-grid input{width:100%;padding:3px 6px}.ck-grid .ck-num{display:flex;align-items:center;gap:4px}.ck-grid .ck-num span{font-size:11px;color:var(--muted);white-space:nowrap}
 .ck-grid .ck-ch{font-weight:600}
 .df-field{margin:6px 0 10px}.df{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:6px;overflow-x:auto;margin-top:3px}
@@ -330,8 +349,8 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
   <h1 title="Anki Card Studio">ACS</h1>
   <nav class="tabs" id="tabs">
     <button data-tab="sources"><span class="n">1</span>Sources <span id="tabSrcCount" class="pill"></span></button>
-    <button data-tab="prompt" class="active"><span class="n">2</span>Prompt</button>
-    <button data-tab="import"><span class="n">3</span>Import</button>
+    <button data-tab="checker"><span class="n">2</span>Checker <span id="tabCkCount" class="pill" title="settings changed from the defaults"></span></button>
+    <button data-tab="prompt" class="active"><span class="n">3</span>Prompt</button>
     <button data-tab="analytics"><span class="n">4</span>Analytics <span id="tabAnaCount" class="pill" title="cards with an error from the checker"></span></button>
     <button data-tab="review"><span class="n">5</span>Review <span id="tabReviewCount" class="pill"></span></button>
     <button data-tab="revise"><span class="n">6</span>Revise <span id="tabReviseCount" class="pill"></span></button>
@@ -387,10 +406,13 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
   <div class="stack" style="padding:16px 18px;gap:14px;max-height:88vh;overflow-y:auto">
     <div class="row"><h2 style="margin:0">Settings</h2><span class="spacer"></span><button class="btn sm" id="setClose">✕</button></div>
     <div class="stack" style="gap:8px" id="peopleSec" hidden>
-      <b>People who can sign in</b>
-      <span class="small muted">Anyone listed here can sign in with their GitHub account. Each person gets their own projects; nothing is shared between accounts. Removing someone stops their access straight away (their projects are kept).</span>
-      <div id="peopleList" class="stack" style="gap:4px"></div>
-      <form class="row" style="gap:6px" id="peopleAdd"><input type="text" id="peopleLogin" placeholder="GitHub username" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;max-width:260px"><button class="btn sm" type="submit">＋ Add</button></form>
+      <b>Users</b>
+      <span class="small muted">Who can sign in, what each account stores, and controls such as read-only, storage limits and signing out.</span>
+      <div><button class="btn primary sm" id="btnAdmin">👥 Open user management</button></div>
+    </div>
+    <div class="stack" style="gap:8px">
+      <b>Tabs</b>
+      <label class="check small"><input type="checkbox" id="setAna"> Show the <b>Analytics</b> tab (deck makeup and checker results)</label>
     </div>
     <div class="stack" style="gap:8px">
       <b>Swiping (touch screens)</b>
@@ -414,6 +436,20 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
       <button class="btn sm" id="setImport" title="A settings .json, or a full app-data .zip (projects + settings)">⬆ Import…</button><input type="file" id="setFile" hidden accept=".json,.zip,application/json,application/zip">
       <span class="spacer"></span>
       <button class="btn sm" id="setReset">Reset to defaults</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="admDlg">
+  <div class="adm">
+    <div class="row adm-top"><h2 style="margin:0">User management</h2><span class="spacer"></span><button class="btn sm" id="admRefresh" title="Reload">↻</button><button class="btn sm" id="admClose">✕</button></div>
+    <div class="adm-body">
+      <aside class="adm-list">
+        <form class="row" style="gap:6px" id="peopleAdd"><input type="text" id="peopleLogin" placeholder="Add a GitHub username" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0"><button class="btn sm primary">Add</button></form>
+        <div class="small muted">Added people can sign in with GitHub. Each account has its own projects.</div>
+        <div id="admUsers" class="stack" style="gap:4px"></div>
+      </aside>
+      <section class="adm-detail" id="admDetail"><div class="muted small" style="padding:20px">Choose an account.</div></section>
     </div>
   </div>
 </dialog>
@@ -442,6 +478,13 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
       <div class="row"><h2 id="srcViewTitle">Extracted text</h2><span class="spacer"></span><span class="small muted" id="srcViewInfo"></span></div>
       <div id="srcView" class="small" style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:12px;max-height:calc(100vh - 230px);overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--panel2)">Select a source to see what the AI will receive.</div>
     </div>
+  </div>
+</section>
+<section class="tab" id="tab-checker">
+  <div class="panel stack" style="max-width:1000px">
+    <div class="row" style="flex-wrap:wrap;gap:8px"><h2 style="margin:0">Checker</h2><span class="small muted" id="ckSum"></span><span class="spacer"></span><button class="btn" id="ckReset">Reset to defaults</button></div>
+    <p class="small muted" style="margin:0">The card-quality checks, set once here and used everywhere: Claude runs them while writing cards (<code>validate()</code>), and they drive the <b>Prompt</b>, <b>Analytics</b>, the card's check list in <b>Review</b>, revisions and the formatting pass in <b>Revise</b>, and the verdict in <b>Export</b>. <i>error</i> must be fixed, <i>warn</i> is fixed unless clearly fine, <i>off</i> is ignored; for limits, 0 means no limit. Kept for all your projects. Open <b>What it looks for</b> on any check to see exactly how it decides.</p>
+    <div id="ckGrid" class="ck-grid"></div>
   </div>
 </section>
 <section class="tab active" id="tab-prompt">
@@ -513,11 +556,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
         </select></label>
       <label class="f">Tags for every card<span class="hint">space-separated</span><input type="text" id="pTags" placeholder="e.g. cardio block2"></label>
       <label class="f">Extra instructions<textarea id="pExtra" rows="2" placeholder="e.g. Focus on exam-style questions; include drug doses; avoid history trivia"></textarea></label>
-      <details id="ckWrap"><summary><b style="font-size:13px">Checker settings</b> <span class="small muted" id="ckSum"></span></summary>
-        <p class="small muted" style="margin:6px 0">What Claude's checker (<code>validate()</code>) looks for and how strictly: <i>error</i> must be fixed, <i>warn</i> is fixed unless clearly fine, <i>off</i> is ignored; for limits, 0 means no limit. Sent with every prompt (cards, revisions, formatting passes), used by <b>Analytics</b>, and kept for all your projects.</p>
-        <div id="ckGrid" class="ck-grid"></div>
-        <div class="row" style="margin-top:6px"><span class="spacer"></span><button class="btn" id="ckReset">Reset to defaults</button></div>
-      </details>
+      <div class="small" id="pCkLine"></div>
       <div class="stack" style="gap:6px" id="pScriptWrap">
         <b style="font-size:13px">How will the AI get the helper script?</b>
         <label class="check"><input type="radio" name="pScript" value="attach" checked> I'll attach <code>anki_helper.py</code> to the chat (recommended - needs Claude's code execution / file creation enabled)</label>
@@ -535,7 +574,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
       <ol class="steps small muted" id="pSteps">
         <li>Open a new Claude chat. Attach your material and <b>anki_helper.py</b>, then paste the prompt.</li>
         <li>When Claude finishes, download <b>anki_bundle.json</b> (has the images) - or copy the <code>&lt;&lt;&lt;ANKI_CARDS</code> block from the reply.</li>
-        <li>Go to <b>Import</b>, drop the file / paste the text, then review every card.</li>
+        <li>Drop the file / paste the reply below, then review every card.</li>
       </ol>
     </div>
     <div class="panel stack" id="batchOut" hidden>
@@ -571,43 +610,32 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
       </div>
     </div>
   </div>
+      <div class="panel stack" id="importBox" style="gap:8px;margin-top:14px">
+        <h2 style="margin:0">Bring Claude's cards back</h2><span class="small muted">The finished <code>anki_bundle.json</code> from a single prompt, an <code>anki_revision.json</code>, images, or a project / app-data .zip. (Multi-prompt results can also go in the queue's drop zone.)</span>
+        <div class="drop" id="importDrop">
+          <b>Drop anki_bundle.json / anki_revision.json, image files or a .zip here</b><br>
+          <span class="small">or click to choose files. Images are matched to cards by filename.</span>
+          <input type="file" id="importFile" multiple hidden accept=".json,.zip,image/*,.txt">
+        </div>
+        <details><summary class="small">…or paste the reply text</summary>
+          <textarea id="importText" rows="8" placeholder="Paste Claude's reply here - the <<<ANKI_CARDS … ANKI_CARDS>>> block(s) or JSON are found automatically"></textarea></details>
+        <div class="row">
+          <select id="importMode" style="width:auto">
+            <option value="merge">Merge into current deck (same id → replaced)</option>
+            <option value="replace">Start a new deck (clears current cards)</option>
+          </select>
+          <span class="spacer"></span>
+          <button class="btn primary" id="btnImport">Import &amp; review →</button>
+        </div>
+        <div id="importResult"></div>
+        <details><summary class="small">Current deck</summary><div id="deckSummary" class="stack" style="margin-top:6px"></div>
+          <div class="note small" style="margin-top:6px"><b>Where do images come from?</b><br>
+          • <b>Generated / cropped by Claude</b> → inside <code>anki_bundle.json</code>. If you only pasted text, drop the bundle file too.<br>
+          • <b>Wikimedia photos</b> → downloaded automatically here.<br>
+          • <b>"Snip needed"</b> → Claude asked you to screenshot a figure from your material. In Review, click <i>Snip</i> on that image, load your PDF/screenshot and crop.</div></details>
+      </div>
 </section>
 
-<!-- =============================================================== IMPORT -->
-<section class="tab" id="tab-import">
-  <div class="grid2">
-    <div class="panel stack">
-      <h2>Import Claude's output</h2>
-      <div class="drop" id="importDrop">
-        <div style="font-size:26px">⬇</div>
-        <b>Drop anki_bundle.json / anki_revision.json, image files or a .zip here</b><br>
-        <span class="small">or click to choose files. Images are matched to cards by filename.</span>
-        <input type="file" id="importFile" multiple hidden accept=".json,.zip,image/*,.txt">
-      </div>
-      <label class="f">…or paste the reply text<span class="hint">Everything is fine - the <code>&lt;&lt;&lt;ANKI_CARDS … ANKI_CARDS&gt;&gt;&gt;</code> block(s) or JSON are found automatically. Several blocks are combined.</span>
-        <textarea id="importText" rows="12" placeholder="Paste Claude's reply here"></textarea></label>
-      <div class="row">
-        <select id="importMode" style="width:auto">
-          <option value="merge">Merge into current deck (same id → replaced)</option>
-          <option value="replace">Start a new deck (clears current cards)</option>
-        </select>
-        <span class="spacer"></span>
-        <button class="btn primary" id="btnImport">Import &amp; review →</button>
-      </div>
-      <div id="importResult"></div>
-    </div>
-    <div class="panel stack">
-      <h2>Current deck</h2>
-      <div id="deckSummary" class="stack"></div>
-      <div class="note small">
-        <b>Where do images come from?</b><br>
-        • <b>Generated / cropped by Claude</b> → inside <code>anki_bundle.json</code>. If you only pasted text, drop the bundle file too.<br>
-        • <b>Wikimedia photos</b> → downloaded automatically here.<br>
-        • <b>"Snip needed"</b> → Claude asked you to screenshot a figure from your material. In Review, click <i>Snip</i> on that image, load your PDF/screenshot and crop.
-      </div>
-    </div>
-  </div>
-</section>
 
 <!-- =============================================================== REVIEW -->
 <section class="tab" id="tab-analytics">
@@ -657,6 +685,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
           <span class="small muted" id="curTimer" title="Time spent reviewing this card"></span>
           <select id="edType" style="width:auto"><option value="basic">Basic</option><option value="cloze">Cloze</option></select>
         </div>
+        <details id="curChecks" hidden><summary class="small"></summary><ul class="small"></ul></details>
         <div class="status-bar">
           <button class="btn bad" id="stDrop">✕ Exclude <span class="kbd" data-k="exclude">Q</span></button>
           <button class="btn warn" id="stChange">✎ Request change <span class="kbd" data-k="change">W</span></button>
@@ -714,15 +743,29 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 <!-- =============================================================== REVISE -->
 <section class="tab" id="tab-revise">
   <div class="panel stack" id="fmtPanel" style="margin-bottom:14px">
-    <h2 style="margin:0">Formatting pass</h2>
-    <p class="small muted" style="margin:0">Fix how cards are written (code as plain text, code squeezed into one line, questions that depend on code or notes the card doesn't show) without reviewing them again. Claude only changes presentation. Approved cards stay approved; the ones it changed get a quick <b>Re-check</b> with a before/after diff. Cards in the selected sub-deck only.</p>
-    <div class="row" style="flex-wrap:wrap;gap:10px">
+    <div class="row"><h2 style="margin:0">Formatting pass</h2><span class="spacer"></span><span id="fqStats" class="small muted"></span></div>
+    <p class="small muted" style="margin:0">Fix how cards are written without reviewing them again: Claude only changes presentation. Approved cards stay approved; the ones it changes get a quick <b>Re-check</b> with a before/after diff. Cards in the selected sub-deck only.</p>
+    <div class="small" id="fqUses"></div>
+    <div class="row" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
       <label class="f">Which cards<select id="fmtScope"><option value="flag">Flagged by the checks</option><option value="flagok">Flagged + every approved card</option><option value="all">Every card that isn't excluded</option></select></label>
       <label class="f">Status<select id="fmtStatus"><option value="any">Any</option><option value="new">Unreviewed only</option><option value="ok">Approved only</option></select></label>
       <label class="f">Cards per prompt<select id="fmtSize"><option>25</option><option selected>40</option><option>60</option></select></label>
+      <button class="btn primary" id="fqBuild">Build queue</button><span class="small muted" id="fqBuildInfo"></span>
     </div>
-    <div id="fmtStats" class="small"></div>
-    <div id="fmtBatches" class="stack" style="gap:6px"></div>
+    <div id="fqPanel" class="stack" hidden>
+      <div class="row">
+        <button class="btn primary" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
+        <span class="small" id="fqNextLabel"></span><span class="spacer"></span>
+        <button class="btn sm" id="fqReset" title="Mark every prompt as not copied (answered ones stay ticked)">↺ Reset</button>
+        <button class="btn sm" id="fqClear" title="Remove the queue">✕ Clear</button>
+      </div>
+      <div class="progress" id="fqProg" title="answered / copied"></div>
+      <div class="qlist" id="fqList"></div>
+      <div class="drop" id="fqDrop"><b>Drop the anki_revision.json files here</b> - any number, any order<br><span class="small">Each one is matched to its prompt by its cards, applied, and ticked off.</span><input type="file" id="fqFile" multiple hidden accept=".json,.zip,.txt"></div>
+      <details><summary class="small">…or paste Claude's reply</summary><textarea id="fqPaste" rows="5"></textarea>
+        <div class="row" style="margin-top:4px"><span class="spacer"></span><button class="btn sm" id="fqApply">Apply</button></div></details>
+      <div id="fqResult"></div>
+    </div>
   </div>
   <div class="grid2">
     <div class="panel stack">
@@ -1042,6 +1085,21 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
 **Formatting pass** (the prompt says so, and each card's feedback starts "Formatting pass"): the user has already reviewed these cards. Change only how they're written: code into `code()` blocks, names into inline `<code>`, missing code/definitions onto the card (rule 2), maths into `tex()`. Never change what a card tests, its answer, `why`, images or tags; never delete, merge or split. The feedback comes from automatic checks and can be wrong: leave fine cards out. Save only the cards you changed.
 
 If asked to fill gaps, add cards for important uncovered concepts, continuing the numbering.
+
+## What the checker looks for
+
+`validate()` runs these card-quality checks with the settings from `configure_checks()` (defaults in brackets). Write cards that pass them first time. Tag `multi-ok` / `refs-ok` only when a flag is genuinely wrong.
+- **why** [warn, ≥45 words]: `why=` is non-empty, and has at least the minimum words once HTML is removed.
+- **front_max_chars** [300]: basic fronts, counting characters after removing `<pre>`, inline `<code>`, `\( … \)` / `\[ … \]` maths and tags.
+- **back_max_words** [no limit]: words on the back (or cloze text + extra), code blocks and tags removed.
+- **cloze_max_deletions** [3]: distinct `cN` numbers in one cloze note.
+- **multi_question** [error]: basic cards. The front has 2+ numbered items (`<ol>`, or lines starting `1.` `2)` `(a)` `i.`) answered one by one on the back. Or the front has 2+ `?` outside code (a warning). Or the back maps 3+ numbered items (`1 → A; 2 → C…`).
+- **outside_refs** [error]: the question says "previous/next/other card", "the example/code/figure … above" or "… from the notes/lecture/slides", "Figure 3", "Slide 12", "Listing 4", "Table 2", "as shown/defined in the lecture/notes", "in/from the notes/slides/lecture/textbook", or "from L04". The back and extra are only checked for references to other cards and "… above". "Question 3.1" / "Exercise 2" / "Example 4" labels are warnings.
+- **unshown_code** [warn]: the question has no code block, but calls a method on a variable (`p1.distanceTo(p2)`) that isn't a common library method.
+- **code_as_text** [warn]: outside code tags, any of: `foo(x);`, `int x = …`, `new Foo(`, `x -> …`, `List<Integer>`, `return …;`, or `public static …`. Also inline `<code>` with 2+ `;`, a line break, or `{ … }` over 40 characters, when the field has no code block.
+- **code_language** [warn]: a `<pre>` without `language-…` (use `code(text, lang)`).
+- **ref_quote_min_chars** [25] and **ref_page** [warn]: quotes long enough to find, and a page for file references.
+- **unused_images** [warn] and **order_window** [3]: as before.
 
 ## Bundle format (fallback when writing JSON by hand)
 
@@ -3905,6 +3963,7 @@ const Store = {
   async req(method, path, body, type){
     const r = await fetch(this.base + '/api/' + path, {method, body, cache: 'no-store', headers: body != null && type ? {'Content-Type': type} : {}});
     if (r.status === 401 && this.hosted){ signInAgain(); throw new Error('signed out - sign in again to keep saving'); }
+    if (await accountRefused(r)) throw new Error(accountStatus() === 'readonly' ? 'read-only account' : 'account disabled');
     if (!r.ok && r.status !== 404) throw new Error(`${method} ${path}: HTTP ${r.status}`);
     return r;
   },
@@ -3983,6 +4042,8 @@ const Store = {
     const r = await fetch(this.base + '/api/' + this.pPath(id), {method: 'PUT', body, headers, cache: 'no-store'});
     if (r.status === 401 && this.hosted){ signInAgain(); throw new Error('signed out - sign in again to keep saving'); }
     if (r.status === 409){ const j = await r.json().catch(() => ({})); return {conflict: true, rev: j.rev || 0}; }
+    if (await accountRefused(r)) throw new Error(accountStatus() === 'readonly' ? 'this account is read-only (set by the admin)' : 'this account has been disabled');
+    if (r.status === 413){ const j = await r.json().catch(() => ({})); throw new Error(j.error || 'storage limit reached'); }
     if (!r.ok) throw new Error(`save: HTTP ${r.status}`);
     if (this.hosted) idbPut('cache:project:' + id, {rev: meta.rev || 0, json});
     return {ok: true, json};
@@ -4162,7 +4223,7 @@ function softRefresh(){
   updateTabCounts(); renderTree(); renderScopeBar();
   const active = ($('#tabs button.active') || {dataset: {}}).dataset.tab;
   if (active === 'review') renderReview(); else if (active === 'sources') renderSourcesTab();
-  else if (active === 'revise') renderReviseSummary(); else if (active === 'export') renderExport(); else if (active === 'import') renderDeckSummary();
+  else if (active === 'revise') renderReviseSummary(); else if (active === 'export') renderExport(); else if (active === 'prompt') renderDeckSummary();
   if (typeof renderBatch === 'function') renderBatch();
 }
 /* ---- background pull: when the window regains focus, every 15 s, and right away when another tab saves */
@@ -4238,6 +4299,7 @@ async function writeState(){
   const id = curProject; let relabel = false;
   saving = saving.then(async () => {
     if (sync.paused || id !== curProject) return;
+    if (accountStatus() !== 'active'){ sync.state = 'error'; renderSyncInfo(); return; }   // read-only: keep the changes in this window only
     const st = snapshot(); st.rev = sync.rev + 1; st.savedAt = Date.now(); st.savedBy = WINDOW_ID;
     sync.dirty = false;
     try {
@@ -4281,6 +4343,34 @@ function loadState(st){
   // what this window last agreed with the store: the base of every 3-way merge
   sync.rev = (st && st.rev) || 0; sync.base = st ? plain(st) : plain(snapshot()); sync.dirty = false; sync.paused = false; sync.state = 'ok';
 }
+/* the admin's controls on this account (online version): disabled = can't use the app, read-only = nothing is saved */
+const accountStatus = () => (Store.hosted && Store.user && Store.user.status) || 'active';
+function showDisabled(){
+  if ($('#offlineScreen')) return;
+  const d = document.createElement('div'); d.id = 'offlineScreen';
+  d.style.cssText = 'position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px';
+  d.innerHTML = `<div class="panel" style="max-width:420px;text-align:center;padding:24px"><div style="font-size:34px">⛔</div><h2 style="margin:8px 0">This account is disabled</h2>
+    <p class="small muted">The admin has turned off access for @${esc((Store.user && Store.user.login) || '')}. Your projects are kept; ask the admin to turn access back on.</p>
+    <button class="btn" onclick="location.reload()">Try again</button></div>`;
+  document.body.appendChild(d);
+}
+function applyAccountStatus(){
+  const st = accountStatus();
+  if (st === 'disabled') return showDisabled();
+  let b = $('#roBanner');
+  if (st === 'readonly' && !b){ b = document.createElement('div'); b.id = 'roBanner';
+    b.style.cssText = 'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:60;background:var(--warn);color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.2)';
+    b.textContent = '👁 Read-only: the admin has paused saving for this account. You can look around, but changes are not kept.'; document.body.appendChild(b); }
+  if (st !== 'readonly' && b) b.remove();
+}
+/** a 403 from the server may mean the admin restricted the account while it was open */
+async function accountRefused(r){
+  if (r.status !== 403 || !Store.hosted) return false;
+  const j = await r.clone().json().catch(() => ({}));
+  if (!j.readonly && !j.disabled) return false;
+  if (Store.user) Store.user.status = j.disabled ? 'disabled' : 'readonly';
+  applyAccountStatus(); return true;
+}
 function showOffline(){
   const d = document.createElement('div'); d.id = 'offlineScreen';
   d.style.cssText = 'position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:24px';
@@ -4293,6 +4383,8 @@ function showOffline(){
 async function restore(){
   await Store.detect();
   if (Store.status === 'offline'){ showOffline(); return; }
+  if (accountStatus() === 'disabled'){ showDisabled(); return; }
+  applyAccountStatus();
   if (Store.hosted && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   if (Store.on){ const ss = await Store.getSettings().catch(() => null); if (ss){ SET = mergeSettings(ss); try { localStorage.setItem('acs-settings', JSON.stringify(SET)); } catch {} renderKeyHints(); } }
   projects = await Store.getIndex().catch(() => null) || [];
@@ -4719,7 +4811,8 @@ function showTab(name){
   if (name === 'revise') renderReviseSummary();
   if (name === 'export') renderExport();
   if (name === 'analytics') renderAnalytics();
-  if (name === 'import') renderDeckSummary();
+  if (name === 'prompt') renderDeckSummary();
+  if (name === 'checker') renderCheckSettings();
   if (name === 'sources') renderSourcesTab();
   renderScopeBar();
   window.scrollTo(0, 0);
@@ -4727,7 +4820,7 @@ function showTab(name){
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
 function updateTabCounts(){
   if (S.filter && S.filter.startsWith('chk:')) ensureCheckOption(S.filter.slice(4));
-  try { anaCountSoon(); } catch {}   // not defined yet during start-up
+  try { if (SET.showAnalytics !== false) anaCountSoon(); } catch {}   // not defined yet during start-up
   const n = S.cards.filter(c => c.status === 'new').length, ch = S.cards.filter(c => c.status === 'change').length;
   const rc = S.cards.filter(c => c.recheck).length;
   $('#tabReviewCount').textContent = S.cards.length ? `${n} left` + (rc ? ` · ${rc} re-check` : '') : '';
@@ -4755,10 +4848,10 @@ const promptMode = () => (S.prompt && S.prompt.pMode) || 'skill';
 const STEPS = {
   skill: ['Install the <b>anki</b> skill once (button on the left).',
           'In Claude Code or a Claude chat, attach or point to your material, then paste the prompt.',
-          'When Claude finishes, take <b>anki_bundle.json</b> (it has the images) to <b>Import</b>, then review every card.'],
+          'When Claude finishes, drop <b>anki_bundle.json</b> (it has the images) under the prompt, then review every card.'],
   other: ['Open a new chat. Attach your material and <b>anki_helper.py</b> (if the AI has code execution), then paste the prompt.',
           'When it finishes, download <b>anki_bundle.json</b> (has the images) - or copy the <code>&lt;&lt;&lt;ANKI_CARDS</code> block from the reply.',
-          'Go to <b>Import</b>, drop the file / paste the text, then review every card.']
+          'Drop the file / paste the reply under the prompt, then review every card.']
 };
 function updateModeUI(mode){
   const skill = mode === 'skill';
@@ -4780,14 +4873,19 @@ function renderCheckSettings(){
   const C = ck(); let g = '', h = '';
   for (const d of CHECK_DEFS){
     if (d.group !== g){ g = d.group; h += `<h4>${esc(g)}</h4>`; }
-    const ch = C[d.key] !== d.def ? ' ck-ch' : '';
-    h += `<label class="${ch}" for="ck_${d.key}" title="default: ${esc(String(d.def))}">${esc(d.label)}</label>` + (d.kind === 'level'
+    const ch = C[d.key] !== d.def;
+    h += `<div class="ck-row"><label class="${ch ? 'ck-ch' : ''}" for="ck_${d.key}">${esc(d.label)}${ch ? ` <span class="small muted">(default ${esc(String(d.def))})</span>` : ''}</label>` + (d.kind === 'level'
       ? `<select id="ck_${d.key}" data-ck="${d.key}">${['error', 'warn', 'off'].map(v => `<option ${C[d.key] === v ? 'selected' : ''}>${v}</option>`).join('')}</select>`
-      : `<div class="ck-num"><input type="number" min="0" step="1" id="ck_${d.key}" data-ck="${d.key}" value="${C[d.key]}"><span>${esc(d.unit)}</span></div>`);
+      : `<div class="ck-num"><input type="number" min="0" step="1" id="ck_${d.key}" data-ck="${d.key}" value="${C[d.key]}"><span>${esc(d.unit)}</span></div>`)
+      + `<details class="ck-how"><summary>What it looks for</summary>${esc(CHECK_HOW[d.key] || '')}</details></div>`;
   }
+  h += `<h4>Studio</h4><div class="ck-row"><label>Image missing or not loaded</label><span class="small muted">always on</span><details class="ck-how"><summary>What it looks for</summary>${esc(CHECK_HOW.missing_img)}</details></div>`;
   $('#ckGrid').innerHTML = h;
   const n = CHECK_DEFS.filter(d => C[d.key] !== d.def).length;
-  $('#ckSum').textContent = n ? `· ${n} changed from the defaults` : '· defaults';
+  $('#ckSum').textContent = n ? `${n} changed from the defaults` : 'defaults';
+  $('#tabCkCount').textContent = n ? String(n) : ''; $('#tabCkCount').hidden = !n;
+  if ($('#pCkLine')) $('#pCkLine').innerHTML = `Checker: <b>${n ? n + ' setting' + (n === 1 ? '' : 's') + ' changed' : 'defaults'}</b>${n ? ' (sent with the prompt)' : ''} · <a href="#" id="pCkEdit">edit in Checker</a>`;
+  if ($('#pCkEdit')) $('#pCkEdit').onclick = e => { e.preventDefault(); showTab('checker'); };
 }
 $('#ckGrid').addEventListener('change', e => {
   const el = e.target.closest('[data-ck]'); if (!el) return;
@@ -5260,7 +5358,7 @@ function applyBundle(d, mode, opts = {}){
   }
   for (const raw of d.cards || []){
     if (!raw) continue;
-    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); continue; }   // a formatting pass never removes cards
+    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); continue; }   // a formatting pass never removes cards
       if (c){ c.status = 'drop'; c.revised = true; sum.deleted++; } continue; }
     const n = normCard(raw);
     if (!n.deck && bundleDeck) n.deck = bundleDeck;
@@ -5277,7 +5375,7 @@ function applyBundle(d, mode, opts = {}){
       if (!isProject && isRevision && existing.fmt){
         // formatting pass: the card keeps its review status. If it was approved and really changed, it waits for a
         // quick re-check (with a diff); if the AI sent it back unchanged, nothing happens.
-        fmtSeen.add(existing.fmt); delete existing.fmt;
+        fmtSeen.add(existing.fmt); fmtFinish(existing);
         const same = n.type === existing.type && FIELDS[existing.type].every(f => (n[f] || '') === (existing[f] || ''));
         if (same){ sum.fmtSame++; continue; }
         existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), feedback: ''};
@@ -5312,12 +5410,12 @@ function applyBundle(d, mode, opts = {}){
     sum.ordered = d.order.length;
   }
   // cards of an answered formatting batch that the reply left out were fine as they were
-  if (fmtSeen.size) for (const c of S.cards) if (c.fmt && fmtSeen.has(c.fmt)){ delete c.fmt; sum.fmtSame++; }
+  if (fmtSeen.size) for (const c of S.cards) if (c.fmt && fmtSeen.has(c.fmt)){ fmtFinish(c); sum.fmtSame++; }
   if (!isProject && !isRevision) markBatch(d, sum, idMap);
   syncTree();
   return sum;
 }
-const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
+const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo'} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
 
 async function importFiles(files, mode, opts = {}){
   const sums = []; let imgs = 0; const errors = [];
@@ -5507,6 +5605,24 @@ const CHECK_DEFS = [
   {key: 'order_window', group: 'Study order', label: 'Spoiler window in the study order', kind: 'num', def: 3, unit: 'cards'}
 ];
 const CHECK_DEFAULTS = Object.fromEntries(CHECK_DEFS.map(d => [d.key, d.def]));
+/* exactly what each check looks for (kept in step with cardChecks() below and validate() in anki_helper.py) */
+const CHECK_HOW = {
+  why: 'Fails when the card\'s "why this card" field is empty once HTML tags are removed.',
+  why_min_words: 'Removes HTML tags from "why", splits it on spaces and counts the words. Fails below the minimum. (An empty "why" is reported by the check above instead.) Its level follows the "why" check.',
+  front_max_chars: 'Basic cards only. Takes the front, removes code blocks (<pre>), inline <code>, maths \\( … \\) and \\[ … \\], and HTML tags, then counts the characters left (spaces included). Fails above the limit. Always a warning.',
+  back_max_words: 'Counts the words on the back (basic cards) or in the cloze text plus Extra (cloze cards), after removing code blocks and HTML tags. Fails above the limit. Always a warning.',
+  cloze_max_deletions: 'Cloze cards only. Counts the different numbers used in {{c1::…}}, {{c2::…}} … (c1 used twice counts once). Fails above the limit. Always a warning.',
+  multi_question: 'Basic cards only; cards tagged multi-ok are skipped. Three signs, checked in this order: (1) the front has 2+ numbered items (an <ol> list, or lines starting "1." "2)" "(a)" "i." …) AND the back answers them one by one (2+ items written like "1 → …" "2: …", or at least as many lines as items) - error; (2) the front has 2+ question marks outside code - warning; (3) the back answers 3+ numbered items - error. With the level set to warn, all three are warnings.',
+  outside_refs: 'Cards tagged refs-ok are skipped. In the question (front, or cloze text) it looks for phrases that point outside the card: "previous / next / other / earlier card", "the example / code / figure / table / method … above" or "… from the notes / lecture / slides", "Figure 3", "Fig. 2", "Slide 12", "Listing 4", "Table 2", "as shown / defined / discussed in the lecture / notes / slides / class", "in / from the notes / slides / lecture / textbook / tutorial / reading", "from L04" / "in lecture 3". On the back and Extra it only looks for references to other cards and to "the example / code / figure above". A numbered "Question 3.1", "Exercise 2" or "Example 4" is only ever a warning (fine when the whole problem is on the card).',
+  unshown_code: 'Cards tagged refs-ok, and questions that contain a code block (<pre>), are skipped. Otherwise it looks in the question text and its inline <code> for a method called on a variable: a lowercase name, a dot, a method name and "(" - like p1.distanceTo(p2). Common library methods are ignored (add, get, set, put, remove, contains, size, isEmpty, equals, hashCode, toString, compareTo, length, charAt, substring, indexOf, append, map, filter, reduce, forEach, collect, stream, of, iterate, limit, sum, count, apply, accept, test, andThen, compose, next, hasNext, sort, split, trim, format, println, print and similar).',
+  code_as_text: 'Two signs. (1) In the front, back or Extra, outside code tags: a call ending in ";" (foo(x);), a typed declaration (int x = …, String s;), new Foo(…), a lambda (x -> …), generics (List<Integer>), "return …;", or modifiers before a type (public static void, private final Point). (2) Inline <code> holding several statements - 2+ semicolons, a line break, or { … } over 40 characters - in a field without a code block.',
+  code_language: 'A code block (<pre>) whose <code> has no language-… class, so it is shown without syntax highlighting. code() in the skill always adds one.',
+  ref_quote_min_chars: 'Each source reference\'s quote, with runs of spaces collapsed, must be at least this many characters, so it can be found again in the material. (When the material is loaded, Claude also checks that the quote really is on that page - that part is always an error.)',
+  ref_page: 'A source reference to a file (anything that isn\'t an http(s) address) without a page number.',
+  unused_images: 'Run by Claude only: an image registered on the deck that no card\'s HTML uses.',
+  order_window: 'Used by Claude when it orders the cards: a card counts as spoiling a later one if it comes up to this many places earlier and its answer terms, numbers or image give away the later card\'s answer.',
+  missing_img: 'Studio only: a card shows an image whose file is not in the project (or could not be downloaded).'
+};
 const ck = () => { let c = null; try { c = SET.checks; } catch {} return {...CHECK_DEFAULTS, ...(c || {})}; };   // SET may not exist yet during start-up
 function plainLines(h){
   const t = decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' [code] ').replace(/<\/?(br|p|div|li|tr|h\d)\b[^>]*>/gi, '\n').replace(/<[^>]+>/g, ''));
@@ -5911,7 +6027,17 @@ function prevDiffHTML(c){
   if (!changed) h += '<div class="muted">No field changes.</div>';
   return h;
 }
+/** the Checker's verdict on the card being reviewed (same checks and settings as everywhere else) */
+function renderCurChecks(c){
+  const box = $('#curChecks'); if (!box) return;
+  const res = c ? checksOf(c).concat(cardMissing(c) ? [{key: 'missing_img', level: 'W', msg: 'An image is missing or not loaded.'}] : []) : [];
+  box.hidden = !res.length; if (!res.length) return;
+  const e = res.filter(x => x.level === 'E').length, w = res.length - e;
+  box.querySelector('summary').innerHTML = `Checker: ${e ? `<b class="E" style="color:var(--bad)">${e} error${e > 1 ? 's' : ''}</b>` : ''}${e && w ? ', ' : ''}${w ? `<b style="color:var(--warn)">${w} warning${w > 1 ? 's' : ''}</b>` : ''}`;
+  box.querySelector('ul').innerHTML = res.map(x => `<li class="${x.level}"><span style="color:var(--text)">${esc(x.msg)}</span> <span class="muted">(${esc((CHECK_DEFS.find(d => d.key === x.key) || {label: 'Studio'}).label)})</span></li>`).join('');
+}
 function badgesHTML(c){
+  renderCurChecks(c);
   return `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> `
     + (c.recheck ? '<span class="pill warn" title="Approved before, then reformatted by a formatting pass: check the changes (see below the card), then approve or exclude it">re-check</span> ' : '')
     + (c.edited ? '<span class="pill edited" title="You edited this card\'s fields directly">field-edited</span>' : '');
@@ -6115,6 +6241,7 @@ function watchScrollers(pc){
 }
 function renderPreview(){
   const c = curCard(); if (!c) return;
+  renderCurChecks(c);   // edits change what the checker finds
   renderWhy(c);
   const host = $('#previewHost');
   if (!shadow) shadow = host.attachShadow({mode: 'open'});
@@ -6457,6 +6584,7 @@ window.addEventListener('resize', debounce(checkCompact, 80));
 const DEFAULT_SETTINGS = {
   version: 2,
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
+  showAnalytics: true,                             // the Analytics tab (Settings → Tabs)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
   keys: {exclude: ['q'], change: ['w'], approve: ['d'], reset: ['r'], next: ['Meta', 'ArrowRight'], prev: ['ArrowLeft'],
          flip: ['Tab'], copy: ['c'], pane: ['e'], order: ['o'], image: ['i'], sidebar: ['\\']},
@@ -6478,6 +6606,7 @@ function mergeSettings(j){
   if (j && j.keys) for (const k of Object.keys(out.keys)) if (Array.isArray(j.keys[k])) out.keys[k] = j.keys[k].map(String);
   // v2 swapped the defaults (Q exclude, D approve); move people who never changed the old defaults (Q approve, D exclude) over
   if (j && j.keys && !(j.version >= 2) && J(j.keys.approve) === J(['q']) && J(j.keys.exclude) === J(['d'])){ out.keys.approve = ['d']; out.keys.exclude = ['q']; }
+  if (j && j.showAnalytics === false) out.showAnalytics = false;
   if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
     const v = j.checks[d.key]; if (v === undefined) continue;
     if (d.kind === 'level'){ if (['error', 'warn', 'off'].includes(v)) out.checks[d.key] = v; }
@@ -6494,7 +6623,14 @@ function saveSettings(){ try { localStorage.setItem('acs-settings', JSON.stringi
 const MOD_KEYS = ['Meta', 'Control', 'Alt', 'Shift'];
 const keyName = k => ({Meta: '⌘ Cmd', Control: 'Ctrl', Alt: 'Alt', Shift: 'Shift', ' ': 'Space', ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc', Tab: 'Tab', Enter: 'Enter'}[k] || (k.length === 1 ? k.toUpperCase() : k));
 const keyMatches = (action, key) => (SET.keys[action] || []).some(k => k.length === 1 ? k.toLowerCase() === key.toLowerCase() : k === key);
+/** optional tabs (Settings → Tabs); tab numbers follow what is shown */
+function applyTabs(){
+  const on = SET.showAnalytics !== false, b = $('#tabs button[data-tab=analytics]');
+  if (b){ b.hidden = !on; if (!on && b.classList.contains('active')) showTab('review'); }
+  let i = 0; $$('#tabs button').forEach(x => { if (!x.hidden){ const n = x.querySelector('.n'); if (n) n.textContent = ++i; } });
+}
 function renderKeyHints(){
+  try { applyTabs(); } catch {}
   if ($('#ckGrid') && typeof renderCheckSettings === 'function') try { renderCheckSettings(); } catch {}   // the checker settings change with the rest of the settings
   $$('.kbd[data-k]').forEach(el => { const ks = SET.keys[el.dataset.k] || []; el.textContent = ks.length ? keyName(ks[0]) : '–'; el.title = ks.map(keyName).join(' / '); });
 }
@@ -6584,11 +6720,13 @@ function renderSwipeSettings(){
   $('#swDist').value = SET.swipe.dist; $('#swDistV').textContent = SET.swipe.dist + '%';
   $('#swAng').value = SET.swipe.angle; $('#swAngV').textContent = SET.swipe.angle + '°';
   $('#swFx').checked = SET.swipe.effects;
+  $('#setAna').checked = SET.showAnalytics !== false;
 }
 $('#swDist').oninput = e => { SET.swipe.dist = +e.target.value; renderSwipeSettings(); };
 $('#swAng').oninput = e => { SET.swipe.angle = +e.target.value; renderSwipeSettings(); };
 ['#swDist', '#swAng'].forEach(q => $(q).onchange = () => saveSettings());
 $('#swFx').onchange = e => { SET.swipe.effects = e.target.checked; saveSettings(); };
+$('#setAna').onchange = e => { SET.showAnalytics = e.target.checked; saveSettings(); applyTabs(); };
 function renderSettings(){
   renderSwipeSettings();
   $('#keyGrid').innerHTML = Object.keys(DEFAULT_SETTINGS.keys).map(a => `<span>${esc(KEY_LABELS[a])}</span>
@@ -6600,37 +6738,155 @@ function renderSettings(){
     <button class="btn sm" data-ldel="${i}" title="Remove">✕</button></div>`).join('');
 }
 $('#btnSettings').onclick = () => { renderSettings(); renderPeople(); $('#setDlg').showModal(); };
-/* ---- admin: who may sign in to the online version */
-async function renderPeople(data){
-  const sec = $('#peopleSec'); sec.hidden = !(Store.hosted && Store.user && Store.user.admin); if (sec.hidden) return;
+/* ---- admin: user management (online version, admins only) - see lib/users.ts for what each control does */
+async function renderPeople(){ $('#peopleSec').hidden = !(Store.hosted && Store.user && Store.user.admin); }
+$('#btnAdmin').onclick = () => { $('#setDlg').close(); openAdmin(); };
+const admApi = async (method, path, body) => {
+  const r = await fetch('/api/admin/' + path, {method, cache: 'no-store', ...(body !== undefined ? {body: typeof body === 'string' ? body : JSON.stringify(body), headers: {'Content-Type': 'application/json'}} : {})});
+  const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
+  if (!r.ok) throw new Error((j && j.error) || `HTTP ${r.status}`);
+  return j ?? t;
+};
+const fmtBytes = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+const ago = t => { if (!t) return 'never'; const s = (Date.now() - new Date(t)) / 1000; return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : s < 129600 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago'; };
+let adm = {users: [], pending: [], cur: null, people: null};
+async function openAdmin(){ $('#admDlg').showModal(); await loadAdmin(); }
+async function loadAdmin(keep){
   try {
-    if (!data){ const r = await Store.req('GET', 'people'); data = await r.json(); }
-    const row = (login, note, removable) => `<div class="row small" style="gap:8px;padding:4px 8px;border:1px solid var(--line);border-radius:6px">
-      <img src="https://github.com/${encodeURIComponent(login)}.png?size=40" alt="" width="20" height="20" style="border-radius:50%" onerror="this.style.visibility='hidden'">
-      <b>@${esc(login)}</b><span class="muted">${note}</span><span class="spacer"></span>
-      ${removable ? `<button class="btn sm" data-rm="${esc(login)}" title="Remove access">Remove</button>` : ''}</div>`;
-    $('#peopleList').innerHTML =
-      data.admins.map(l => row(l, 'admin', false)).join('') +
-      data.env.filter(l => !data.admins.includes(l)).map(l => row(l, 'set on Vercel (ACS_ALLOWED_GITHUB)', false)).join('') +
-      data.added.map(x => row(x.login, `added ${new Date(x.at).toLocaleDateString()}`, true)).join('');
-  } catch (e) { $('#peopleList').innerHTML = `<div class="small muted">Could not load the list: ${esc(e.message)}</div>`; }
+    const [u, ppl] = await Promise.all([admApi('GET', 'users'), fetch('/api/people', {cache: 'no-store'}).then(r => r.json())]);
+    adm.users = u.users; adm.pending = u.pending; adm.people = ppl;
+    if (!keep || !adm.users.some(x => x.owner === adm.cur)) adm.cur = adm.cur && adm.users.some(x => x.owner === adm.cur) ? adm.cur : (adm.users[0] || {}).owner || null;
+    renderAdminList(); renderAdminUser();
+  } catch (e) { $('#admUsers').innerHTML = `<div class="small muted">Could not load: ${esc(e.message)}</div>`; }
 }
+const avatar = l => `https://github.com/${encodeURIComponent(l)}.png?size=56`;
+function renderAdminList(){
+  const added = new Set((adm.people && adm.people.added || []).map(x => x.login));
+  $('#admUsers').innerHTML = adm.users.map(u => `<div class="adm-u ${u.owner === adm.cur ? 'on' : ''}" data-uo="${esc(u.owner)}">
+      <img src="${esc(u.image || avatar(u.login))}" alt="" onerror="this.style.visibility='hidden'"><div class="t"><div><b>@${esc(u.login)}</b> ${u.role === 'admin' ? '<span class="adm-st admin">admin</span>' : ''}
+      ${u.status !== 'active' ? `<span class="adm-st ${u.status}">${u.status === 'readonly' ? 'read-only' : u.status}</span>` : ''}${!u.allowed ? '<span class="adm-st disabled">no access</span>' : ''}</div>
+      <div class="small muted">${u.projects} project${u.projects === 1 ? '' : 's'} · ${fmtBytes(u.bytes)} · ${ago(u.last_seen)}</div></div></div>`).join('')
+    + (adm.pending.length ? `<div class="small muted" style="margin-top:8px">Allowed, not signed in yet</div>` + adm.pending.map(p => `<div class="adm-u" style="cursor:default">
+      <img src="${avatar(p.login)}" alt="" onerror="this.style.visibility='hidden'"><div class="t"><div><b>@${esc(p.login)}</b></div><div class="small muted">${p.envAdmin ? 'admin' : added.has(p.login) ? 'waiting for first sign-in' : 'set on Vercel'}</div></div>
+      ${added.has(p.login) ? `<button class="btn sm" data-rm="${esc(p.login)}" title="Remove access">✕</button>` : ''}</div>`).join('') : '');
+}
+$('#admUsers').addEventListener('click', async e => {
+  const rm = e.target.closest('[data-rm]');
+  if (rm){ e.stopPropagation(); if (!confirm(`Stop @${rm.dataset.rm} from signing in? Their data is kept.`)) return;
+    const r = await fetch('/api/people/' + encodeURIComponent(rm.dataset.rm), {method: 'DELETE'}); const j = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(j.error || `HTTP ${r.status}`, 4000); toast(`@${rm.dataset.rm} can no longer sign in`); return loadAdmin(true); }
+  const it = e.target.closest('[data-uo]'); if (!it) return;
+  adm.cur = it.dataset.uo; renderAdminList(); renderAdminUser();
+});
 $('#peopleAdd').onsubmit = async e => {
   e.preventDefault();
   const login = $('#peopleLogin').value.trim().replace(/^@/, ''); if (!login) return;
   const r = await fetch('/api/people', {method: 'POST', body: JSON.stringify({login}), headers: {'Content-Type': 'application/json'}});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return toast(j.error || `Could not add (HTTP ${r.status})`, 4000);
-  $('#peopleLogin').value = ''; renderPeople(j); toast(`@${login} can now sign in`);
+  $('#peopleLogin').value = ''; toast(`@${login} can now sign in`); loadAdmin(true);
 };
-$('#peopleList').addEventListener('click', async e => {
-  const b = e.target.closest('[data-rm]'); if (!b) return;
-  if (!confirm(`Stop @${b.dataset.rm} from signing in? Their projects are kept.`)) return;
-  const r = await fetch('/api/people/' + encodeURIComponent(b.dataset.rm), {method: 'DELETE'});
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) return toast(j.error || `Could not remove (HTTP ${r.status})`, 4000);
-  renderPeople(j); toast(`@${b.dataset.rm} removed`);
-});
+$('#admClose').onclick = () => $('#admDlg').close();
+$('#admRefresh').onclick = () => loadAdmin(true);
+async function renderAdminUser(){
+  const box = $('#admDetail'), u = adm.users.find(x => x.owner === adm.cur);
+  if (!u){ box.innerHTML = '<div class="muted small" style="padding:20px">Choose an account.</div>'; return; }
+  const me = Store.user && Store.user.login && Store.user.login.toLowerCase() === u.login, locked = u.envAdmin || me;
+  const inApp = (adm.people && adm.people.added || []).some(x => x.login === u.login);
+  const quota = u.quota_mb ? u.quota_mb * 1048576 : 0;
+  box.innerHTML = `<div class="row" style="gap:12px;margin-bottom:12px"><img src="${esc(u.image || avatar(u.login))}" alt="" width="48" height="48" style="border-radius:50%" onerror="this.style.visibility='hidden'">
+      <div><h2 style="margin:0">@${esc(u.login)}${u.name ? ` <span class="muted" style="font-weight:400">${esc(u.name)}</span>` : ''}</h2>
+      <div class="small muted">first seen ${new Date(u.first_seen).toLocaleDateString()} · last active ${ago(u.last_seen)} · account <code>${esc(u.owner)}</code>${u.signed_out ? ` · signed out everywhere ${ago(u.signed_out)}` : ''}</div></div></div>
+    <div class="adm-sec"><h3>Access and limits</h3><div class="adm-ctl">
+      <label class="f">Role<select id="admRole" ${locked ? 'disabled' : ''}><option value="user">User</option><option value="admin">Admin (can manage users)</option></select></label>
+      <label class="f">Status<select id="admStatus" ${locked ? 'disabled' : ''}><option value="active">Active</option><option value="readonly">Read-only (can view, can't save)</option><option value="disabled">Disabled (can't use the app)</option></select></label>
+      <label class="f">Storage limit (MB)<input type="number" min="1" id="admQuota" placeholder="no limit" value="${u.quota_mb ?? ''}"></label>
+      <div><button class="btn" id="admSave">Save changes</button></div></div>
+      <div class="small" style="margin-top:10px">Using <b>${fmtBytes(u.bytes)}</b>${quota ? ` of ${u.quota_mb} MB` : ''} in ${u.projects} project(s) and ${u.files} file(s).</div>
+      ${quota ? `<div class="ana-meter" style="margin-top:4px"><i style="width:${Math.min(100, u.bytes / quota * 100)}%;background:${u.bytes > quota * .9 ? 'var(--bad)' : 'var(--accent)'}"></i></div>` : ''}
+      ${locked ? `<div class="small muted" style="margin-top:6px">${me ? 'This is you.' : 'This admin is set on Vercel (ACS_ADMIN_GITHUB).'} Role and status can't be changed here.</div>` : ''}
+      <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${!me ? `<button class="btn" id="admSignOut" title="Ends every session this account has; they can sign in again">Sign out everywhere</button>` : ''}
+      ${inApp ? `<button class="btn" id="admRevoke">Remove sign-in access</button>` : ''}</div></div>
+    <div class="adm-sec"><h3>Projects</h3><div id="admProjects" class="small muted">Loading…</div></div>
+    <div class="adm-sec"><h3>Settings</h3><div class="row" style="gap:8px"><button class="btn" id="admSetView">View / edit</button><button class="btn" id="admSetReset">Reset to defaults</button></div></div>
+    <div id="admEditor"></div>
+    ${!me ? `<div class="adm-sec adm-danger"><h3>Danger zone</h3><div class="row" style="gap:8px;flex-wrap:wrap">
+      <button class="btn" id="admWipe">Delete all their data</button><button class="btn" id="admForget">Delete data and forget the account</button></div>
+      <div class="small muted" style="margin-top:6px">Deletes projects, images, history and settings. Forgetting also removes this entry (it comes back if they sign in again while allowed).</div></div>` : ''}`;
+  $('#admRole').value = u.role; $('#admStatus').value = u.status;
+  $('#admSave').onclick = async () => {
+    const patch = {quota_mb: $('#admQuota').value === '' ? null : +$('#admQuota').value};
+    if (!locked){ patch.role = $('#admRole').value; patch.status = $('#admStatus').value; }
+    try { await admApi('PATCH', 'users/' + encodeURIComponent(u.owner), patch); toast('Saved'); loadAdmin(true); } catch (e) { toast(e.message, 4000); }
+  };
+  if ($('#admSignOut')) $('#admSignOut').onclick = async () => { if (!confirm(`Sign @${u.login} out on every device?`)) return;
+    try { await admApi('PATCH', 'users/' + encodeURIComponent(u.owner), {signOut: true}); toast('Signed out everywhere'); loadAdmin(true); } catch (e) { toast(e.message, 4000); } };
+  if ($('#admRevoke')) $('#admRevoke').onclick = async () => { if (!confirm(`Stop @${u.login} from signing in? Their data is kept.`)) return;
+    const r = await fetch('/api/people/' + encodeURIComponent(u.login), {method: 'DELETE'}); const j = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(j.error || `HTTP ${r.status}`, 4000); toast('Access removed'); loadAdmin(true); };
+  const typed = what => prompt(`This can't be undone. Type ${u.login} to ${what}.`) === u.login;
+  if ($('#admWipe')) $('#admWipe').onclick = async () => { if (!typed('delete all their data')) return;
+    try { await admApi('DELETE', 'users/' + encodeURIComponent(u.owner)); toast('Data deleted'); loadAdmin(true); } catch (e) { toast(e.message, 4000); } };
+  if ($('#admForget')) $('#admForget').onclick = async () => { if (!typed('delete their data and forget the account')) return;
+    try { await admApi('DELETE', 'users/' + encodeURIComponent(u.owner) + '?forget=1'); toast('Account forgotten'); adm.cur = null; loadAdmin(); } catch (e) { toast(e.message, 4000); } };
+  $('#admSetView').onclick = async () => { try { const j = await admApi('GET', `users/${encodeURIComponent(u.owner)}/settings`);
+    admEditor(`Settings of @${u.login}`, JSON.stringify(j, null, 2), async txt => admApi('PUT', `users/${encodeURIComponent(u.owner)}/settings`, txt)); } catch (e) { toast(e.message, 4000); } };
+  $('#admSetReset').onclick = async () => { if (!confirm(`Reset @${u.login}'s keys and settings to the defaults?`)) return;
+    try { await admApi('DELETE', `users/${encodeURIComponent(u.owner)}/settings`); toast('Settings reset'); } catch (e) { toast(e.message, 4000); } };
+  renderAdminProjects(u);
+}
+async function renderAdminProjects(u){
+  const box = $('#admProjects'), base = `users/${encodeURIComponent(u.owner)}/project/`;
+  let list; try { list = await admApi('GET', `users/${encodeURIComponent(u.owner)}/projects`); } catch (e) { box.textContent = e.message; return; }
+  if (!list.length){ box.textContent = 'No projects.'; return; }
+  box.classList.remove('muted');
+  box.innerHTML = `<div class="ana-scroll"><table class="ana-tbl"><thead><tr><th>Project</th><th class="num">Cards</th><th class="num">Size</th><th class="num">Images & files</th><th>Updated</th><th></th></tr></thead><tbody>`
+    + list.map(p => `<tr data-pid="${esc(p.id)}"${p.deleted ? ' class="muted"' : ''}><td><b>${esc(p.name || p.id)}</b>${p.deleted ? ' <span class="adm-st disabled">deleted</span>' : ''}<div class="small muted">${esc(p.id)} · rev ${p.rev ?? '–'} · ${p.history} saved cop${p.history === 1 ? 'y' : 'ies'}</div></td>`
+      + `<td class="num">${p.cards ?? '–'}</td><td class="num">${fmtBytes(p.bytes)}</td><td class="num">${p.files} · ${fmtBytes(p.fileBytes)}</td><td class="small">${p.updated ? ago(p.updated) : '–'}</td>`
+      + `<td style="white-space:nowrap">${p.deleted || !p.stored ? `<button class="btn sm" data-pa="restore">Restore</button>`
+        : `<button class="btn sm" data-pa="edit">Edit</button> <button class="btn sm" data-pa="rename">Rename</button> <button class="btn sm" data-pa="dl">⬇</button> <button class="btn sm" data-pa="hist">History</button> <button class="btn sm" data-pa="files">Files</button> <button class="btn sm" data-pa="del">Delete</button>`}</td></tr>`).join('')
+    + `</tbody></table></div>`;
+  box.onclick = async e => {
+    const b = e.target.closest('[data-pa]'); if (!b) return;
+    const pid = b.closest('[data-pid]').dataset.pid, p = list.find(x => x.id === pid), path = base + encodeURIComponent(pid);
+    try {
+      if (b.dataset.pa === 'edit'){ const txt = await admApi('GET', path);
+        admEditor(`Project "${p.name || pid}" of @${u.login}`, JSON.stringify(typeof txt === 'string' ? JSON.parse(txt) : txt, null, 1), async t => { await admApi('PUT', path, t); renderAdminProjects(u); },
+          'Saving replaces the stored project and raises its revision, so their open windows pick the change up. The old version is kept in History.'); }
+      if (b.dataset.pa === 'rename'){ const n = prompt('New name', p.name || ''); if (!n) return; await admApi('PATCH', path, {name: n}); toast('Renamed'); renderAdminProjects(u); }
+      if (b.dataset.pa === 'dl'){ const txt = await admApi('GET', path); download(new Blob([typeof txt === 'string' ? txt : JSON.stringify(txt)], {type: 'application/json'}), `${u.login}-${(p.name || pid).replace(/[^\w.-]+/g, '_')}.json`); }
+      if (b.dataset.pa === 'del'){ if (!confirm(`Delete "${p.name || pid}" for @${u.login}? It can be restored from here later.`)) return; await admApi('DELETE', path); toast('Deleted'); renderAdminProjects(u); loadAdmin(true); }
+      if (b.dataset.pa === 'restore'){ await admApi('POST', path + '/restore'); toast('Restored'); renderAdminProjects(u); loadAdmin(true); }
+      if (b.dataset.pa === 'hist'){ const h = await admApi('GET', path + '/history');
+        admPanel(`History of "${p.name || pid}"`, h.length ? `<table class="ana-tbl"><thead><tr><th>Saved</th><th class="num">Rev</th><th class="num">Size</th><th></th></tr></thead><tbody>${h.map(x => `<tr><td>${new Date(x.at).toLocaleString()}</td><td class="num">${x.rev}</td><td class="num">${fmtBytes(x.bytes)}</td><td><button class="btn sm" data-hat="${esc(x.at)}">Put this version back</button></td></tr>`).join('')}</tbody></table>` : 'No saved copies yet.',
+          async el => { const at = el.dataset.hat; if (!at || !confirm('Make this saved copy the current version? The current one goes into history.')) return; await admApi('POST', path + '/history', {at}); toast('Version restored'); renderAdminProjects(u); }); }
+      if (b.dataset.pa === 'files'){ const f = await admApi('GET', path + '/files');
+        admPanel(`Files of "${p.name || pid}"`, f.length ? `<table class="ana-tbl"><thead><tr><th>Name</th><th>Kind</th><th class="num">Size</th><th></th></tr></thead><tbody>${f.map(x => `<tr><td>${esc(x.name)}${x.complete ? '' : ' <span class="adm-st readonly">incomplete</span>'}</td><td>${esc(x.kind)}</td><td class="num">${fmtBytes(x.size)}</td><td style="white-space:nowrap"><a class="btn sm" href="/api/admin/${path}/files/${esc(x.kind)}/${encodeURIComponent(x.name)}" download>⬇</a> <button class="btn sm" data-fdel="${esc(x.kind)}/${esc(x.name)}">Delete</button></td></tr>`).join('')}</tbody></table>` : 'No files.',
+          async el => { const k = el.dataset.fdel; if (!k || !confirm(`Delete ${k.split('/').slice(1).join('/')}? Cards using it will show a missing image.`)) return; const [kind, ...nm] = k.split('/'); await admApi('DELETE', `${path}/files/${kind}/${encodeURIComponent(nm.join('/'))}`); toast('File deleted'); b.click(); }); }
+    } catch (err) { toast(err.message, 4000); }
+  };
+}
+/** a JSON editor inside the user page: validates before saving */
+function admEditor(title, text, onSave, note){
+  const box = $('#admEditor');
+  box.innerHTML = `<div class="adm-sec"><div class="row"><h3 style="margin:0">${esc(title)}</h3><span class="spacer"></span><button class="btn sm" id="admEdClose">Close</button></div>
+    ${note ? `<div class="small muted" style="margin:6px 0">${esc(note)}</div>` : ''}<textarea class="adm-json" id="admEdText" spellcheck="false"></textarea>
+    <div class="row" style="gap:8px;margin-top:6px"><span class="small" id="admEdMsg"></span><span class="spacer"></span><button class="btn primary" id="admEdSave">Save</button></div></div>`;
+  $('#admEdText').value = text; box.scrollIntoView({behavior: 'smooth', block: 'start'});
+  $('#admEdClose').onclick = () => box.innerHTML = '';
+  $('#admEdText').oninput = () => { try { JSON.parse($('#admEdText').value); $('#admEdMsg').textContent = ''; } catch (e) { $('#admEdMsg').innerHTML = `<span style="color:var(--bad)">Not valid JSON: ${esc(e.message)}</span>`; } };
+  $('#admEdSave').onclick = async () => {
+    let t = $('#admEdText').value; try { JSON.parse(t); } catch (e) { return toast('Not valid JSON: ' + e.message, 4000); }
+    try { await onSave(t); toast('Saved'); box.innerHTML = ''; } catch (e) { toast(e.message, 4000); }
+  };
+}
+function admPanel(title, html, onClick){
+  const box = $('#admEditor');
+  box.innerHTML = `<div class="adm-sec"><div class="row"><h3 style="margin:0">${esc(title)}</h3><span class="spacer"></span><button class="btn sm" id="admEdClose">Close</button></div><div class="ana-scroll" style="margin-top:8px">${html}</div></div>`;
+  $('#admEdClose').onclick = () => box.innerHTML = '';
+  box.onclick = e => { const el = e.target.closest('[data-hat],[data-fdel]'); if (el) onClick(el).catch(err => toast(err.message, 4000)); };
+  box.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
 $('#setClose').onclick = () => $('#setDlg').close();
 $('#setDlg').addEventListener('click', e => {
   const kc = e.target.closest('.keycap');
@@ -6945,30 +7201,83 @@ REVISE_CARDS>>>`;
   $('#rvOut').value = txt;
 };
 /* ---- formatting pass: batches of cards sent to Claude for presentation-only fixes (see formatIssues) */
+/* The queue lives on the cards: c.fmt = its prompt ("F3") while waiting for Claude (c.fmtSt 'todo' | 'copied'),
+   c.fmtDone = the prompt that answered it. So it is saved and synced with the project like everything else. */
+const FMT_LABEL = {outside_refs: 'outside references', unshown_code: 'unshown code', code_as_text: 'code as plain text', code_language: 'code without a language'};
 function fmtCandidates(){
   const scope = $('#fmtScope').value, stf = $('#fmtStatus').value;
   return ordered(S.cards.filter(c => inScope(c) && c.status !== 'drop' && !c.fmt && (stf === 'any' || c.status === stf)
     && (scope === 'all' || formatIssues(c).length || (scope === 'flagok' && c.status === 'ok'))), S.order || 'source');
 }
+function fmtItems(){
+  const m = new Map();
+  for (const c of S.cards){ const id = c.fmt || c.fmtDone; if (!id) continue; if (!m.has(id)) m.set(id, []); m.get(id).push(c); }
+  return [...m.entries()].map(([id, cards]) => ({id, cards, status: cards.some(c => c.fmt) ? (cards.some(c => c.fmt && c.fmtSt === 'copied') ? 'copied' : 'todo') : 'done'}))
+    .sort((a, b) => (+a.id.slice(1) || 0) - (+b.id.slice(1) || 0));
+}
+const fmtNext = () => fmtItems().find(i => i.status === 'todo');
+function fmtFinish(c){ c.fmtDone = c.fmt; delete c.fmt; delete c.fmtSt; }
 function renderFmtPass(){
   if (!$('#fmtPanel')) return;
-  const cand = fmtCandidates(), size = +$('#fmtSize').value || 40, sent = S.cards.filter(c => c.fmt);
-  const flagged = S.cards.filter(c => inScope(c) && c.status !== 'drop' && formatIssues(c).length);
-  const by = k => flagged.filter(c => c.status === k).length;
-  $('#fmtStats').innerHTML = `Checks flag <b>${flagged.length}</b> card(s) here: ${by('new')} unreviewed, ${by('ok')} approved, ${by('change')} change requested.`
-    + (sent.length ? ` <b>${sent.length}</b> sent and waiting for Claude's reply <button class="btn" id="fmtForget" style="padding:1px 8px">Forget sent</button>` : '');
-  const batches = []; for (let i = 0; i < cand.length; i += size) batches.push(cand.slice(i, i + size));
-  $('#fmtBatches').innerHTML = batches.length ? batches.map((b, k) => `<div class="row" style="gap:8px"><button class="btn primary" data-fmtb="${k}">📋 Copy prompt ${k + 1} of ${batches.length}</button>`
-      + `<span class="small muted">${b.length} card(s): ${esc(b[0].id)} … ${esc(b[b.length - 1].id)}</span></div>`).join('')
-      + `<div class="small muted">Paste each prompt into a Claude chat (the same one as the original cards is best), then drop the <code>anki_revision.json</code> it returns into <i>2 · Apply Claude's revision</i>. A copied batch leaves this list until its reply is applied.</div>`
-    : `<div class="small muted">${sent.length ? 'Everything selected has been sent.' : 'No cards to send with these settings.'}</div>`;
-  $$('#fmtBatches [data-fmtb]').forEach(btn => btn.onclick = () => {
-    const b = batches[+btn.dataset.fmtb], label = 'f' + Date.now().toString(36);
-    copyText(fmtPrompt(b)); b.forEach(c => c.fmt = label); save(); renderFmtPass();
-    toast(`Prompt for ${b.length} cards copied`);
-  });
-  const fg = $('#fmtForget'); if (fg) fg.onclick = () => { if (!confirm(`Forget the ${sent.length} sent card(s)? They become available to send again.`)) return; sent.forEach(c => delete c.fmt); save(); renderFmtPass(); };
+  const C = ck(), on = [...FMT_KEYS].filter(k => C[k] !== 'off');
+  $('#fqUses').innerHTML = `Looks for, using the <a href="#" id="fqToCk">Checker</a>: ${on.length ? on.map(k => `<b>${FMT_LABEL[k]}</b> <span class="muted">(${C[k]})</span>`).join(', ') : '<span style="color:var(--warn)">nothing - all its checks are off</span>'}`;
+  $('#fqToCk').onclick = e => { e.preventDefault(); showTab('checker'); };
+  const cand = fmtCandidates(), size = +$('#fmtSize').value || 40;
+  $('#fqBuildInfo').textContent = cand.length ? `${cand.length} card(s) → ${Math.ceil(cand.length / size)} prompt(s)` : 'no cards to add with these settings';
+  $('#fqBuild').disabled = !cand.length;
+  const items = fmtItems(); $('#fqPanel').hidden = !items.length;
+  if (!items.length){ $('#fqStats').textContent = ''; return; }
+  const n = items.length, cnt = k => items.filter(i => i.status === k).length, nx = fmtNext();
+  $('#fqStats').textContent = `${n} prompts · ${cnt('copied') + cnt('done')} copied · ${cnt('done')} answered`;
+  $('#fqProg').innerHTML = `<i style="width:${cnt('done') / n * 100}%;background:var(--ok)"></i><i style="width:${cnt('copied') / n * 100}%;background:var(--accent)"></i>`;
+  $('#fqNextLabel').innerHTML = nx ? `next: <b>${items.indexOf(nx) + 1}. ${esc(nx.cards[0].id)} … ${esc(nx.cards[nx.cards.length - 1].id)}</b>` : '<span style="color:var(--ok)">all copied ✓</span>';
+  $('#fqNext').disabled = !nx;
+  $('#fqList').innerHTML = items.map((it, i) => {
+    const tally = {}; for (const c of it.cards) for (const x of checksOf(c)) if (FMT_KEYS.has(x.key)) tally[x.key] = (tally[x.key] || 0) + 1;
+    const ok = it.cards.filter(c => c.status === 'ok').length, rc = it.cards.filter(c => c.recheck).length;
+    return `<div class="qi ${it.status} ${it === nx ? 'next' : ''}"><span class="n">${i + 1}</span>
+      <div style="min-width:0"><div class="tt">${esc(it.cards[0].id)} … ${esc(it.cards[it.cards.length - 1].id)}</div>
+      <div class="sub">${it.cards.length} cards · ${ok} approved${rc ? ` · ${rc} to re-check` : ''}${Object.keys(tally).length ? ' · ' + Object.entries(tally).map(([k, v]) => `${FMT_LABEL[k]} ${v}`).join(', ') : ''}</div></div>
+      <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'answered'}[it.status]}</span>
+        <button class="btn sm" data-fq="view" data-id="${it.id}" title="Open the full prompt in a new tab">👁</button>
+        <button class="btn sm" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
+        <button class="btn sm" data-fq="done" data-id="${it.id}" title="Toggle answered">✓</button></div></div>`; }).join('');
+  const cur = $('#fqList .qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
 }
+function fmtCopy(it){
+  copyText(fmtPrompt(it.cards)); it.cards.forEach(c => { if (c.fmt) c.fmtSt = 'copied'; }); save(); renderFmtPass();
+  toast(`Prompt ${fmtItems().findIndex(x => x.id === it.id) + 1} copied (${it.cards.length} cards)`);
+}
+$('#fqBuild').onclick = () => {
+  const cand = fmtCandidates(), size = +$('#fmtSize').value || 40; if (!cand.length) return;
+  let k = Math.max(0, ...S.cards.map(c => +String(c.fmt || c.fmtDone || 'F0').slice(1) || 0));
+  for (let i = 0; i < cand.length; i += size){ const id = 'F' + (++k); cand.slice(i, i + size).forEach(c => { c.fmt = id; c.fmtSt = 'todo'; delete c.fmtDone; }); }
+  save(); renderFmtPass(); toast(`Queue: ${Math.ceil(cand.length / size)} prompt(s)`);
+};
+$('#fqNext').onclick = () => { const nx = fmtNext(); if (nx) fmtCopy(nx); };
+$('#fqList').addEventListener('click', e => {
+  const b = e.target.closest('[data-fq]'); if (!b) return;
+  const it = fmtItems().find(x => x.id === b.dataset.id); if (!it) return;
+  if (b.dataset.fq === 'copy') fmtCopy(it);
+  if (b.dataset.fq === 'view'){ const w = window.open(URL.createObjectURL(new Blob([fmtPrompt(it.cards)], {type: 'text/plain;charset=utf-8'})), '_blank'); if (!w) toast('Allow pop-ups to view the prompt'); }
+  if (b.dataset.fq === 'done'){ if (it.status === 'done') it.cards.forEach(c => { c.fmt = c.fmtDone; c.fmtSt = 'copied'; delete c.fmtDone; }); else it.cards.forEach(fmtFinish); save(); renderFmtPass(); }
+});
+$('#fqReset').onclick = () => { if (!confirm('Mark every prompt as not copied (answered ones stay ticked)?')) return; S.cards.forEach(c => { if (c.fmt) c.fmtSt = 'todo'; }); save(); renderFmtPass(); };
+$('#fqClear').onclick = () => { if (!confirm('Remove the formatting-pass queue? Cards and re-checks are not affected.')) return; S.cards.forEach(c => { delete c.fmt; delete c.fmtSt; delete c.fmtDone; }); save(); renderFmtPass(); };
+async function fqApplied(r){ const s2 = summarize(r); $('#fqResult').innerHTML = s2.html; await applyRevisionResult(r, true); renderFmtPass(); }
+wireDrop($('#fqDrop'), $('#fqFile'), async files => fqApplied(await importFiles(files, 'merge', {revision: true})));
+$('#fqApply').onclick = async () => {
+  const txt = $('#fqPaste').value.trim(); if (!txt) return toast('Paste the reply first');
+  const {bundles, errors} = extractBundles(txt);
+  await fqApplied({sums: bundles.map(b => applyBundle(b, 'merge', {revision: true})), imgs: 0, errors});
+  if (bundles.length) $('#fqPaste').value = '';
+};
+document.addEventListener('keydown', e => {
+  if (!$('#tab-revise').classList.contains('active') || $('#fqPanel').hidden) return;
+  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key.toLowerCase() === 'n'){ e.preventDefault(); $('#fqNext').click(); }
+});
+['fmtScope', 'fmtStatus', 'fmtSize'].forEach(id => $('#' + id).onchange = renderFmtPass);
 function fmtPrompt(cards){
   const names = new Set(cards.flatMap(cardImages));
   const media = [...names].filter(n => S.media[n]).map(n => { const m = S.media[n]; const e = {filename: n, origin: m.origin}; for (const k of ['url','hint','caption','credit']) if (m[k]) e[k] = m[k]; return e; });
@@ -6989,10 +7298,10 @@ function fmtPrompt(cards){
     : `Please do a formatting pass on these Anki cards. Output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block (JSON with "revision": true and a "cards" list; each card keeps its id, type and all its fields).\n\n${rules}`)
     + checkerSection(promptMode()) + `\n\n<<<REVISE_CARDS\n${JSON.stringify(block, null, 1)}\nREVISE_CARDS>>>`;
 }
-['fmtScope', 'fmtStatus', 'fmtSize'].forEach(id => $('#' + id).onchange = renderFmtPass);
+
 $('#btnCopyRevision').onclick = () => { if (!$('#rvOut').value) $('#btnMakeRevision').click(); if ($('#rvOut').value) copyText($('#rvOut').value); };
-async function applyRevisionResult(r){
-  const s = summarize(r); $('#reviseResult').innerHTML = s.html;
+async function applyRevisionResult(r, quiet){
+  const s = summarize(r); if (!quiet) $('#reviseResult').innerHTML = s.html;   // quiet: the formatting-pass queue shows it
   await afterImport();
   // a reply that only answers a formatting pass opens the Re-check view; one with ordinary revisions opens those
   if (s.ok && s.recheck && !s.plain){
@@ -7056,7 +7365,7 @@ function renderAnalytics(){
     : CHECK_DEFS.find(d => d.key === k).kind === 'num' ? (C[k] ? `${k.includes('min') ? '≥' : '≤'} ${C[k]} ${CHECK_DEFS.find(d => d.key === k).unit}` : 'no limit') : C[k];
   const rows = CHECK_ROWS.map(r => ({r, lv: lvOf(r.key), hit: cards.filter(r.test).length}));
   h += `<div class="panel ana-scroll"><b>Checker results</b><table class="ana-tbl" style="margin-top:6px"><thead><tr><th>Check</th><th>Setting</th><th class="num">Cards</th><th style="width:22%"></th><th></th></tr></thead><tbody>`
-    + rows.map(({r, lv, hit}) => `<tr${lv === 'off' ? ' class="muted"' : ''}><td>${esc(r.label)}</td><td><span class="ana-lv ${lv}">${esc(setting(r.key))}</span></td>`
+    + rows.map(({r, lv, hit}) => `<tr${lv === 'off' ? ' class="muted"' : ''}><td><details class="ck-how" style="color:inherit"><summary style="color:inherit;font-size:13px;width:auto">${esc(r.label)} <span class="muted" style="font-size:11px">ⓘ</span></summary><div class="small muted" style="margin-top:4px">${esc(CHECK_HOW[r.key] || '')}</div></details></td><td><span class="ana-lv ${lv}">${esc(setting(r.key))}</span></td>`
       + `<td class="num">${lv === 'off' ? '–' : `${hit} <span class="muted">(${pct(hit, n)}%)</span>`}</td>`
       + `<td>${lv === 'off' ? '' : `<div class="ana-meter" title="${hit} of ${n} cards"><i style="width:${pct(hit, n)}%;background:${lv === 'E' ? 'var(--bad)' : 'var(--warn)'}"></i></div>`}</td>`
       + `<td>${hit && lv !== 'off' ? `<button class="btn" data-anashow="${r.key}" style="padding:2px 10px">Show cards</button>` : ''}</td></tr>`).join('')
@@ -7093,7 +7402,7 @@ function renderAnalytics(){
 }
 $('#anaRoot').addEventListener('click', e => { const b = e.target.closest('[data-anashow]'); if (b) showCheckCards(b.dataset.anashow, $('#anaScope').value === 'all'); });
 ['anaScope', 'anaStatus'].forEach(id => $('#' + id).onchange = renderAnalytics);
-$('#anaToCk').onclick = e => { e.preventDefault(); showTab('prompt'); $('#ckWrap').open = true; $('#ckWrap').scrollIntoView({block: 'start', behavior: 'smooth'}); };
+$('#anaToCk').onclick = e => { e.preventDefault(); showTab('checker'); };
 /** the checker's verdict on what is about to be exported */
 function renderExportCheck(cards){
   const C = ck(), cs = J(C), box = $('#exCheck'); if (!box) return;
@@ -7103,9 +7412,9 @@ function renderExportCheck(cards){
   const top = CHECK_ROWS.map(r => ({r, hit: cards.filter(r.test).length})).filter(x => x.hit).sort((a, b) => b.hit - a.hit).slice(0, 4);
   box.innerHTML = `<div class="row" style="flex-wrap:wrap;gap:8px"><b>Checker</b><span class="small">${e || w
       ? `Of the ${cards.length} cards to export, <b style="color:var(--bad)">${e}</b> have an error and <b>${w}</b> a warning.`
-      : `All ${cards.length} cards to export pass your checks.`}</span><span class="spacer"></span><button class="btn" id="exToAna">Open Analytics</button></div>`
+      : `All ${cards.length} cards to export pass your checks.`}</span><span class="spacer"></span>${SET.showAnalytics !== false ? '<button class="btn" id="exToAna">Open Analytics</button>' : ''}</div>`
     + (top.length ? `<div class="row small" style="flex-wrap:wrap;gap:6px">${top.map(({r, hit}) => `<button class="btn" data-anashow="${r.key}" style="padding:2px 10px">${esc(r.label)} · ${hit}</button>`).join('')}</div>` : '');
-  $('#exToAna').onclick = () => showTab('analytics');
+  if ($('#exToAna')) $('#exToAna').onclick = () => showTab('analytics');
   box.querySelectorAll('[data-anashow]').forEach(b => b.onclick = () => showCheckCards(b.dataset.anashow, !scopeNode() || ($('input[name=exScope]:checked') || {}).value !== 'scope'));
 }
 function renderExport(){

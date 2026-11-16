@@ -49,10 +49,13 @@ app instead if you want both addresses to work).
 
 ### Letting other people in
 
-The admin (`pclk`) gets a **People who can sign in** section at the top of *Settings*: add a GitHub username, and that
-person can sign in straight away; *Remove* stops their access immediately (their projects are kept). Each person has
-their own projects — nothing is shared between accounts. Usernames set in `ACS_ALLOWED_GITHUB` show there too but
-can only be removed on Vercel.
+The admin (`pclk`) gets *Settings → Users → **Open user management***: add a GitHub username, and that person can sign
+in straight away. Each person has their own projects — nothing is shared between accounts. For every account the admin
+can change the role (user / admin), make it **read-only** or **disabled**, set a **storage limit**, **sign it out
+everywhere**, remove its access, and see and change its data: edit a project's JSON, rename, download, delete or restore
+projects, put an older saved version back, list or delete images and source files, edit or reset its settings, or delete
+everything it stored. Admins set in `ACS_ADMIN_GITHUB` and usernames set in `ACS_ALLOWED_GITHUB` can only be changed on
+Vercel. See `lib/users.ts` and the admin routes at the end of `lib/api.ts`.
 
 ### Bring over your existing projects
 
@@ -95,6 +98,8 @@ local/acs.py                  the local companion server (still supported)
 - `acs_index`, `acs_deleted`, `acs_settings` — the project list, deleted ids (so a stale device can't bring a
   deleted project back; an explicit import can), and your keys and settings.
 - `acs_allowed` — people the admin let in from the app.
+- `acs_users` — everyone who has signed in (username ↔ account id), last activity, and the admin's controls: role,
+  status (active / read-only / disabled), storage limit, and "signed out everywhere" time.
 
 **Security**
 - Every page and API request needs a signed-in, allowed user: the admin, `ACS_ALLOWED_GITHUB`, or someone the admin

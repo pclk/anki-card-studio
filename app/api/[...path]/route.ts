@@ -12,4 +12,4 @@ async function handle(req: Request, ctx: Ctx): Promise<Response> {
   return handleApi(req, path, await currentUser());
 }
 
-export { handle as GET, handle as PUT, handle as POST, handle as DELETE };
+export { handle as GET, handle as PUT, handle as POST, handle as PATCH, handle as DELETE };
