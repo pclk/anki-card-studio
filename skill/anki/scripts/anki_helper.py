@@ -391,6 +391,52 @@ def _multi_question(c):
     return probs
 
 
+# phrases that point at something the person reviewing the card can't see (notes, slides, other cards)
+_EXT_REF_STRONG = re.compile(
+    r"\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)"
+    r"|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram|table|method|class|function|definition|output|scenario|setup) (?:above|earlier|before|from (?:the )?(?:lecture|notes|slides?|tutorial|lab|textbook|reading))"
+    r"|(?:figure|fig\.|listing|slide|table|example|exercise|question) ?[1-9]\d*(?:\.\d+)?\b(?!\s*[-+×*/=<>])"
+    r"|as (?:shown|seen|defined|discussed|described|introduced|covered) (?:above|earlier|before|in (?:the )?(?:lecture|notes|slides?|class|tutorial|lab|textbook|reading))"
+    r"|(?:in|from) (?:the )?(?:lecture|lecture notes|slides?|notes|textbook|tutorial|recitation|reading|handout)s?\b(?! on\b)"
+    r"|(?:in|from|of) (?:lecture|L) ?\d+)", re.I)
+_CARD_REF = re.compile(r"\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)"
+    r"|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram) above|as (?:shown|seen|defined) above)", re.I)
+# a call on a variable (p1.distanceTo(p2), acc.deposit(5)) - the method's code may be needed to answer
+_VAR_CALL = re.compile(r"\b([a-z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(")
+_STD_METHODS = set("""add addAll get set put remove contains containsKey size isEmpty equals hashCode toString compareTo length charAt
+substring indexOf append map filter reduce forEach collect stream of iterate limit sum count apply accept test andThen compose
+next hasNext getClass clone push pop peek poll offer join start run call sort split strip trim format println print
+keys values items append extend insert copy update lower upper""".split())
+
+
+def _outside_refs(c):
+    """Signs that a card leans on material the person reviewing it does not have (the notes, slides, another card,
+    code that isn't shown). Every card must carry everything needed to answer it."""
+    probs = []
+    q = c.get("text") if c.get("type") == "cloze" else c.get("front")
+    q = str(q or "")
+    both = q + " " + ("" if c.get("type") == "cloze" else str(c.get("back") or "")) + " " + str(c.get("extra") or "")
+    prose = lambda h: _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", h, flags=re.I)))
+    # the question must not depend on outside material; the answer may mention where a fact comes from
+    # ("in the notes' words"), but must not send the reader to another card or "the example above" either
+    m = _EXT_REF_STRONG.search(prose(q)) or _CARD_REF.search(prose(both))
+    if m and re.match(r"(?:question|exercise|example)\b", m.group(0), re.I):
+        probs.append(("W", f"'{m.group(0)}' is a label from the source - fine if the whole problem is on the card; "
+                           "otherwise copy in what it refers to"))
+    elif m:
+        probs.append(("E", f"refers to something the reviewer can't see ('{m.group(0)}') - put the code, figure or "
+                           "definition on the card itself; the card must stand alone without notes, slides or other cards"))
+    if "<pre" not in q.lower():
+        code_txt = " ".join(re.findall(r"<code[^>]*>([\s\S]*?)</code>", q, re.I)) + " " + prose(q)
+        calls = [(v, f) for v, f in _VAR_CALL.findall(_html.unescape(re.sub(r"<[^>]+>", "", code_txt)))
+                 if f not in _STD_METHODS and v not in ("System", "Math", "Arrays", "List", "Stream", "Collections")]
+        if calls:
+            v, f = calls[0]
+            probs.append(("W", f"asks about {v}.{f}(...) but the front doesn't show {f}'s code - if answering needs "
+                               f"what {f} does (its parameters, body or fields), show it in a code block on the front"))
+    return probs
+
+
 def _layout_clashes(fig, tol=2.0):
     """Overlaps in a matplotlib figure, as short descriptions ([] if clean):
     two pieces of text on top of each other, text cutting across a box it isn't inside, rounded boxes on top of each
@@ -1647,6 +1693,9 @@ class Deck:
                       "mistake, what it connects to (rationale() builds it)")
             if "multi-ok" not in (c.get("tags") or []):
                 for level, prob in _multi_question(c):
+                    (E if level == "E" else W)(f"{cid}: {prob}")
+            if "refs-ok" not in (c.get("tags") or []):
+                for level, prob in _outside_refs(c):
                     (E if level == "E" else W)(f"{cid}: {prob}")
             fields = {k: v for k, v in c.items() if k in ("front", "back", "text", "extra", "source") and isinstance(v, str)}
             if c["type"] == "basic":

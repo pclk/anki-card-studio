@@ -868,7 +868,12 @@ Without any code tool, write the bundle JSON by hand (format at the end). Every 
    - *concise*: the answer plus at most one line of context.
    - *descriptive* (default): `answer()` in one bold line, then a short WHY/HOW (2–4 sentences or bullets), then an example or application where relevant.
    - *deep*: as descriptive, plus a comparison with easily confused concepts and a pitfall or mnemonic. Put the secondary depth in `extra`.
-2. **Specific, self-contained fronts.** Name the subject; no "it", "this" or "the above". Prefer why/how/compare/apply over bare recall. Cover definitions, mechanisms, classifications, numbers and exceptions.
+2. **Specific, self-contained cards: the card carries everything needed to answer it.** The person reviewing has *only this card* in front of them: not the notes, not the slides, not the other cards, and they won't remember the exact code from the lecture. So:
+   - Name the subject; no "it", "this" or "the above". Never point elsewhere ("as in the previous card", "the example above", "Figure 3", "from the lecture", "in L04").
+   - If the question is about specific code, **show that code on the front** in a `code()` block: the class, method signature and the lines that matter, cut down to what's needed. Bad: "During `p1.distanceTo(p2)`, what do `this` and `q` point to, and what happens if the method mutates `q`'s object?" (`q` is `distanceTo`'s parameter, which the card never shows, so it tests recall of the notes, not the concept). Good: the front shows `double distanceTo(Point q) { return Math.hypot(q.x - this.x, q.y - this.y); }` and then asks about `p1.distanceTo(p2)`.
+   - Same for any named variable, parameter, field, table or figure the question relies on: define it on the card. Standard library calls (`list.add`, `stream.map`) need no definition.
+   - `validate()` flags references to outside material as errors and calls to code the front doesn't show as warnings. Tag a card `refs-ok` only when the reference is genuinely self-explanatory.
+   - Prefer why/how/compare/apply over bare recall. Cover definitions, mechanisms, classifications, numbers and exceptions.
 3. **Cloze** suits definitions, key sentences, short lists and formulas.
    - Use 1–3 deletions per note, with one concept per deletion: `{{c1::Product}}, {{c2::Price}}`.
    - Use the same number to hide things together.
@@ -969,6 +974,7 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
    - A changed image gets a NEW filename.
    - New and split cards get their own extensive `why=` (`rationale()`); update a card's `why` when the change alters what it tests.
    - A card that bundles several questions is split into one card per question (rule 1) even when the feedback didn't ask.
+   - A card that leans on something the reviewer can't see (code, a figure, a definition, another card) gets it put on the card (rule 2), even when the feedback didn't ask.
 3. **"I don't understand this card"** feedback:
    - Fix the card if its wording caused the confusion.
    - **Always** write a step-by-step explanation of why the card says what it says, starting from what the learner already knows, with each step's reason and a small worked example where it helps: `deck.explain(id, markdown)`.
@@ -1780,6 +1786,52 @@ def _multi_question(c):
         probs.append(("W", f"front has {qmarks} question marks - one question per card (split it, or tag 'multi-ok')"))
     elif c.get("type") != "cloze" and mapped >= 3:
         probs.append(("E", f"back answers {mapped} numbered items - one question per card (split it, or tag 'multi-ok')"))
+    return probs
+
+
+# phrases that point at something the person reviewing the card can't see (notes, slides, other cards)
+_EXT_REF_STRONG = re.compile(
+    r"\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)"
+    r"|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram|table|method|class|function|definition|output|scenario|setup) (?:above|earlier|before|from (?:the )?(?:lecture|notes|slides?|tutorial|lab|textbook|reading))"
+    r"|(?:figure|fig\.|listing|slide|table|example|exercise|question) ?[1-9]\d*(?:\.\d+)?\b(?!\s*[-+×*/=<>])"
+    r"|as (?:shown|seen|defined|discussed|described|introduced|covered) (?:above|earlier|before|in (?:the )?(?:lecture|notes|slides?|class|tutorial|lab|textbook|reading))"
+    r"|(?:in|from) (?:the )?(?:lecture|lecture notes|slides?|notes|textbook|tutorial|recitation|reading|handout)s?\b(?! on\b)"
+    r"|(?:in|from|of) (?:lecture|L) ?\d+)", re.I)
+_CARD_REF = re.compile(r"\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)"
+    r"|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram) above|as (?:shown|seen|defined) above)", re.I)
+# a call on a variable (p1.distanceTo(p2), acc.deposit(5)) - the method's code may be needed to answer
+_VAR_CALL = re.compile(r"\b([a-z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(")
+_STD_METHODS = set("""add addAll get set put remove contains containsKey size isEmpty equals hashCode toString compareTo length charAt
+substring indexOf append map filter reduce forEach collect stream of iterate limit sum count apply accept test andThen compose
+next hasNext getClass clone push pop peek poll offer join start run call sort split strip trim format println print
+keys values items append extend insert copy update lower upper""".split())
+
+
+def _outside_refs(c):
+    """Signs that a card leans on material the person reviewing it does not have (the notes, slides, another card,
+    code that isn't shown). Every card must carry everything needed to answer it."""
+    probs = []
+    q = c.get("text") if c.get("type") == "cloze" else c.get("front")
+    q = str(q or "")
+    both = q + " " + ("" if c.get("type") == "cloze" else str(c.get("back") or "")) + " " + str(c.get("extra") or "")
+    prose = lambda h: _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", h, flags=re.I)))
+    # the question must not depend on outside material; the answer may mention where a fact comes from
+    # ("in the notes' words"), but must not send the reader to another card or "the example above" either
+    m = _EXT_REF_STRONG.search(prose(q)) or _CARD_REF.search(prose(both))
+    if m and re.match(r"(?:question|exercise|example)\b", m.group(0), re.I):
+        probs.append(("W", f"'{m.group(0)}' is a label from the source - fine if the whole problem is on the card; "
+                           "otherwise copy in what it refers to"))
+    elif m:
+        probs.append(("E", f"refers to something the reviewer can't see ('{m.group(0)}') - put the code, figure or "
+                           "definition on the card itself; the card must stand alone without notes, slides or other cards"))
+    if "<pre" not in q.lower():
+        code_txt = " ".join(re.findall(r"<code[^>]*>([\s\S]*?)</code>", q, re.I)) + " " + prose(q)
+        calls = [(v, f) for v, f in _VAR_CALL.findall(_html.unescape(re.sub(r"<[^>]+>", "", code_txt)))
+                 if f not in _STD_METHODS and v not in ("System", "Math", "Arrays", "List", "Stream", "Collections")]
+        if calls:
+            v, f = calls[0]
+            probs.append(("W", f"asks about {v}.{f}(...) but the front doesn't show {f}'s code - if answering needs "
+                               f"what {f} does (its parameters, body or fields), show it in a code block on the front"))
     return probs
 
 
@@ -3039,6 +3091,9 @@ class Deck:
                       "mistake, what it connects to (rationale() builds it)")
             if "multi-ok" not in (c.get("tags") or []):
                 for level, prob in _multi_question(c):
+                    (E if level == "E" else W)(f"{cid}: {prob}")
+            if "refs-ok" not in (c.get("tags") or []):
+                for level, prob in _outside_refs(c):
                     (E if level == "E" else W)(f"{cid}: {prob}")
             fields = {k: v for k, v in c.items() if k in ("front", "back", "text", "extra", "source") and isinstance(v, str)}
             if c["type"] == "basic":

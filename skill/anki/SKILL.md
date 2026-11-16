@@ -81,7 +81,12 @@ Without any code tool, write the bundle JSON by hand (format at the end). Every 
    - *concise*: the answer plus at most one line of context.
    - *descriptive* (default): `answer()` in one bold line, then a short WHY/HOW (2–4 sentences or bullets), then an example or application where relevant.
    - *deep*: as descriptive, plus a comparison with easily confused concepts and a pitfall or mnemonic. Put the secondary depth in `extra`.
-2. **Specific, self-contained fronts.** Name the subject; no "it", "this" or "the above". Prefer why/how/compare/apply over bare recall. Cover definitions, mechanisms, classifications, numbers and exceptions.
+2. **Specific, self-contained cards: the card carries everything needed to answer it.** The person reviewing has *only this card* in front of them: not the notes, not the slides, not the other cards, and they won't remember the exact code from the lecture. So:
+   - Name the subject; no "it", "this" or "the above". Never point elsewhere ("as in the previous card", "the example above", "Figure 3", "from the lecture", "in L04").
+   - If the question is about specific code, **show that code on the front** in a `code()` block: the class, method signature and the lines that matter, cut down to what's needed. Bad: "During `p1.distanceTo(p2)`, what do `this` and `q` point to, and what happens if the method mutates `q`'s object?" (`q` is `distanceTo`'s parameter, which the card never shows, so it tests recall of the notes, not the concept). Good: the front shows `double distanceTo(Point q) { return Math.hypot(q.x - this.x, q.y - this.y); }` and then asks about `p1.distanceTo(p2)`.
+   - Same for any named variable, parameter, field, table or figure the question relies on: define it on the card. Standard library calls (`list.add`, `stream.map`) need no definition.
+   - `validate()` flags references to outside material as errors and calls to code the front doesn't show as warnings. Tag a card `refs-ok` only when the reference is genuinely self-explanatory.
+   - Prefer why/how/compare/apply over bare recall. Cover definitions, mechanisms, classifications, numbers and exceptions.
 3. **Cloze** suits definitions, key sentences, short lists and formulas.
    - Use 1–3 deletions per note, with one concept per deletion: `{{c1::Product}}, {{c2::Price}}`.
    - Use the same number to hide things together.
@@ -182,6 +187,7 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
    - A changed image gets a NEW filename.
    - New and split cards get their own extensive `why=` (`rationale()`); update a card's `why` when the change alters what it tests.
    - A card that bundles several questions is split into one card per question (rule 1) even when the feedback didn't ask.
+   - A card that leans on something the reviewer can't see (code, a figure, a definition, another card) gets it put on the card (rule 2), even when the feedback didn't ask.
 3. **"I don't understand this card"** feedback:
    - Fix the card if its wording caused the confusion.
    - **Always** write a step-by-step explanation of why the card says what it says, starting from what the learner already knows, with each step's reason and a small worked example where it helps: `deck.explain(id, markdown)`.
