@@ -189,6 +189,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;height:
 .tn.proj{font-weight:600} .tn.other{opacity:.85}
 #scopeBar{font-size:12px;color:var(--muted);margin:-6px 0 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 #scopeBar b{color:var(--text)}
+#scopeBar,#scopeBar *{min-width:0;overflow-wrap:anywhere}
 /* ---- review layouts, chosen from the width actually available (sidebar open or not), not the window:
    wide    3 columns: cards | editor | preview
    compact 2 columns: cards | editor+preview (Preview / Edit toggle)
@@ -301,6 +302,11 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 #swipeGlow .g-ok{right:0;background:linear-gradient(to left,rgba(22,163,74,.85),rgba(34,197,94,.38) 45%,transparent)}
 #swipeGlow .g-drop{left:0;background:linear-gradient(to right,rgba(220,38,38,.85),rgba(239,68,68,.38) 45%,transparent)}
 #swipeGlow i.flash{transition:opacity .55s ease-out}
+/* a control is never wider than the space it is in: a long option (e.g. a check's name in the card filter) is cut
+   off with … instead of pushing the layout out. (The open list still shows the full text.) min-width:0 lets flex rows shrink it */
+select{max-width:100%;min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+input,textarea{max-width:100%}
+.row>*,.f>*{min-width:0}
 #fxLayer{position:fixed;inset:0;pointer-events:none;z-index:46;overflow:hidden}
 #fxLayer svg{position:absolute;left:0;top:0;will-change:transform,opacity}
 #undoPill{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translate(-50%,40px);opacity:0;z-index:47;display:flex;align-items:center;gap:10px;
