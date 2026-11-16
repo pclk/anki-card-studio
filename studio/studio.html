@@ -208,6 +208,25 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;height:
 .review.phone .status-bar,.review.phone #fbWrap,.review.phone #paneSeg{display:none}
 .review.phone #editorCol > .panel:first-child{padding:8px 10px !important}
 .review.phone .prev-hint,.review.phone .kbd{display:none}
+.ana-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.ana-tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}.ana-tile b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.ana-tile span{font-size:12px;color:var(--muted)}
+.ana-tbl{width:100%;border-collapse:collapse;font-size:13px}.ana-tbl th{text-align:left;font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--line)}
+.ana-tbl td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}.ana-tbl td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ana-meter{height:6px;border-radius:3px;background:var(--panel2);min-width:60px;overflow:hidden}.ana-meter i{display:block;height:100%;border-radius:3px}
+.ana-lv{font-size:11px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);white-space:nowrap}.ana-lv.E{color:var(--bad);border-color:var(--bad)}.ana-lv.W{color:var(--warn);border-color:var(--warn)}.ana-lv.off{color:var(--muted)}
+.ana-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.hist{display:flex;align-items:flex-end;gap:2px;height:96px;margin-top:8px;border-bottom:1px solid var(--line)}
+.hist div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0;cursor:default}
+.hist div i{display:block;width:100%;border-radius:4px 4px 0 0;background:var(--accent);min-height:1px}.hist div.over i{background:var(--warn)}
+.hist div em{font-style:normal;font-size:10px;color:var(--muted);line-height:1.3}
+.hist-x{display:flex;gap:2px;font-size:10px;color:var(--muted)}.hist-x span{flex:1;text-align:center;min-width:0;overflow:hidden;white-space:nowrap}
+.ana-key{display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:4px}.ana-key i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.ana-scroll{overflow-x:auto}
+@media (max-width:700px){ .ana-tbl th:nth-child(4),.ana-tbl td:nth-child(4){display:none} .ana-tbl td,.ana-tbl th{padding:6px 4px} .ana-tbl td:first-child{min-width:120px} .ana-tbl .btn{padding:2px 6px!important;font-size:12px} }
+.ck-grid{display:grid;grid-template-columns:1fr 112px;gap:5px 10px;align-items:center;font-size:13px}
+.ck-grid h4{grid-column:1/-1;margin:8px 0 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ck-grid select,.ck-grid input{width:100%;padding:3px 6px}.ck-grid .ck-num{display:flex;align-items:center;gap:4px}.ck-grid .ck-num span{font-size:11px;color:var(--muted);white-space:nowrap}
+.ck-grid .ck-ch{font-weight:600}
 .df-field{margin:6px 0 10px}.df{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:6px;overflow-x:auto;margin-top:3px}
 .df>div{white-space:pre;padding:0 8px}.df-add{background:rgba(46,160,67,.16)}.df-del{background:rgba(248,81,73,.16)}.df-ctx{color:var(--muted)}.df-gap{color:var(--muted);text-align:center}
 .review.phone #curTimer{min-width:0}
@@ -313,9 +332,10 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
     <button data-tab="sources"><span class="n">1</span>Sources <span id="tabSrcCount" class="pill"></span></button>
     <button data-tab="prompt" class="active"><span class="n">2</span>Prompt</button>
     <button data-tab="import"><span class="n">3</span>Import</button>
-    <button data-tab="review"><span class="n">4</span>Review <span id="tabReviewCount" class="pill"></span></button>
-    <button data-tab="revise"><span class="n">5</span>Revise <span id="tabReviseCount" class="pill"></span></button>
-    <button data-tab="export"><span class="n">6</span>Export</button>
+    <button data-tab="analytics"><span class="n">4</span>Analytics <span id="tabAnaCount" class="pill" title="cards with an error from the checker"></span></button>
+    <button data-tab="review"><span class="n">5</span>Review <span id="tabReviewCount" class="pill"></span></button>
+    <button data-tab="revise"><span class="n">6</span>Revise <span id="tabReviseCount" class="pill"></span></button>
+    <button data-tab="export"><span class="n">7</span>Export</button>
   </nav>
 </header>
 <button id="sbHandle" title="Projects, data &amp; settings (\ key)">☰</button>
@@ -493,6 +513,11 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
         </select></label>
       <label class="f">Tags for every card<span class="hint">space-separated</span><input type="text" id="pTags" placeholder="e.g. cardio block2"></label>
       <label class="f">Extra instructions<textarea id="pExtra" rows="2" placeholder="e.g. Focus on exam-style questions; include drug doses; avoid history trivia"></textarea></label>
+      <details id="ckWrap"><summary><b style="font-size:13px">Checker settings</b> <span class="small muted" id="ckSum"></span></summary>
+        <p class="small muted" style="margin:6px 0">What Claude's checker (<code>validate()</code>) looks for and how strictly: <i>error</i> must be fixed, <i>warn</i> is fixed unless clearly fine, <i>off</i> is ignored; for limits, 0 means no limit. Sent with every prompt (cards, revisions, formatting passes), used by <b>Analytics</b>, and kept for all your projects.</p>
+        <div id="ckGrid" class="ck-grid"></div>
+        <div class="row" style="margin-top:6px"><span class="spacer"></span><button class="btn" id="ckReset">Reset to defaults</button></div>
+      </details>
       <div class="stack" style="gap:6px" id="pScriptWrap">
         <b style="font-size:13px">How will the AI get the helper script?</b>
         <label class="check"><input type="radio" name="pScript" value="attach" checked> I'll attach <code>anki_helper.py</code> to the chat (recommended - needs Claude's code execution / file creation enabled)</label>
@@ -585,6 +610,17 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 </section>
 
 <!-- =============================================================== REVIEW -->
+<section class="tab" id="tab-analytics">
+  <div class="panel stack" style="margin-bottom:14px">
+    <div class="row" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
+      <h2 style="margin:0">Deck analytics</h2><span class="spacer"></span>
+      <label class="f">Cards<select id="anaScope"><option value="scope">Selected sub-deck</option><option value="all">Whole project</option></select></label>
+      <label class="f">Status<select id="anaStatus"><option value="live">All except excluded</option><option value="new">Unreviewed</option><option value="ok">Approved</option><option value="change">Change requested</option></select></label>
+    </div>
+    <p class="small muted" style="margin:0">Measured with your <a href="#" id="anaToCk">checker settings</a> (the same checks Claude runs). <b>Show cards</b> opens them in Review.</p>
+  </div>
+  <div id="anaRoot" class="stack" style="gap:14px"></div>
+</section>
 <section class="tab" id="tab-review">
   <div id="reviewEmpty" class="panel empty">No cards yet - import Claude's output first.</div>
   <div class="review" id="reviewUI" hidden>
@@ -714,6 +750,7 @@ body:has(#tab-review.active .review.phone) #toast{bottom:20px}
 
 <!-- =============================================================== EXPORT -->
 <section class="tab" id="tab-export">
+  <div class="panel stack" id="exCheck" style="margin-bottom:14px"></div>
   <div class="grid2">
     <div class="panel stack">
       <h2>Export to Anki (.apkg)</h2>
@@ -835,6 +872,7 @@ The user's message (usually generated by the Studio's Prompt tab) may set these.
    - **Claude Code or any machine with Python:** write `build_deck.py` in the working folder, starting with `import sys; sys.path.insert(0, "<this skill's dir>/scripts"); from anki_helper import *`. Run it with `ANKI_OUT_DIR=anki_out uv run --with pymupdf --with pillow --with matplotlib --with latex2mathml python build_deck.py`. Keeping the build as a script makes fixes cheap: edit it and re-run it.
    - **claude.ai code sandbox:** `exec(open("<skill_dir>/scripts/anki_helper.py").read())`.
    - `help()` prints the API.
+   - **Checker settings.** If the prompt has a "Checker settings" section, call `deck.configure_checks({...})` with it right after creating or loading the deck, and write the cards to those limits (minimum why length, maximum front length, cloze numbers, which checks are errors). Without one, the defaults apply. `deck.checks` shows the active settings; the values replace the defaults mentioned in the rules below.
 2. **Get the material and read it before writing.**
    - **Attached files:** `list_uploads()`, `find_upload("name")`, `pdf_info`, `pdf_text`, `pdf_figures`, `office_images`.
    - **Google Drive link:** use a Drive connector if there is one. A public file downloads with `uvx gdown --fuzzy "<link>" -O <dir>/`. Otherwise ask for the file.
@@ -2145,6 +2183,87 @@ def office_images(path):
 
 
 # --------------------------------------------------------------------------- Deck
+# ---------------------------------------------------------------------------------------------------- checker settings
+# What validate() checks for card quality, and how strictly. Anki Card Studio's Prompt page sets these; the prompt then
+# says e.g. `deck.configure_checks({"why_min_words": 80, "code_as_text": "error"})`. A level is "error" (must fix),
+# "warn" (fix unless clearly fine) or "off". Structural checks (HTML, images, cloze syntax, maths) are not configurable.
+CHECK_DEFAULTS = {
+    "why": "warn",                 # every card has a why= rationale ...
+    "why_min_words": 45,           # ... of at least this many words (0 = any length)
+    "front_max_chars": 300,        # prose on a basic card's front, code and maths not counted (0 = no limit)
+    "back_max_words": 0,           # words on the back / cloze extra, code not counted (0 = no limit)
+    "cloze_max_deletions": 3,      # distinct cN numbers in one cloze note (0 = no limit)
+    "multi_question": "error",     # several questions bundled on one card (tag multi-ok to allow)
+    "outside_refs": "error",       # the card points at notes, slides, figures or other cards (tag refs-ok to allow)
+    "unshown_code": "warn",        # the question calls a method whose code the front doesn't show
+    "code_as_text": "warn",        # code written as plain text, or several lines squeezed into inline <code>
+    "code_language": "warn",       # a code block without a language (no highlighting)
+    "ref_quote_min_chars": 25,     # source quotes shorter than this can't be found reliably (0 = any length)
+    "ref_page": "warn",            # a ref to a file without a page
+    "unused_images": "warn",       # an image registered but not used by any card
+    "order_window": 3,             # check_order(): how many cards back a spoiler counts
+}
+CHECK_LEVELS = ("error", "warn", "off")
+
+
+def _check_value(key, v):
+    d = CHECK_DEFAULTS[key]
+    if isinstance(d, str):
+        v = str(v).strip().lower()
+        v = {"warning": "warn", "err": "error", "none": "off", "false": "off", "true": "warn"}.get(v, v)
+        if v not in CHECK_LEVELS:
+            raise ValueError(f"check {key!r} must be one of {CHECK_LEVELS}, not {v!r}")
+        return v
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"check {key!r} needs a whole number, not {v!r}") from None
+    if v < 0:
+        raise ValueError(f"check {key!r} can't be negative")
+    return v
+
+
+_CODE_LIKE = re.compile(
+    r"(?:\b[A-Za-z_]\w*(?:\.\w+)*\([^()\n]{0,60}\)\s*;)"
+    r"|(?:\b(?:int|double|boolean|String|var|final|void|char|long)\s+[a-z]\w*\s*(?:=|;|\())"
+    r"|(?:\bnew\s+[A-Z]\w*(?:<[^>]*>)?\s*\()|(?:\b[a-z]\w*\s*->\s*[\w(])|(?:\b[A-Z]\w*<[A-Z?][\w<>?, ]*>)"
+    r"|(?:\breturn\s+[^.?!]{1,40};)"
+    r"|(?:\b(?:public|private|protected|static)\s+(?:static\s+|final\s+|abstract\s+)*(?:class|interface|void|int|double|boolean|String|[A-Z]\w*)\b)")
+
+
+def _un_cloze(h):
+    return re.sub(r"\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}", r"\1", str(h or ""))
+
+
+def _code_as_text(c):
+    """Code that isn't formatted as code: statements in plain text, or several lines squeezed into one inline <code>.
+    (The same rules as Anki Card Studio's formatting-pass checks.)"""
+    cloze = c.get("type") == "cloze"
+    parts = [("text" if cloze else "front", _un_cloze(c.get("text") if cloze else c.get("front")))]
+    if not cloze:
+        parts.append(("back", str(c.get("back") or "")))
+    parts.append(("extra", str(c.get("extra") or "")))
+    probs = []
+    for name, h in parts:
+        t = _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>|<code[^>]*>[\s\S]*?</code>", " ", h, flags=re.I)))
+        m = _CODE_LIKE.search(t)
+        if m:
+            probs.append(f"{name} has code written as plain text ({m.group(0).strip()[:40]!r}) - use code() for statements/snippets and <code> for names")
+            break
+    for name, h in parts:
+        if re.search(r"<pre", h, re.I):
+            continue
+        for x in re.findall(r"<code[^>]*>([\s\S]*?)</code>", h, re.I):
+            t = _html.unescape(re.sub(r"<[^>]+>", "", x))
+            if t.count(";") >= 2 or "\n" in t.strip() or (re.search(r"\{[\s\S]*\}", t) and len(t) > 40):
+                probs.append(f"{name} squeezes several lines of code into inline <code> ({t.strip()[:40]!r}...) - use a code() block")
+                break
+        else:
+            continue
+        break
+    return probs
+
+
 class Deck:
     """A deck of cards plus the images they reference."""
 
@@ -2160,6 +2279,7 @@ class Deck:
         self._new_media = set()
         self._reserved = set()
         self.feedback = {}       # id -> reviewer feedback (filled by Deck.load on a revision request)
+        self.checks = dict(CHECK_DEFAULTS)   # what validate() checks and how strictly - see configure_checks()
         self.order = []          # anti-spoiler study order (card ids), see set_order()
         self.names = {}          # your names for cards -> ids  (add_basic(..., name="x"))
         self._meta = {}          # id -> {"group", "prereq"}  (used by suggest_order; not exported)
@@ -2954,9 +3074,10 @@ class Deck:
             return f"same image {sorted(shared)[0]} as {a['id']}"
         return None
 
-    def check_order(self, ids=None, window=3, quiet=False):
+    def check_order(self, ids=None, window=None, quiet=False):
         """Warn where a card, studied up to `window` places earlier, gives away a later card's answer
         (answer terms, numbers, the same image). Returns the warnings."""
+        window = self.checks.get("order_window", 3) if window is None else window
         order = [self._rid(i) for i in (ids or self.order or [c["id"] for c in self.cards])]
         out = []
         for j, bid in enumerate(order):
@@ -2971,10 +3092,11 @@ class Deck:
             print("\n".join("  ! " + w for w in out) if out else "  no spoilers found in the order")
         return out
 
-    def suggest_order(self, window=3):
+    def suggest_order(self, window=None):
         """A study order that interleaves topics (group= on add_*, else the first tag, else the order you wrote
         them in blocks), keeps prereq= cards first, and avoids spoilers within `window` places.
         Review it, then deck.set_order(deck.suggest_order())."""
+        window = self.checks.get("order_window", 3) if window is None else window
         def group(c):
             g = (self._meta.get(c["id"]) or {}).get("group") or ((c.get("tags") or [None])[0])
             return g or f"block{self.cards.index(c) // 4}"
@@ -3086,13 +3208,43 @@ class Deck:
                 f"Number of Cloze cards: {cz}\nNumber of Images: {len(self.media)}\nUnexpected and unresolvable issues: {iss}")
 
     # ---------------------------------------------------------------- checks + output
-    def validate(self, verbose=True, window=3):
+    def configure_checks(self, settings=None, **kw):
+        """Change what validate() checks and how strictly, e.g. from the prompt's "Checker settings":
+        deck.configure_checks({"why_min_words": 80, "outside_refs": "warn"}) or deck.configure_checks(why_min_words=80).
+        Levels are "error", "warn" or "off"; numbers are limits (0 = no limit). Prints what changed; returns the settings."""
+        if isinstance(settings, str):
+            settings = json.loads(settings)
+        new = {**(settings or {}), **kw}
+        bad = [k for k in new if k not in CHECK_DEFAULTS]
+        if bad:
+            raise ValueError(f"unknown check(s) {bad} - known: {', '.join(CHECK_DEFAULTS)}")
+        changed = []
+        for k, v in new.items():
+            v = _check_value(k, v)
+            if self.checks.get(k) != v:
+                changed.append(f"{k}={v}")
+            self.checks[k] = v
+        print("checker settings: " + (", ".join(changed) if changed else "unchanged") + " (deck.checks has them all)")
+        return dict(self.checks)
+
+    def validate(self, verbose=True, window=None):
         """Check the deck. Returns a list of problems ("ERROR ..." must be fixed; "warn ..." usually should be).
         Covers: card structure, every image link and image file, captions/escaping, allowed tags, inline colours,
         code blocks, maths delimiters, box kinds, ref quotes against load_source() text, missing glyphs in figures,
         the study order and spoilers between nearby cards in it."""
         errs, warns = [], []
         E, W = errs.append, warns.append
+        ck = {**CHECK_DEFAULTS, **getattr(self, "checks", {})}
+        window = ck["order_window"] if window is None else window
+
+        def at(key, designed="W"):
+            # the reporter for a configurable check: None when it's off, warn when set to warn, else as designed
+            lv = ck[key]
+            return None if lv == "off" else W if lv == "warn" or designed == "W" else E
+
+        def at_strict(key):
+            lv = ck[key]
+            return None if lv == "off" else E if lv == "error" else W
         ids = [c["id"] for c in self.cards]
         for d in sorted({i for i in ids if ids.count(i) > 1}):
             E(f"duplicate id {d}")
@@ -3101,27 +3253,42 @@ class Deck:
         self._fix_math_all()
         for c in self.cards:
             cid = c["id"]
-            if not str(c.get("why") or "").strip():
-                W(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
-            else:
+            rep_why = at_strict("why")
+            if rep_why and not str(c.get("why") or "").strip():
+                rep_why(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
+            elif rep_why and ck["why_min_words"]:
                 wn = len(re.sub(r"<[^>]+>", " ", c["why"]).split())
-                if wn < 45:
-                    W(f"{cid}: why= is only {wn} words - make it extensive: what it tests, why it matters, the common "
-                      "mistake, what it connects to (rationale() builds it)")
-            if "multi-ok" not in (c.get("tags") or []):
+                if wn < ck["why_min_words"]:
+                    rep_why(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
+                            "matters, the common mistake, what it connects to (rationale() builds it)")
+            if "multi-ok" not in (c.get("tags") or []) and ck["multi_question"] != "off":
                 for level, prob in _multi_question(c):
-                    (E if level == "E" else W)(f"{cid}: {prob}")
+                    at("multi_question", level)(f"{cid}: {prob}")
             if "refs-ok" not in (c.get("tags") or []):
                 for level, prob in _outside_refs(c):
-                    (E if level == "E" else W)(f"{cid}: {prob}")
+                    key = "unshown_code" if prob.startswith("asks about") else "outside_refs"
+                    r_ = at_strict(key) if key == "unshown_code" else at(key, level)
+                    if r_:
+                        r_(f"{cid}: {prob}")
+            if at_strict("code_as_text"):
+                for prob in _code_as_text(c):
+                    at_strict("code_as_text")(f"{cid}: {prob}")
+            if ck["back_max_words"]:
+                bw = len(_html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", str(c.get("text" if c.get("type") == "cloze" else "back") or "") + " " + (str(c.get("extra") or "") if c.get("type") == "cloze" else "")))).split())
+                if bw > ck["back_max_words"]:
+                    W(f"{cid}: answer has {bw} words (limit {ck['back_max_words']}) - trim it or move secondary depth to extra")
+            if c.get("type") == "cloze" and ck["cloze_max_deletions"]:
+                nd = len(set(re.findall(r"\{\{c(\d+)::", str(c.get("text") or ""))))
+                if nd > ck["cloze_max_deletions"]:
+                    W(f"{cid}: {nd} cloze numbers (limit {ck['cloze_max_deletions']}) - split it or hide related items together under one number")
             fields = {k: v for k, v in c.items() if k in ("front", "back", "text", "extra", "source") and isinstance(v, str)}
             if c["type"] == "basic":
                 if not re.sub(r"<[^>]+>", "", c.get("front", "")).strip() and "<img" not in c.get("front", ""):
                     E(f"{cid}: empty front")
                 if not c.get("back", "").strip():
                     E(f"{cid}: empty back")
-                if len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > 300:
-                    W(f"{cid}: front has >300 characters of prose - does it test one idea?")
+                if ck["front_max_chars"] and len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > ck["front_max_chars"]:
+                    W(f"{cid}: front has >{ck['front_max_chars']} characters of prose - does it test one idea?")
             elif c["type"] == "cloze":
                 t = c.get("text", "")
                 if not re.search(r"\{\{c\d+::", t):
@@ -3173,8 +3340,8 @@ class Deck:
                     if re.search(r"(^|;)\s*(background(-color)?|color)\s*:", st, re.I):
                         E(f"{where}: inline colour/background ({st[:60]!r}) - remove it. Cards are shown in light AND night mode; "
                           "a white/light background makes text unreadable in night mode. Use code() for code and box() for call-outs.")
-                if re.search(r"<pre(?![^>]*>\s*<code)", v) or re.search(r"<pre[^>]*>\s*<code(?![^>]*language-)", v):
-                    W(f"{where}: code block without a language - use code(text, 'java'|'python'|...) so it gets highlighted")
+                if at_strict("code_language") and (re.search(r"<pre(?![^>]*>\s*<code)", v) or re.search(r"<pre[^>]*>\s*<code(?![^>]*language-)", v)):
+                    at_strict("code_language")(f"{where}: code block without a language - use code(text, 'java'|'python'|...) so it gets highlighted")
                 # boxes
                 for kind in re.findall(r'class="aa-box aa-([\w-]+)"', v):
                     if kind not in BOX_TITLES:
@@ -3192,11 +3359,11 @@ class Deck:
             for r in c.get("refs") or []:
                 if not r.get("file"):
                     E(f"{cid}: ref needs a file / source name ({r})"); continue
-                if not r.get("page") and not str(r["file"]).startswith(("http://", "https://")):
-                    W(f"{cid}: ref has no page - fine for a web page / note, otherwise give the page ({r['file']})")
+                if at_strict("ref_page") and not r.get("page") and not str(r["file"]).startswith(("http://", "https://")):
+                    at_strict("ref_page")(f"{cid}: ref has no page - fine for a web page / note, otherwise give the page ({r['file']})")
                 q = r.get("quote") or ""
-                if q and len(self._norm(q)) < 25:
-                    W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~25 characters so it can be found")
+                if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"]:
+                    W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~{ck['ref_quote_min_chars']} characters so it can be found")
                 src = self._source_for(r["file"])
                 if q and src:
                     fname, pages = src
@@ -3208,8 +3375,8 @@ class Deck:
                         E(f"{cid}: ref quote not found in {fname} - copy it verbatim from the source text")
         for m, meta in self.media.items():
             o = meta.get("origin")
-            if m not in used:
-                W(f"image {m} is registered but not used by any card")
+            if m not in used and at_strict("unused_images"):
+                at_strict("unused_images")(f"image {m} is registered but not used by any card")
             if o == "generated":
                 if not meta.get("data"):
                     E(f"image {m}: no image data")
@@ -3396,6 +3563,7 @@ def help():
     deck = Deck("Parent::Child", tags=["topic"], id_prefix="c")   # batch: id_prefix="L01-c"
     deck = Deck.load(path_or_pasted_text)    # resume a bundle / revision request; deck.feedback = {{id: text}}
     deck.load_source(pdf_or_text)            # the material refs point into -> validate() checks every quote
+    deck.configure_checks({{...}})            # the prompt's "Checker settings" (levels error/warn/off, limits); deck.checks
     IMAGES (each returns the filename to reference)
       deck.pdf_figure(p, page, index=0, name)          embedded figure incl. overlaid labels
       deck.crop_pdf(p, page, box=(x0,y0,x1,y1), name)   any region; box = page fractions
@@ -4550,6 +4718,7 @@ function showTab(name){
   if (name === 'review') renderReview();
   if (name === 'revise') renderReviseSummary();
   if (name === 'export') renderExport();
+  if (name === 'analytics') renderAnalytics();
   if (name === 'import') renderDeckSummary();
   if (name === 'sources') renderSourcesTab();
   renderScopeBar();
@@ -4557,6 +4726,8 @@ function showTab(name){
 }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
 function updateTabCounts(){
+  if (S.filter && S.filter.startsWith('chk:')) ensureCheckOption(S.filter.slice(4));
+  try { anaCountSoon(); } catch {}   // not defined yet during start-up
   const n = S.cards.filter(c => c.status === 'new').length, ch = S.cards.filter(c => c.status === 'change').length;
   const rc = S.cards.filter(c => c.recheck).length;
   $('#tabReviewCount').textContent = S.cards.length ? `${n} left` + (rc ? ` · ${rc} re-check` : '') : '';
@@ -4596,6 +4767,36 @@ function updateModeUI(mode){
   $('#pSteps').innerHTML = STEPS[skill ? 'skill' : 'other'].map(t => `<li>${t}</li>`).join('');
   $('#rvMode').value = mode;
 }
+/* ---- checker settings: the Prompt page panel, and the section every prompt carries when they differ from the defaults */
+function checkerSection(mode){
+  const C = ck(), changed = CHECK_DEFS.filter(d => C[d.key] !== d.def);
+  if (!changed.length) return '';
+  if (mode === 'skill') return `\n## Checker settings\nRight after creating or loading the deck, call \`deck.configure_checks(${JSON.stringify(Object.fromEntries(changed.map(d => [d.key, C[d.key]])))})\` and write the cards to these limits.\n`;
+  const say = d => d.kind === 'level' ? `${d.label}: ${{error: 'must be fixed', warn: 'fix unless clearly fine', off: 'ignore this check'}[C[d.key]]}`
+    : `${d.label}: ${C[d.key] ? C[d.key] + ' ' + d.unit : 'no limit'}`;
+  return `\n## Quality limits (these replace the defaults above)\n${changed.map(d => '- ' + say(d)).join('\n')}\n`;
+}
+function renderCheckSettings(){
+  const C = ck(); let g = '', h = '';
+  for (const d of CHECK_DEFS){
+    if (d.group !== g){ g = d.group; h += `<h4>${esc(g)}</h4>`; }
+    const ch = C[d.key] !== d.def ? ' ck-ch' : '';
+    h += `<label class="${ch}" for="ck_${d.key}" title="default: ${esc(String(d.def))}">${esc(d.label)}</label>` + (d.kind === 'level'
+      ? `<select id="ck_${d.key}" data-ck="${d.key}">${['error', 'warn', 'off'].map(v => `<option ${C[d.key] === v ? 'selected' : ''}>${v}</option>`).join('')}</select>`
+      : `<div class="ck-num"><input type="number" min="0" step="1" id="ck_${d.key}" data-ck="${d.key}" value="${C[d.key]}"><span>${esc(d.unit)}</span></div>`);
+  }
+  $('#ckGrid').innerHTML = h;
+  const n = CHECK_DEFS.filter(d => C[d.key] !== d.def).length;
+  $('#ckSum').textContent = n ? `· ${n} changed from the defaults` : '· defaults';
+}
+$('#ckGrid').addEventListener('change', e => {
+  const el = e.target.closest('[data-ck]'); if (!el) return;
+  const d = CHECK_DEFS.find(x => x.key === el.dataset.ck);
+  const v = d.kind === 'level' ? el.value : Math.max(0, Math.round(+el.value || 0));
+  SET.checks = {...ck(), [d.key]: v}; saveSettings(); renderCheckSettings(); buildPrompt();
+  if ($('#tab-analytics.active')) renderAnalytics();
+});
+$('#ckReset').onclick = () => { SET.checks = {...CHECK_DEFAULTS}; saveSettings(); renderCheckSettings(); buildPrompt(); };
 function buildSkillPrompt(p){
   const types = [p.pBasic && 'Basic', p.pCloze && 'Cloze'].filter(Boolean);
   const imgs = [p.pImgGen && 'generated diagrams & charts', p.pImgWeb && 'real photos from Wikimedia Commons', p.pImgMat && 'figures cropped from my material'].filter(Boolean);
@@ -4618,7 +4819,7 @@ ${p.pTopic.trim() || 'Everything important in the attached material.'}
 
 ## Settings
 ${set.map(x => '- ' + x).join('\n')}
-${p.pExtra.trim() ? '\n## Extra instructions\n' + p.pExtra.trim() + '\n' : ''}
+${p.pExtra.trim() ? '\n## Extra instructions\n' + p.pExtra.trim() + '\n' : ''}${checkerSection('skill')}
 Give me **anki_bundle.json** (I'll import it into Anki Card Studio) and reply with only the skill's summary block.`;
 }
 /** single prompt in a sub-project targets that sub-deck */
@@ -4696,7 +4897,7 @@ function fullPrompt(p){
   {"filename": "wiggers.png", "origin": "material", "hint": "lecture3.pdf page 14 - the Wiggers diagram, whole figure"}
  ]
 }
-ANKI_CARDS>>>`;
+ANKI_CARDS>>>` + checkerSection('other');
 
   let workflow;
   if (p.pScript === 'none'){
@@ -5287,28 +5488,129 @@ const FMT_CODELIKE = /(?:\b[A-Za-z_]\w*(?:\.\w+)*\([^()\n]{0,60}\)\s*;)|(?:\b(?:
 function fmtProse(h){ return decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<code[^>]*>[\s\S]*?<\/code>/gi, ' ').replace(/<[^>]+>/g, ' ')); }
 const unCloze = s => String(s || '').replace(/\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}/g, '$1');
 function decodeEnt(s){ return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&'); }
-function formatIssues(c){
-  const out = [], cloze = c.type === 'cloze';
+/* ---- the checker: the same card-quality checks as the skill's validate(), with the same settings (SET.checks, edited on
+   the Prompt page and passed to Claude in every prompt). Used by the formatting pass and the Analytics tab. */
+const CHECK_DEFS = [
+  {key: 'why', group: 'Why this card', label: '"Why" present and long enough', kind: 'level', def: 'warn'},
+  {key: 'why_min_words', group: 'Why this card', label: 'Minimum words in "why"', kind: 'num', def: 45, unit: 'words'},
+  {key: 'front_max_chars', group: 'Length', label: 'Maximum front length (prose, code and maths not counted)', kind: 'num', def: 300, unit: 'chars'},
+  {key: 'back_max_words', group: 'Length', label: 'Maximum answer length (code not counted)', kind: 'num', def: 0, unit: 'words'},
+  {key: 'cloze_max_deletions', group: 'Length', label: 'Maximum cloze numbers per note', kind: 'num', def: 3, unit: 'c1…cN'},
+  {key: 'multi_question', group: 'One idea per card', label: 'Several questions bundled on one card', kind: 'level', def: 'error'},
+  {key: 'outside_refs', group: 'Self-contained', label: 'Points at notes, slides, figures or other cards', kind: 'level', def: 'error'},
+  {key: 'unshown_code', group: 'Self-contained', label: "Calls a method whose code the card doesn't show", kind: 'level', def: 'warn'},
+  {key: 'code_as_text', group: 'Code', label: 'Code written as plain text / squeezed into inline code', kind: 'level', def: 'warn'},
+  {key: 'code_language', group: 'Code', label: 'Code block without a language', kind: 'level', def: 'warn'},
+  {key: 'ref_quote_min_chars', group: 'Sources', label: 'Minimum source-quote length', kind: 'num', def: 25, unit: 'chars'},
+  {key: 'ref_page', group: 'Sources', label: 'Source reference without a page', kind: 'level', def: 'warn'},
+  {key: 'unused_images', group: 'Images', label: 'Image not used by any card (checked by Claude)', kind: 'level', def: 'warn'},
+  {key: 'order_window', group: 'Study order', label: 'Spoiler window in the study order', kind: 'num', def: 3, unit: 'cards'}
+];
+const CHECK_DEFAULTS = Object.fromEntries(CHECK_DEFS.map(d => [d.key, d.def]));
+const ck = () => { let c = null; try { c = SET.checks; } catch {} return {...CHECK_DEFAULTS, ...(c || {})}; };   // SET may not exist yet during start-up
+function plainLines(h){
+  const t = decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' [code] ').replace(/<\/?(br|p|div|li|tr|h\d)\b[^>]*>/gi, '\n').replace(/<[^>]+>/g, ''));
+  return t.split('\n').map(x => x.trim()).filter(Boolean);
+}
+function multiQuestion(c){
+  if (c.type === 'cloze') return [];
+  const q = String(c.front || ''), a = String(c.back || '');
+  let n = /<ol\b/i.test(q) ? (q.match(/<li\b/gi) || []).length : 0;
+  n = Math.max(n, plainLines(q).filter(l => /^(\(?\d+[.):]|\(?[a-h]\)|[ivx]+[.)])\s/.test(l)).length);
+  const mapped = (plainLines(a).join(' ').match(/(?:^|[\s;,(])\(?\d+\)?\s*(?:→|->|=>|:)\s*\S/g) || []).length;
+  const qm = (q.replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>/gi, '').match(/\?(?=\s|$|<)/g) || []).length;
+  if (n >= 2 && (mapped >= 2 || plainLines(a).length >= n)) return [['E', `It asks ${n} questions at once (numbered items with one answer each): make one card per item.`]];
+  if (qm >= 2) return [['W', `The front has ${qm} question marks: one question per card.`]];
+  if (mapped >= 3) return [['E', `The back answers ${mapped} numbered items: one question per card.`]];
+  return [];
+}
+/** every configurable check this card fails: [{key, level: 'E'|'W', msg}] (msg is written as an instruction) */
+function cardChecks(c, C = ck()){
+  const out = [], tags = c.tags || [], cloze = c.type === 'cloze';
+  const add = (key, designed, msg) => { const lv = C[key]; if (lv === 'off') return; out.push({key, level: lv === 'warn' ? 'W' : designed, msg}); };
+  const strict = (key, msg) => { const lv = C[key]; if (lv !== 'off') out.push({key, level: lv === 'error' ? 'E' : 'W', msg}); };
+  const why = String(c.why || '').trim(), wn = why ? decodeEnt(why.replace(/<[^>]+>/g, ' ')).split(/\s+/).filter(Boolean).length : 0;
+  if (!why) strict('why', 'There is no "why this card" rationale.');
+  else if (C.why_min_words && wn < C.why_min_words) out.push(...(C.why === 'off' ? [] : [{key: 'why_min_words', level: C.why === 'error' ? 'E' : 'W', msg: `The "why" has ${wn} words (minimum ${C.why_min_words}).`}]));
+  if (!cloze && C.front_max_chars){
+    const n = decodeEnt(String(c.front || '').replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>/gi, '').replace(/\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g, '').replace(/<[^>]+>/g, '')).length;
+    if (n > C.front_max_chars) out.push({key: 'front_max_chars', level: 'W', msg: `The front has ${n} characters of prose (limit ${C.front_max_chars}).`});
+  }
+  if (C.back_max_words){
+    const n = decodeEnt(String(cloze ? (c.text || '') + ' ' + (c.extra || '') : c.back || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' ')).split(/\s+/).filter(Boolean).length;
+    if (n > C.back_max_words) out.push({key: 'back_max_words', level: 'W', msg: `The answer has ${n} words (limit ${C.back_max_words}).`});
+  }
+  if (cloze && C.cloze_max_deletions){
+    const n = new Set([...String(c.text || '').matchAll(/\{\{c(\d+)::/g)].map(m => m[1])).size;
+    if (n > C.cloze_max_deletions) out.push({key: 'cloze_max_deletions', level: 'W', msg: `${n} cloze numbers (limit ${C.cloze_max_deletions}): split it, or hide related items under one number.`});
+  }
+  if (!tags.includes('multi-ok')) for (const [lv, m] of multiQuestion(c)) add('multi_question', lv, m);
   const q = unCloze((cloze ? c.text : c.front) || ''), a = cloze ? '' : String(c.back || ''), ex = String(c.extra || '');
-  const plainQ = decodeEnt(q.replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' '));
-  const plainAll = decodeEnt((q + ' ' + a + ' ' + ex).replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' '));
-  const m = FMT_EXT.exec(plainQ) || FMT_CARDREF.exec(plainAll);
-  if (m) out.push(`It depends on something the reader can't see ("${m[0]}"): put that code, figure or definition on the card itself.`);
-  if (!/<pre/i.test(q)){
-    const txt = decodeEnt([...q.matchAll(/<code[^>]*>([\s\S]*?)<\/code>/gi)].map(x => x[1]).join(' ') + ' ' + plainQ).replace(/<[^>]+>/g, '');
-    const call = [...txt.matchAll(/\b([a-z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(/g)].find(x => !FMT_STD.has(x[2]));
-    if (call) out.push(`The question uses ${call[1]}.${call[2]}(…) but the front doesn't show ${call[2]}'s code: if answering depends on what it does (parameters, body, fields), show it in a code block on the front.`);
+  if (!tags.includes('refs-ok')){
+    const plainQ = decodeEnt(q.replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' '));
+    const plainAll = decodeEnt((q + ' ' + a + ' ' + ex).replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' '));
+    const m = FMT_EXT.exec(plainQ) || FMT_CARDREF.exec(plainAll);
+    if (m){
+      if (/^(?:question|exercise|example)\b/i.test(m[0])) out.push({key: 'outside_refs', level: 'W', msg: `"${m[0]}" is a label from the source: fine if the whole problem is on the card, otherwise copy in what it refers to.`});
+      else add('outside_refs', 'E', `It depends on something the reader can't see ("${m[0]}"): put that code, figure or definition on the card itself.`);
+    }
+    if (!/<pre/i.test(q)){
+      const txt = decodeEnt([...q.matchAll(/<code[^>]*>([\s\S]*?)<\/code>/gi)].map(x => x[1]).join(' ') + ' ' + plainQ).replace(/<[^>]+>/g, '');
+      const call = [...txt.matchAll(/\b([a-z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(/g)].find(x => !FMT_STD.has(x[2]));
+      if (call) strict('unshown_code', `The question uses ${call[1]}.${call[2]}(…) but the front doesn't show ${call[2]}'s code: if answering depends on what it does (parameters, body, fields), show it in a code block on the front.`);
+    }
   }
-  for (const [name, h] of [[cloze ? 'Text' : 'Front', q], ['Back', a], ['Extra', ex]]){
-    const p = fmtProse(h), hit = FMT_CODELIKE.exec(p);
-    if (hit){ out.push(`${name} has code written as plain text ("${hit[0].trim().slice(0, 40)}"): format it as code (code blocks for statements/snippets, <code> for names).`); break; }
+  const parts = [[cloze ? 'Text' : 'Front', q], ['Back', a], ['Extra', ex]];
+  for (const [name, h] of parts){
+    const hit = FMT_CODELIKE.exec(fmtProse(h));
+    if (hit){ strict('code_as_text', `${name} has code written as plain text ("${hit[0].trim().slice(0, 40)}"): format it as code (code blocks for statements/snippets, <code> for names).`); break; }
   }
-  for (const [name, h] of [[cloze ? 'Text' : 'Front', q], ['Back', a], ['Extra', ex]]){
+  for (const [name, h] of parts){
+    if (/<pre/i.test(h)) continue;
     const long = [...h.matchAll(/<code[^>]*>([\s\S]*?)<\/code>/gi)].map(x => decodeEnt(x[1].replace(/<[^>]+>/g, ''))).find(t => (t.match(/;/g) || []).length >= 2 || /\n/.test(t.trim()) || /\{[\s\S]*\}/.test(t) && t.length > 40);
-    if (long && !/<pre/i.test(h)){ out.push(`${name} squeezes several lines of code into inline <code> ("${long.trim().slice(0, 40)}…"): use a code block.`); break; }
+    if (long){ strict('code_as_text', `${name} squeezes several lines of code into inline <code> ("${long.trim().slice(0, 40)}…"): use a code block.`); break; }
+  }
+  if (FIELDS[c.type].some(f => /<pre(?![^>]*>\s*<code)|<pre[^>]*>\s*<code(?![^>]*language-)/i.test(c[f] || ''))) strict('code_language', 'A code block has no language, so it is not highlighted.');
+  for (const r of c.refs || []){
+    if (r && r.file && !r.page && !/^https?:/.test(r.file)){ strict('ref_page', `The source reference to ${r.file} has no page.`); break; }
+  }
+  for (const r of c.refs || []){
+    const n = String((r && r.quote) || '').replace(/\s+/g, ' ').trim().length;
+    if (n && C.ref_quote_min_chars && n < C.ref_quote_min_chars){ out.push({key: 'ref_quote_min_chars', level: 'W', msg: `A source quote is only ${n} characters (minimum ${C.ref_quote_min_chars}).`}); break; }
   }
   return out;
 }
+/** what the formatting pass sends: the presentation problems only */
+const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language']);
+/* checks are re-run for a card only when it or the settings change (Analytics and the check filter look at every card) */
+const chkMemo = new WeakMap();
+function checksOf(c, C = ck(), cs = J(C)){
+  const sig = [c.type, c.front, c.back, c.text, c.extra, c.why, (c.tags || []).join(' '), c.refs ? J(c.refs) : '', cs], m = chkMemo.get(c);
+  if (m && m.sig.every((v, i) => v === sig[i])) return m.res;
+  const res = cardChecks(c, C); chkMemo.set(c, {sig, res}); return res;
+}
+// a check key as used by the Review filter ("chk:<key>"); 'missing_img' is the Studio's own image check
+const CHECK_ROWS = [
+  {key: 'why', label: 'No "why this card"', test: c => checksOf(c).some(x => x.key === 'why')},
+  {key: 'why_min_words', label: '"Why" too short', test: c => checksOf(c).some(x => x.key === 'why_min_words')},
+  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'ref_page', 'ref_quote_min_chars']
+    .map(k => ({key: k, label: CHECK_DEFS.find(d => d.key === k).label, test: c => checksOf(c).some(x => x.key === k)})),
+  {key: 'missing_img', label: 'Image missing or not loaded', test: c => cardMissing(c), studio: true}
+];
+const checkRow = k => CHECK_ROWS.find(r => r.key === k);
+function showCheckCards(key, wholeProject){
+  const r = checkRow(key); if (!r) return;
+  ensureCheckOption(key); S.filter = 'chk:' + key; $('#filter').value = S.filter;
+  const go = () => { const first = filtered()[0]; if (first) S.curId = first.id; showTab('review'); };
+  if (wholeProject && S.scope !== 'root') setScope('root').then(go); else go();
+}
+function ensureCheckOption(key){
+  const sel = $('#filter'); if (!sel) return;
+  sel.querySelectorAll('option[data-chk]').forEach(o => { if (o.value !== 'chk:' + key) o.remove(); });
+  if (!sel.querySelector(`option[value="chk:${key}"]`)){ const r = checkRow(key); if (!r) return;
+    const o = document.createElement('option'); o.value = 'chk:' + key; o.dataset.chk = 1; o.textContent = 'Check: ' + r.label; sel.appendChild(o); }
+}
+function formatIssues(c){ return checksOf(c).filter(x => FMT_KEYS.has(x.key)).map(x => x.msg); }
 
 /** set a card's review status; any decision on a card also settles a pending formatting re-check */
 function setCardStatus(c, st){ c.status = st; if (c.recheck) delete c.recheck; }
@@ -5320,6 +5622,7 @@ function filtered(){
     if (S.filter === 'edited' && !c.edited) return false;
     if (S.filter === 'missing' && !cardMissing(c)) return false;
     if (S.filter === 'recheck' && !c.recheck) return false;
+    if (S.filter.startsWith('chk:')){ const r = checkRow(S.filter.slice(4)); if (r && !r.test(c)) return false; }
     if (['new','ok','change','drop'].includes(S.filter) && c.status !== S.filter) return false;
     if (q && !(c.id + ' ' + FIELDS[c.type].map(f => c[f]).join(' ') + ' ' + c.tags.join(' ')).toLowerCase().includes(q)) return false;
     return true;
@@ -6154,6 +6457,7 @@ window.addEventListener('resize', debounce(checkCompact, 80));
 const DEFAULT_SETTINGS = {
   version: 2,
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
+  checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
   keys: {exclude: ['q'], change: ['w'], approve: ['d'], reset: ['r'], next: ['Meta', 'ArrowRight'], prev: ['ArrowLeft'],
          flip: ['Tab'], copy: ['c'], pane: ['e'], order: ['o'], image: ['i'], sidebar: ['\\']},
   leader: [
@@ -6174,6 +6478,11 @@ function mergeSettings(j){
   if (j && j.keys) for (const k of Object.keys(out.keys)) if (Array.isArray(j.keys[k])) out.keys[k] = j.keys[k].map(String);
   // v2 swapped the defaults (Q exclude, D approve); move people who never changed the old defaults (Q approve, D exclude) over
   if (j && j.keys && !(j.version >= 2) && J(j.keys.approve) === J(['q']) && J(j.keys.exclude) === J(['d'])){ out.keys.approve = ['d']; out.keys.exclude = ['q']; }
+  if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
+    const v = j.checks[d.key]; if (v === undefined) continue;
+    if (d.kind === 'level'){ if (['error', 'warn', 'off'].includes(v)) out.checks[d.key] = v; }
+    else if (Number.isFinite(+v) && +v >= 0) out.checks[d.key] = Math.round(+v);
+  }
   if (j && j.swipe && typeof j.swipe === 'object'){
     const n = (v, lo, hi, d) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d;
     out.swipe = {dist: n(j.swipe.dist, 8, 60, 25), angle: n(j.swipe.angle, 10, 75, 50), effects: j.swipe.effects !== false};
@@ -6186,6 +6495,7 @@ const MOD_KEYS = ['Meta', 'Control', 'Alt', 'Shift'];
 const keyName = k => ({Meta: '⌘ Cmd', Control: 'Ctrl', Alt: 'Alt', Shift: 'Shift', ' ': 'Space', ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc', Tab: 'Tab', Enter: 'Enter'}[k] || (k.length === 1 ? k.toUpperCase() : k));
 const keyMatches = (action, key) => (SET.keys[action] || []).some(k => k.length === 1 ? k.toLowerCase() === key.toLowerCase() : k === key);
 function renderKeyHints(){
+  if ($('#ckGrid') && typeof renderCheckSettings === 'function') try { renderCheckSettings(); } catch {}   // the checker settings change with the rest of the settings
   $$('.kbd[data-k]').forEach(el => { const ks = SET.keys[el.dataset.k] || []; el.textContent = ks.length ? keyName(ks[0]) : '–'; el.title = ks.map(keyName).join(' / '); });
 }
 /* -------- leader (request-change) menu: shown when the key is pressed and released */
@@ -6609,7 +6919,7 @@ $('#btnMakeRevision').onclick = () => {
   let txt = promptMode() === 'skill'
   ? `Use the **anki** skill's revision workflow to revise my Anki cards based on my review feedback. Give me **anki_revision.json** (only changed, added or deleted cards).
 For every card whose feedback is “I don't understand this card”: fix the card if its wording caused the confusion, and explain step by step why the card says what it says (start from what I already know, give each step's reason, add a small worked example where it helps). One or two short explanations can go in your reply; if there are more, or they are long, put them all in a markdown file **anki_explanations.md** (one section per card, with the card's question) and give me that file.
-${gen ? `\n## General feedback (applies to the whole deck)\n${gen}\n` : ''}${$('#rvMore').checked ? '\n## Also\nAdd new cards for important concepts from the material that the deck does not cover yet (new ids, continue the numbering).\n' : ''}
+${gen ? `\n## General feedback (applies to the whole deck)\n${gen}\n` : ''}${checkerSection(promptMode())}${$('#rvMore').checked ? '\n## Also\nAdd new cards for important concepts from the material that the deck does not cover yet (new ids, continue the numbering).\n' : ''}
 ## Cards to revise (each has my "feedback")
 <<<REVISE_CARDS
 ${JSON.stringify(block, null, 1)}
@@ -6626,7 +6936,7 @@ REVISE_CARDS>>>`
 - Otherwise output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block with "revision": true.
 - For every card whose feedback is “I don't understand this card”: fix the card if its wording caused the confusion, and explain step by step why the card says what it says (start from what I already know, give each step's reason, add a small worked example where it helps). One or two short explanations can go in your reply; if there are more, or they are long, put them all in a markdown file **anki_explanations.md** (one section per card, with the card's question) and give me that file. (With the helper: deck.explain(id, markdown) for each, then deck.save_explanations(). Without file creation, put the markdown in one fenced block.)
 - Then list each changed card in one line: what changed.
-${gen ? `\n## General feedback (applies to the whole deck)\n${gen}\n` : ''}${$('#rvMore').checked ? '\n## Also\nAdd new cards for important concepts from the material that the deck does not cover yet (new ids, continue the numbering).\n' : ''}
+${gen ? `\n## General feedback (applies to the whole deck)\n${gen}\n` : ''}${checkerSection(promptMode())}${$('#rvMore').checked ? '\n## Also\nAdd new cards for important concepts from the material that the deck does not cover yet (new ids, continue the numbering).\n' : ''}
 ## Cards to revise (each has my "feedback")
 <<<REVISE_CARDS
 ${JSON.stringify(block, null, 1)}
@@ -6677,7 +6987,7 @@ function fmtPrompt(cards){
   return (promptMode() === 'skill'
     ? `Use the **anki** skill's revision workflow for a formatting pass on these Anki cards. Give me **anki_revision.json** with only the cards you changed.\n\n${rules}`
     : `Please do a formatting pass on these Anki cards. Output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block (JSON with "revision": true and a "cards" list; each card keeps its id, type and all its fields).\n\n${rules}`)
-    + `\n\n<<<REVISE_CARDS\n${JSON.stringify(block, null, 1)}\nREVISE_CARDS>>>`;
+    + checkerSection(promptMode()) + `\n\n<<<REVISE_CARDS\n${JSON.stringify(block, null, 1)}\nREVISE_CARDS>>>`;
 }
 ['fmtScope', 'fmtStatus', 'fmtSize'].forEach(id => $('#' + id).onchange = renderFmtPass);
 $('#btnCopyRevision').onclick = () => { if (!$('#rvOut').value) $('#btnMakeRevision').click(); if ($('#rvOut').value) copyText($('#rvOut').value); };
@@ -6705,10 +7015,104 @@ $('#btnApplyRevision').onclick = async () => {
 function exportCards(){ const which = ($('input[name=exWhich]:checked') || {}).value; const ord = ($('input[name=exOrder]:checked') || {}).value || 'source';
   const onlyScope = scopeNode() && ($('input[name=exScope]:checked') || {}).value === 'scope';
   return ordered(S.cards.filter(c => (which === 'ok' ? c.status === 'ok' : c.status !== 'drop') && (!onlyScope || inScope(c))), ord); }
+/* ====================================================================== ANALYTICS */
+const anaCountSoon = debounce(() => {
+  const C = ck(), cs = J(C), live = S.cards.filter(c => c.status !== 'drop');
+  const n = live.filter(c => checksOf(c, C, cs).some(x => x.level === 'E')).length;
+  $('#tabAnaCount').textContent = n ? String(n) : ''; $('#tabAnaCount').hidden = !n;
+}, 600);
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const wordsOf = h => decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<[^>]+>/g, ' ')).split(/\s+/).filter(Boolean).length;
+/** a one-series histogram; bins that fail the limit are drawn in the warning colour (and named in the key and tooltips) */
+function histHTML(title, values, edges, fails, unit, note){
+  const bins = edges.slice(0, -1).map((lo, i) => ({lo, hi: edges[i + 1], n: 0}));
+  for (const v of values){ const b = bins.find(b => v >= b.lo && v < b.hi) || bins[bins.length - 1]; b.n++; }
+  const max = Math.max(1, ...bins.map(b => b.n)), lab = b => b.hi === Infinity ? `${b.lo}+` : b.hi - b.lo === 1 ? `${b.lo}` : `${b.lo}–${b.hi - 1}`;
+  const anyFail = bins.some(b => b.n && fails(b));
+  return `<div class="panel"><b>${esc(title)}</b>${note ? `<div class="small muted">${note}</div>` : ''}
+    <div class="hist" role="img" aria-label="${esc(title)}">${bins.map(b => `<div class="${fails(b) ? 'over' : ''}" title="${lab(b)} ${unit}: ${b.n} card${b.n === 1 ? '' : 's'}${fails(b) ? ' (outside the limit)' : ''}">`
+      + `<em>${b.n || ''}</em><i style="height:${b.n ? Math.max(2, b.n / max * 78) : 0}px"></i></div>`).join('')}</div>
+    <div class="hist-x">${bins.map(b => `<span title="${lab(b)}">${b.hi === Infinity ? b.lo + '+' : b.lo}</span>`).join('')}</div>
+    <div class="ana-key"><span>${esc(unit)}</span>${anyFail ? '<span><i style="background:var(--warn)"></i>outside your limit</span>' : ''}</div></div>`;
+}
+const withEdge = (edges, v) => v ? [...new Set([...edges, v])].sort((a, b) => a - b) : edges;
+function renderAnalytics(){
+  const C = ck(), cs = J(C), sc = $('#anaScope').value, st = $('#anaStatus').value;
+  const cards = S.cards.filter(c => (sc === 'all' || inScope(c)) && (st === 'live' ? c.status !== 'drop' : c.status === st));
+  const root = $('#anaRoot');
+  if (!cards.length){ root.innerHTML = '<div class="panel muted">No cards here yet.</div>'; return; }
+  const res = new Map(cards.map(c => [c, checksOf(c, C, cs)]));
+  const hasE = c => res.get(c).some(x => x.level === 'E'), hasAny = c => res.get(c).length > 0;
+  const n = cards.length, cl = cards.filter(c => c.type === 'cloze').length, img = cards.filter(c => cardImages(c).length).length;
+  const tile = (v, t, sub) => `<div class="ana-tile"><b>${v}</b><span>${t}</span>${sub ? `<div class="small muted">${sub}</div>` : ''}</div>`;
+  let h = `<div class="ana-tiles">${tile(n, 'cards', `${n - cl} basic · ${cl} cloze`)}${tile(pct(cards.filter(c => c.status === 'ok').length, n) + '%', 'approved')}`
+    + `${tile(pct(img, n) + '%', 'have an image', `${img} card${img === 1 ? '' : 's'}`)}${tile(pct(cards.filter(c => !hasAny(c)).length, n) + '%', 'pass every check')}`
+    + `${tile(cards.filter(hasE).length, 'with an error', `${cards.filter(c => hasAny(c) && !hasE(c)).length} with warnings only`)}</div>`;
+  // checks
+  const lvOf = k => k === 'missing_img' ? 'W' : ['why_min_words'].includes(k) ? (C.why === 'off' ? 'off' : C.why === 'error' ? 'E' : 'W')
+    : ['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'ref_quote_min_chars'].includes(k) ? (C[k] ? 'W' : 'off')
+    : C[k] === 'off' ? 'off' : C[k] === 'error' ? 'E' : 'W';
+  const setting = k => k === 'missing_img' ? 'Studio check' : k === 'why' ? C.why : k === 'why_min_words' ? `≥ ${C.why_min_words} words`
+    : CHECK_DEFS.find(d => d.key === k).kind === 'num' ? (C[k] ? `${k.includes('min') ? '≥' : '≤'} ${C[k]} ${CHECK_DEFS.find(d => d.key === k).unit}` : 'no limit') : C[k];
+  const rows = CHECK_ROWS.map(r => ({r, lv: lvOf(r.key), hit: cards.filter(r.test).length}));
+  h += `<div class="panel ana-scroll"><b>Checker results</b><table class="ana-tbl" style="margin-top:6px"><thead><tr><th>Check</th><th>Setting</th><th class="num">Cards</th><th style="width:22%"></th><th></th></tr></thead><tbody>`
+    + rows.map(({r, lv, hit}) => `<tr${lv === 'off' ? ' class="muted"' : ''}><td>${esc(r.label)}</td><td><span class="ana-lv ${lv}">${esc(setting(r.key))}</span></td>`
+      + `<td class="num">${lv === 'off' ? '–' : `${hit} <span class="muted">(${pct(hit, n)}%)</span>`}</td>`
+      + `<td>${lv === 'off' ? '' : `<div class="ana-meter" title="${hit} of ${n} cards"><i style="width:${pct(hit, n)}%;background:${lv === 'E' ? 'var(--bad)' : 'var(--warn)'}"></i></div>`}</td>`
+      + `<td>${hit && lv !== 'off' ? `<button class="btn" data-anashow="${r.key}" style="padding:2px 10px">Show cards</button>` : ''}</td></tr>`).join('')
+    + `</tbody></table></div>`;
+  // distributions
+  const basic = cards.filter(c => c.type !== 'cloze'), clz = cards.filter(c => c.type === 'cloze');
+  const whyW = cards.map(c => wordsOf(c.why));
+  const frontC = basic.map(c => decodeEnt(String(c.front || '').replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>/gi, '').replace(/\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g, '').replace(/<[^>]+>/g, '')).length);
+  const backW = cards.map(c => wordsOf(c.type === 'cloze' ? (c.text || '') + ' ' + (c.extra || '') : c.back));
+  const delN = clz.map(c => new Set([...String(c.text || '').matchAll(/\{\{c(\d+)::/g)].map(m => m[1])).size);
+  h += `<div class="ana-grid">`
+    + histHTML('"Why this card" length', whyW, withEdge([0, 1, 15, 30, 60, 90, 150, Infinity], C.why_min_words), b => C.why !== 'off' && (b.lo === 0 && b.hi === 1 || (C.why_min_words && b.hi <= C.why_min_words)), 'words',
+        C.why === 'off' ? 'check off' : `minimum ${C.why_min_words} words`)
+    + (basic.length ? histHTML('Front length (basic cards)', frontC, withEdge([0, 50, 100, 150, 200, 400, 600, Infinity], C.front_max_chars && C.front_max_chars + 1), b => C.front_max_chars && b.lo >= C.front_max_chars + 1, 'characters of prose',
+        C.front_max_chars ? `limit ${C.front_max_chars}` : 'no limit') : '')
+    + histHTML('Answer length', backW, withEdge([0, 10, 25, 50, 75, 100, 150, 250, Infinity], C.back_max_words && C.back_max_words + 1), b => C.back_max_words && b.lo >= C.back_max_words + 1, 'words (back, or cloze text + extra)',
+        C.back_max_words ? `limit ${C.back_max_words}` : 'no limit set')
+    + (clz.length ? histHTML('Cloze numbers per note', delN, [1, 2, 3, 4, 5, 6, Infinity], b => C.cloze_max_deletions && b.lo > C.cloze_max_deletions, 'c1…cN in one note',
+        C.cloze_max_deletions ? `limit ${C.cloze_max_deletions}` : 'no limit') : '')
+    + histHTML('Images per card', cards.map(c => cardImages(c).length), [0, 1, 2, 3, Infinity], () => false, 'images', 'the skill adds images only where they help')
+    + `</div>`;
+  // per deck
+  const by = new Map(); for (const c of cards){ const d = cardDeck(c); if (!by.has(d)) by.set(d, []); by.get(d).push(c); }
+  if (by.size > 1){
+    const decks = [...by.keys()].sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+    h += `<div class="panel ana-scroll"><b>By sub-deck</b><table class="ana-tbl" style="margin-top:6px"><thead><tr><th>Deck</th><th class="num">Cards</th><th class="num">Approved</th><th class="num">With errors</th><th class="num">Warnings only</th><th class="num">Avg why</th><th class="num">With images</th></tr></thead><tbody>`
+      + decks.map(d => { const cs2 = by.get(d), m = cs2.length, e = cs2.filter(hasE).length, w = cs2.filter(c => hasAny(c) && !hasE(c)).length;
+        return `<tr><td title="${esc(d)}">${esc(d.split('::').slice(-1)[0])}</td><td class="num">${m}</td><td class="num">${pct(cs2.filter(c => c.status === 'ok').length, m)}%</td>`
+          + `<td class="num">${e ? `<span style="color:var(--bad)">${e}</span>` : 0}</td><td class="num">${w}</td>`
+          + `<td class="num">${Math.round(cs2.reduce((a, c) => a + wordsOf(c.why), 0) / m)}</td><td class="num">${pct(cs2.filter(c => cardImages(c).length).length, m)}%</td></tr>`; }).join('')
+      + `</tbody></table></div>`;
+  }
+  root.innerHTML = h;
+}
+$('#anaRoot').addEventListener('click', e => { const b = e.target.closest('[data-anashow]'); if (b) showCheckCards(b.dataset.anashow, $('#anaScope').value === 'all'); });
+['anaScope', 'anaStatus'].forEach(id => $('#' + id).onchange = renderAnalytics);
+$('#anaToCk').onclick = e => { e.preventDefault(); showTab('prompt'); $('#ckWrap').open = true; $('#ckWrap').scrollIntoView({block: 'start', behavior: 'smooth'}); };
+/** the checker's verdict on what is about to be exported */
+function renderExportCheck(cards){
+  const C = ck(), cs = J(C), box = $('#exCheck'); if (!box) return;
+  if (!cards.length){ box.hidden = true; return; } box.hidden = false;
+  const res = new Map(cards.map(c => [c, checksOf(c, C, cs)]));
+  const e = cards.filter(c => res.get(c).some(x => x.level === 'E')).length, w = cards.filter(c => res.get(c).length && !res.get(c).some(x => x.level === 'E')).length;
+  const top = CHECK_ROWS.map(r => ({r, hit: cards.filter(r.test).length})).filter(x => x.hit).sort((a, b) => b.hit - a.hit).slice(0, 4);
+  box.innerHTML = `<div class="row" style="flex-wrap:wrap;gap:8px"><b>Checker</b><span class="small">${e || w
+      ? `Of the ${cards.length} cards to export, <b style="color:var(--bad)">${e}</b> have an error and <b>${w}</b> a warning.`
+      : `All ${cards.length} cards to export pass your checks.`}</span><span class="spacer"></span><button class="btn" id="exToAna">Open Analytics</button></div>`
+    + (top.length ? `<div class="row small" style="flex-wrap:wrap;gap:6px">${top.map(({r, hit}) => `<button class="btn" data-anashow="${r.key}" style="padding:2px 10px">${esc(r.label)} · ${hit}</button>`).join('')}</div>` : '');
+  $('#exToAna').onclick = () => showTab('analytics');
+  box.querySelectorAll('[data-anashow]').forEach(b => b.onclick = () => showCheckCards(b.dataset.anashow, !scopeNode() || ($('input[name=exScope]:checked') || {}).value !== 'scope'));
+}
 function renderExport(){
   if (!$('#exDeck').value) $('#exDeck').value = S.deck;
   $('#exWhy').checked = !!S.whyAll;
   const cards = exportCards(), missing = new Set();
+  renderExportCheck(cards);
   cards.forEach(c => cardImages(c).forEach(n => { if (!['ok','inline'].includes(mediaState(n))) missing.add(n); }));
   const ch = S.cards.filter(c => c.status === 'change').length, un = S.cards.filter(c => c.status === 'new').length;
   const w = [];

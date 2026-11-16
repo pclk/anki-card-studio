@@ -728,6 +728,87 @@ def office_images(path):
 
 
 # --------------------------------------------------------------------------- Deck
+# ---------------------------------------------------------------------------------------------------- checker settings
+# What validate() checks for card quality, and how strictly. Anki Card Studio's Prompt page sets these; the prompt then
+# says e.g. `deck.configure_checks({"why_min_words": 80, "code_as_text": "error"})`. A level is "error" (must fix),
+# "warn" (fix unless clearly fine) or "off". Structural checks (HTML, images, cloze syntax, maths) are not configurable.
+CHECK_DEFAULTS = {
+    "why": "warn",                 # every card has a why= rationale ...
+    "why_min_words": 45,           # ... of at least this many words (0 = any length)
+    "front_max_chars": 300,        # prose on a basic card's front, code and maths not counted (0 = no limit)
+    "back_max_words": 0,           # words on the back / cloze extra, code not counted (0 = no limit)
+    "cloze_max_deletions": 3,      # distinct cN numbers in one cloze note (0 = no limit)
+    "multi_question": "error",     # several questions bundled on one card (tag multi-ok to allow)
+    "outside_refs": "error",       # the card points at notes, slides, figures or other cards (tag refs-ok to allow)
+    "unshown_code": "warn",        # the question calls a method whose code the front doesn't show
+    "code_as_text": "warn",        # code written as plain text, or several lines squeezed into inline <code>
+    "code_language": "warn",       # a code block without a language (no highlighting)
+    "ref_quote_min_chars": 25,     # source quotes shorter than this can't be found reliably (0 = any length)
+    "ref_page": "warn",            # a ref to a file without a page
+    "unused_images": "warn",       # an image registered but not used by any card
+    "order_window": 3,             # check_order(): how many cards back a spoiler counts
+}
+CHECK_LEVELS = ("error", "warn", "off")
+
+
+def _check_value(key, v):
+    d = CHECK_DEFAULTS[key]
+    if isinstance(d, str):
+        v = str(v).strip().lower()
+        v = {"warning": "warn", "err": "error", "none": "off", "false": "off", "true": "warn"}.get(v, v)
+        if v not in CHECK_LEVELS:
+            raise ValueError(f"check {key!r} must be one of {CHECK_LEVELS}, not {v!r}")
+        return v
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"check {key!r} needs a whole number, not {v!r}") from None
+    if v < 0:
+        raise ValueError(f"check {key!r} can't be negative")
+    return v
+
+
+_CODE_LIKE = re.compile(
+    r"(?:\b[A-Za-z_]\w*(?:\.\w+)*\([^()\n]{0,60}\)\s*;)"
+    r"|(?:\b(?:int|double|boolean|String|var|final|void|char|long)\s+[a-z]\w*\s*(?:=|;|\())"
+    r"|(?:\bnew\s+[A-Z]\w*(?:<[^>]*>)?\s*\()|(?:\b[a-z]\w*\s*->\s*[\w(])|(?:\b[A-Z]\w*<[A-Z?][\w<>?, ]*>)"
+    r"|(?:\breturn\s+[^.?!]{1,40};)"
+    r"|(?:\b(?:public|private|protected|static)\s+(?:static\s+|final\s+|abstract\s+)*(?:class|interface|void|int|double|boolean|String|[A-Z]\w*)\b)")
+
+
+def _un_cloze(h):
+    return re.sub(r"\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}", r"\1", str(h or ""))
+
+
+def _code_as_text(c):
+    """Code that isn't formatted as code: statements in plain text, or several lines squeezed into one inline <code>.
+    (The same rules as Anki Card Studio's formatting-pass checks.)"""
+    cloze = c.get("type") == "cloze"
+    parts = [("text" if cloze else "front", _un_cloze(c.get("text") if cloze else c.get("front")))]
+    if not cloze:
+        parts.append(("back", str(c.get("back") or "")))
+    parts.append(("extra", str(c.get("extra") or "")))
+    probs = []
+    for name, h in parts:
+        t = _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>|<code[^>]*>[\s\S]*?</code>", " ", h, flags=re.I)))
+        m = _CODE_LIKE.search(t)
+        if m:
+            probs.append(f"{name} has code written as plain text ({m.group(0).strip()[:40]!r}) - use code() for statements/snippets and <code> for names")
+            break
+    for name, h in parts:
+        if re.search(r"<pre", h, re.I):
+            continue
+        for x in re.findall(r"<code[^>]*>([\s\S]*?)</code>", h, re.I):
+            t = _html.unescape(re.sub(r"<[^>]+>", "", x))
+            if t.count(";") >= 2 or "\n" in t.strip() or (re.search(r"\{[\s\S]*\}", t) and len(t) > 40):
+                probs.append(f"{name} squeezes several lines of code into inline <code> ({t.strip()[:40]!r}...) - use a code() block")
+                break
+        else:
+            continue
+        break
+    return probs
+
+
 class Deck:
     """A deck of cards plus the images they reference."""
 
@@ -743,6 +824,7 @@ class Deck:
         self._new_media = set()
         self._reserved = set()
         self.feedback = {}       # id -> reviewer feedback (filled by Deck.load on a revision request)
+        self.checks = dict(CHECK_DEFAULTS)   # what validate() checks and how strictly - see configure_checks()
         self.order = []          # anti-spoiler study order (card ids), see set_order()
         self.names = {}          # your names for cards -> ids  (add_basic(..., name="x"))
         self._meta = {}          # id -> {"group", "prereq"}  (used by suggest_order; not exported)
@@ -1537,9 +1619,10 @@ class Deck:
             return f"same image {sorted(shared)[0]} as {a['id']}"
         return None
 
-    def check_order(self, ids=None, window=3, quiet=False):
+    def check_order(self, ids=None, window=None, quiet=False):
         """Warn where a card, studied up to `window` places earlier, gives away a later card's answer
         (answer terms, numbers, the same image). Returns the warnings."""
+        window = self.checks.get("order_window", 3) if window is None else window
         order = [self._rid(i) for i in (ids or self.order or [c["id"] for c in self.cards])]
         out = []
         for j, bid in enumerate(order):
@@ -1554,10 +1637,11 @@ class Deck:
             print("\n".join("  ! " + w for w in out) if out else "  no spoilers found in the order")
         return out
 
-    def suggest_order(self, window=3):
+    def suggest_order(self, window=None):
         """A study order that interleaves topics (group= on add_*, else the first tag, else the order you wrote
         them in blocks), keeps prereq= cards first, and avoids spoilers within `window` places.
         Review it, then deck.set_order(deck.suggest_order())."""
+        window = self.checks.get("order_window", 3) if window is None else window
         def group(c):
             g = (self._meta.get(c["id"]) or {}).get("group") or ((c.get("tags") or [None])[0])
             return g or f"block{self.cards.index(c) // 4}"
@@ -1669,13 +1753,43 @@ class Deck:
                 f"Number of Cloze cards: {cz}\nNumber of Images: {len(self.media)}\nUnexpected and unresolvable issues: {iss}")
 
     # ---------------------------------------------------------------- checks + output
-    def validate(self, verbose=True, window=3):
+    def configure_checks(self, settings=None, **kw):
+        """Change what validate() checks and how strictly, e.g. from the prompt's "Checker settings":
+        deck.configure_checks({"why_min_words": 80, "outside_refs": "warn"}) or deck.configure_checks(why_min_words=80).
+        Levels are "error", "warn" or "off"; numbers are limits (0 = no limit). Prints what changed; returns the settings."""
+        if isinstance(settings, str):
+            settings = json.loads(settings)
+        new = {**(settings or {}), **kw}
+        bad = [k for k in new if k not in CHECK_DEFAULTS]
+        if bad:
+            raise ValueError(f"unknown check(s) {bad} - known: {', '.join(CHECK_DEFAULTS)}")
+        changed = []
+        for k, v in new.items():
+            v = _check_value(k, v)
+            if self.checks.get(k) != v:
+                changed.append(f"{k}={v}")
+            self.checks[k] = v
+        print("checker settings: " + (", ".join(changed) if changed else "unchanged") + " (deck.checks has them all)")
+        return dict(self.checks)
+
+    def validate(self, verbose=True, window=None):
         """Check the deck. Returns a list of problems ("ERROR ..." must be fixed; "warn ..." usually should be).
         Covers: card structure, every image link and image file, captions/escaping, allowed tags, inline colours,
         code blocks, maths delimiters, box kinds, ref quotes against load_source() text, missing glyphs in figures,
         the study order and spoilers between nearby cards in it."""
         errs, warns = [], []
         E, W = errs.append, warns.append
+        ck = {**CHECK_DEFAULTS, **getattr(self, "checks", {})}
+        window = ck["order_window"] if window is None else window
+
+        def at(key, designed="W"):
+            # the reporter for a configurable check: None when it's off, warn when set to warn, else as designed
+            lv = ck[key]
+            return None if lv == "off" else W if lv == "warn" or designed == "W" else E
+
+        def at_strict(key):
+            lv = ck[key]
+            return None if lv == "off" else E if lv == "error" else W
         ids = [c["id"] for c in self.cards]
         for d in sorted({i for i in ids if ids.count(i) > 1}):
             E(f"duplicate id {d}")
@@ -1684,27 +1798,42 @@ class Deck:
         self._fix_math_all()
         for c in self.cards:
             cid = c["id"]
-            if not str(c.get("why") or "").strip():
-                W(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
-            else:
+            rep_why = at_strict("why")
+            if rep_why and not str(c.get("why") or "").strip():
+                rep_why(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
+            elif rep_why and ck["why_min_words"]:
                 wn = len(re.sub(r"<[^>]+>", " ", c["why"]).split())
-                if wn < 45:
-                    W(f"{cid}: why= is only {wn} words - make it extensive: what it tests, why it matters, the common "
-                      "mistake, what it connects to (rationale() builds it)")
-            if "multi-ok" not in (c.get("tags") or []):
+                if wn < ck["why_min_words"]:
+                    rep_why(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
+                            "matters, the common mistake, what it connects to (rationale() builds it)")
+            if "multi-ok" not in (c.get("tags") or []) and ck["multi_question"] != "off":
                 for level, prob in _multi_question(c):
-                    (E if level == "E" else W)(f"{cid}: {prob}")
+                    at("multi_question", level)(f"{cid}: {prob}")
             if "refs-ok" not in (c.get("tags") or []):
                 for level, prob in _outside_refs(c):
-                    (E if level == "E" else W)(f"{cid}: {prob}")
+                    key = "unshown_code" if prob.startswith("asks about") else "outside_refs"
+                    r_ = at_strict(key) if key == "unshown_code" else at(key, level)
+                    if r_:
+                        r_(f"{cid}: {prob}")
+            if at_strict("code_as_text"):
+                for prob in _code_as_text(c):
+                    at_strict("code_as_text")(f"{cid}: {prob}")
+            if ck["back_max_words"]:
+                bw = len(_html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", str(c.get("text" if c.get("type") == "cloze" else "back") or "") + " " + (str(c.get("extra") or "") if c.get("type") == "cloze" else "")))).split())
+                if bw > ck["back_max_words"]:
+                    W(f"{cid}: answer has {bw} words (limit {ck['back_max_words']}) - trim it or move secondary depth to extra")
+            if c.get("type") == "cloze" and ck["cloze_max_deletions"]:
+                nd = len(set(re.findall(r"\{\{c(\d+)::", str(c.get("text") or ""))))
+                if nd > ck["cloze_max_deletions"]:
+                    W(f"{cid}: {nd} cloze numbers (limit {ck['cloze_max_deletions']}) - split it or hide related items together under one number")
             fields = {k: v for k, v in c.items() if k in ("front", "back", "text", "extra", "source") and isinstance(v, str)}
             if c["type"] == "basic":
                 if not re.sub(r"<[^>]+>", "", c.get("front", "")).strip() and "<img" not in c.get("front", ""):
                     E(f"{cid}: empty front")
                 if not c.get("back", "").strip():
                     E(f"{cid}: empty back")
-                if len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > 300:
-                    W(f"{cid}: front has >300 characters of prose - does it test one idea?")
+                if ck["front_max_chars"] and len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > ck["front_max_chars"]:
+                    W(f"{cid}: front has >{ck['front_max_chars']} characters of prose - does it test one idea?")
             elif c["type"] == "cloze":
                 t = c.get("text", "")
                 if not re.search(r"\{\{c\d+::", t):
@@ -1756,8 +1885,8 @@ class Deck:
                     if re.search(r"(^|;)\s*(background(-color)?|color)\s*:", st, re.I):
                         E(f"{where}: inline colour/background ({st[:60]!r}) - remove it. Cards are shown in light AND night mode; "
                           "a white/light background makes text unreadable in night mode. Use code() for code and box() for call-outs.")
-                if re.search(r"<pre(?![^>]*>\s*<code)", v) or re.search(r"<pre[^>]*>\s*<code(?![^>]*language-)", v):
-                    W(f"{where}: code block without a language - use code(text, 'java'|'python'|...) so it gets highlighted")
+                if at_strict("code_language") and (re.search(r"<pre(?![^>]*>\s*<code)", v) or re.search(r"<pre[^>]*>\s*<code(?![^>]*language-)", v)):
+                    at_strict("code_language")(f"{where}: code block without a language - use code(text, 'java'|'python'|...) so it gets highlighted")
                 # boxes
                 for kind in re.findall(r'class="aa-box aa-([\w-]+)"', v):
                     if kind not in BOX_TITLES:
@@ -1775,11 +1904,11 @@ class Deck:
             for r in c.get("refs") or []:
                 if not r.get("file"):
                     E(f"{cid}: ref needs a file / source name ({r})"); continue
-                if not r.get("page") and not str(r["file"]).startswith(("http://", "https://")):
-                    W(f"{cid}: ref has no page - fine for a web page / note, otherwise give the page ({r['file']})")
+                if at_strict("ref_page") and not r.get("page") and not str(r["file"]).startswith(("http://", "https://")):
+                    at_strict("ref_page")(f"{cid}: ref has no page - fine for a web page / note, otherwise give the page ({r['file']})")
                 q = r.get("quote") or ""
-                if q and len(self._norm(q)) < 25:
-                    W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~25 characters so it can be found")
+                if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"]:
+                    W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~{ck['ref_quote_min_chars']} characters so it can be found")
                 src = self._source_for(r["file"])
                 if q and src:
                     fname, pages = src
@@ -1791,8 +1920,8 @@ class Deck:
                         E(f"{cid}: ref quote not found in {fname} - copy it verbatim from the source text")
         for m, meta in self.media.items():
             o = meta.get("origin")
-            if m not in used:
-                W(f"image {m} is registered but not used by any card")
+            if m not in used and at_strict("unused_images"):
+                at_strict("unused_images")(f"image {m} is registered but not used by any card")
             if o == "generated":
                 if not meta.get("data"):
                     E(f"image {m}: no image data")
@@ -1979,6 +2108,7 @@ def help():
     deck = Deck("Parent::Child", tags=["topic"], id_prefix="c")   # batch: id_prefix="L01-c"
     deck = Deck.load(path_or_pasted_text)    # resume a bundle / revision request; deck.feedback = {{id: text}}
     deck.load_source(pdf_or_text)            # the material refs point into -> validate() checks every quote
+    deck.configure_checks({{...}})            # the prompt's "Checker settings" (levels error/warn/off, limits); deck.checks
     IMAGES (each returns the filename to reference)
       deck.pdf_figure(p, page, index=0, name)          embedded figure incl. overlaid labels
       deck.crop_pdf(p, page, box=(x0,y0,x1,y1), name)   any region; box = page fractions
