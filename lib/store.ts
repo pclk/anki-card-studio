@@ -4,7 +4,8 @@
  * optimistic locking on their `rev`, a rolling history, and media / source files split into chunks so no single
  * request has to exceed Vercel's 4.5 MB body limit.
  */
-import { db, ensureSchema } from "./db";
+import { objectStore, objectKey, digest, readObject } from "./object-storage";
+import { db, ensureSchema, objectIntent, transaction } from "./db";
 
 export const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/;
@@ -106,8 +107,14 @@ export async function projectBytes(owner: string, id: string): Promise<number> {
 }
 
 export async function getRev(owner: string, id: string) {
-  const d = await getProject(owner, id);
-  return d == null ? null : revInfo(d);
+  await ensureSchema();
+  // Extract in Postgres: polling must never transfer the project body. Use json (not
+  // jsonb) so legacy JSON, including values outside jsonb's numeric range, stays valid.
+  const rows = await db()<{ metadata: string }>(
+    `select json_build_object('rev', data::json -> 'rev',
+      'savedAt', data::json -> 'savedAt', 'savedBy', data::json -> 'savedBy')::text as metadata
+     from acs_projects where owner = $1 and id = $2`, [owner, id]);
+  return rows.length ? revInfo(rows[0].metadata) : null;
 }
 
 /** save; with baseRev, only if the stored project is still at that revision (else 409 with the current one).
@@ -165,7 +172,7 @@ export async function putProject(owner: string, id: string, body: string, baseRe
 }
 
 /** remove a project everywhere; its last state stays in acs_history for recovery */
-export async function deleteProject(owner: string, id: string): Promise<void> {
+async function deleteProjectInner(owner: string, id: string): Promise<void> {
   await ensureSchema();
   await db()(
     `insert into acs_history (owner, id, rev, data) select owner, id, rev, data from acs_projects where owner = $1 and id = $2`,
@@ -222,10 +229,12 @@ export async function fileMeta(owner: string, project: string, kind: string, nam
 }
 
 export async function readChunk(owner: string, project: string, kind: string, name: string, idx: number): Promise<Buffer | null> {
-  const r = await db()<{ b64: string }>(
-    "select encode(data, 'base64') as b64 from acs_chunks where owner = $1 and project = $2 and kind = $3 and name = $4 and idx = $5",
+  await ensureSchema();
+  const r = await db()<{ b64: string; object_key: string; sha256: string; byte_size: number }>(
+    "select encode(data, 'base64') as b64, object_key, sha256, byte_size from acs_chunks where owner = $1 and project = $2 and kind = $3 and name = $4 and idx = $5",
     [owner, project, kind, name, idx],
   );
+  if (r[0]?.object_key) return readObject(r[0].object_key, r[0].sha256, r[0].byte_size, owner, project, kind, name);
   return r.length ? Buffer.from(r[0].b64.replace(/\s+/g, ""), "base64") : null;
 }
 
@@ -233,7 +242,7 @@ export async function readChunk(owner: string, project: string, kind: string, na
  * Write one piece of a file. Piece 0 replaces whatever was stored under that name; the file becomes readable once
  * the last piece arrives. A file small enough for one request is just piece 0 of 1.
  */
-export async function writeChunk(owner: string, project: string, kind: string, name: string, mime: string,
+async function writeChunkInner(owner: string, project: string, kind: string, name: string, mime: string,
                                  idx: number, total: number, bytes: Buffer, uploadId = ""): Promise<void> {
   if (!Number.isInteger(idx) || !Number.isInteger(total) || total < 1 || total > 4096 || idx < 0 || idx >= total)
     throw new HttpError(400, "bad chunk number");
@@ -247,11 +256,30 @@ export async function writeChunk(owner: string, project: string, kind: string, n
       if (found[0]?.upload_id !== uploadId) continue;
       if (found[0].chunks !== total) throw new HttpError(409, "upload session changed");
       const chunks = table === 'acs_files' ? 'acs_chunks' : 'acs_upload_chunks';
-      const old = await q<{same: boolean}>(`select data=decode($6,'base64') as same from ${chunks} where owner=$1 and project=$2 and kind=$3 and name=$4 and idx=$5`, [owner,project,kind,name,idx,bytes.toString('base64')]);
-      if (old.length) { if (old[0].same) return; throw new HttpError(409, "upload piece changed"); }
+      // Object retries and new pieces need only hashes, never base64 SQL parameters.
+      // Send bytes to Postgres solely when comparing an existing legacy bytea row.
+      const old = await q<{same: boolean | null}>(`select case when object_key is not null then sha256=$6 and byte_size=$7 else null end as same from ${chunks} where owner=$1 and project=$2 and kind=$3 and name=$4 and idx=$5`, [owner,project,kind,name,idx,digest(bytes),bytes.length]);
+      if (old.length) {
+        if (old[0].same === null) {
+          const [legacy] = await q<{same: boolean}>(`select data=decode($6,'base64') as same from ${chunks} where owner=$1 and project=$2 and kind=$3 and name=$4 and idx=$5`, [owner,project,kind,name,idx,bytes.toString('base64')]);
+          old[0].same = legacy?.same ?? false;
+        }
+        if (old[0].same) return;
+        throw new HttpError(409, "upload piece changed");
+      }
       if (table === 'acs_files') throw new HttpError(409, "upload already completed");
     }
   }
+  // Compute the exact final logical delta before allocating remote bytes. The API
+  // holds the account lock; keep grow-only quota semantics for over-limit accounts.
+  const { checkQuota } = await import('./users');
+
+  const [staged] = await q<{n:string}>(`select coalesce(sum(coalesce(byte_size,octet_length(data))),0) as n from acs_upload_chunks where owner=$1 and project=$2 and kind=$3 and name=$4`, [owner,project,kind,name]);
+  const [active] = await q<{size:string}>('select size from acs_files where owner=$1 and project=$2 and kind=$3 and name=$4', [owner,project,kind,name]);
+  const [pieces] = await q<{n:string}>('select count(*) as n from acs_upload_chunks where owner=$1 and project=$2 and kind=$3 and name=$4', [owner,project,kind,name]);
+  const completing = idx === 0 ? total === 1 : Number(pieces.n) + 1 === total;
+  const delta = bytes.length - (idx === 0 ? Number(staged.n) : 0) - (completing ? Number(active?.size || 0) : 0);
+  if (delta > 0) await checkQuota(owner, delta);
   if (idx === 0) {
     await q("delete from acs_upload_chunks where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);
     await q(
@@ -269,13 +297,18 @@ export async function writeChunk(owner: string, project: string, kind: string, n
     );
     if (!f.length || f[0].upload_id !== uploadId || f[0].complete || Number(f[0].chunks) !== total) throw new HttpError(409, "upload not started (send piece 0 first)");
   }
+  const storage = objectStore();
+  const key = storage ? objectKey(owner, project, kind, name) : null;
+  if (storage && key) { await objectIntent(key, owner); await storage.put(key, bytes); }
   await q(
-    `insert into acs_upload_chunks (owner, project, kind, name, idx, data) values ($1, $2, $3, $4, $5, decode($6, 'base64'))
-     on conflict (owner, project, kind, name, idx) do update set data = excluded.data`,
-    [owner, project, kind, name, idx, bytes.toString("base64")],
+    `insert into acs_upload_chunks (owner, project, kind, name, idx, data, object_key, sha256, byte_size)
+     values ($1,$2,$3,$4,$5,decode($6,'base64'),$7,$8,$9)
+     on conflict (owner,project,kind,name,idx) do update set
+     data=excluded.data, object_key=excluded.object_key, sha256=excluded.sha256, byte_size=excluded.byte_size`,
+    [owner,project,kind,name,idx,key ? null : bytes.toString('base64'),key,digest(bytes),bytes.length],
   );
   await q(
-    `update acs_upload_files set size = (select coalesce(sum(octet_length(data)), 0) from acs_upload_chunks c
+    `update acs_upload_files set size = (select coalesce(sum(coalesce(byte_size, octet_length(data))), 0) from acs_upload_chunks c
        where c.owner = $1 and c.project = $2 and c.kind = $3 and c.name = $4),
      complete = (select count(*) from acs_upload_chunks c where c.owner = $1 and c.project = $2 and c.kind = $3 and c.name = $4) = chunks,
      updated = now()
@@ -295,10 +328,22 @@ export async function writeChunk(owner: string, project: string, kind: string, n
 
 }
 
-export async function deleteFile(owner: string, project: string, kind: string, name: string): Promise<void> {
+async function deleteFileInner(owner: string, project: string, kind: string, name: string): Promise<void> {
   for (const table of ['acs_upload_chunks','acs_upload_files'])
     await db()(`delete from ${table} where owner=$1 and project=$2 and kind=$3 and name=$4`, [owner,project,kind,name]);
   await ensureSchema();
   await db()("delete from acs_chunks where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);
   await db()("delete from acs_files where owner = $1 and project = $2 and kind = $3 and name = $4", [owner, project, kind, name]);
+}
+
+export async function writeChunk(...args: Parameters<typeof writeChunkInner>): Promise<void> {
+  return transaction(args[0], () => writeChunkInner(...args));
+}
+
+export async function deleteFile(...args: Parameters<typeof deleteFileInner>): Promise<void> {
+  return transaction(args[0], () => deleteFileInner(...args));
+}
+
+export async function deleteProject(...args: Parameters<typeof deleteProjectInner>): Promise<void> {
+  return transaction(args[0], () => deleteProjectInner(...args));
 }

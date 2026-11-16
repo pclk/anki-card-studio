@@ -112,7 +112,7 @@ function softRefresh(){
 /* ---- background pull: when the window regains focus, every 15 s, and right away when another tab saves */
 let checking = false;
 async function checkRemote(){
-  if (!curProject || sync.paused || checking || $('#syncDlg').open) return;
+  if (document.hidden || !curProject || sync.paused || checking || $('#syncDlg').open) return;
   checking = true;
   try {
     const rev = await Store.getRev(curProject).catch(() => null);

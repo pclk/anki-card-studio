@@ -198,7 +198,7 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
 5. `deck.validate()`. "Registered but not used" is fine for images the user already has.
 6. `deck.save(revision=True)` → **`anki_revision.json`**. Reply with one line per changed card (what changed), plus the explanations note if any.
 
-**Formatting pass** (the prompt says so, and each card's feedback starts "Formatting pass"): the user has already reviewed these cards. Change only how they're written: code into `code()` blocks, names into inline `<code>`, missing code/definitions onto the card (rule 2), maths into `tex()`. Never change what a card tests, its answer, `why`, images or tags; never delete, merge or split. The feedback comes from automatic checks and can be wrong: leave fine cards out. Save only the cards you changed.
+**Formatting pass** (the prompt says so, and each card's feedback starts "Formatting pass"): the user has already reviewed these cards. Change only how they're written: code into `code()` blocks, names into inline `<code>`, missing code/definitions/equations onto the card (rule 2), maths into `tex()` (display for multi-line or long formulas, never inside `<code>`). Never change what a card tests, its answer, `why`, images or tags; never delete, merge or split. The feedback comes from automatic checks and can be wrong: leave fine cards out. Save only the cards you changed.
 
 If asked to fill gaps, add cards for important uncovered concepts, continuing the numbering.
 
@@ -214,6 +214,9 @@ If asked to fill gaps, add cards for important uncovered concepts, continuing th
 - **unshown_code** [warn]: the question has no code block, but calls a method on a variable (`p1.distanceTo(p2)`) that isn't a common library method.
 - **code_as_text** [warn]: outside code tags, any of: `foo(x);`, `int x = …`, `new Foo(`, `x -> …`, `List<Integer>`, `return …;`, or `public static …`. Also inline `<code>` with 2+ `;`, a line break, or `{ … }` over 40 characters, when the field has no code block.
 - **code_language** [warn]: a `<pre>` without `language-…` (use `code(text, lang)`).
+- **unshown_math** [warn]: the question has no display maths, but cites an equation or result by number or position: "equation 3", "Eq. (2.1)", "Theorem 2", "Lemma 3.1", "Proposition/Corollary/Identity/Formula 5", "using/by/from (3)", or "the formula/theorem/derivation … above". State it on the card.
+- **math_as_text** [warn]: outside code and maths, any of: a LaTeX command (`\frac`, `\sum`, `\alpha`, `\leq`, `\begin` …), a power (`x^2`, `e^{-x}`), a one-letter subscript (`a_1`, `x_{n+1}`), `sqrt(`, or `∑ ∏ ∫ √`. Also inline `\( … \)` with a `\\` line break (outside a matrix), an `align`/`aligned`/`gather`/`cases`/`array` environment, or over 80 characters: use `tex(…, display=True)`.
+- **math_in_code** [warn]: inline `<code>` or a `<pre>` without `language-…` that holds `\( \)`, `\[ \]` or a LaTeX command (shown as raw LaTeX). Use `tex()`.
 - **ref_quote_min_chars** [25] and **ref_page** [warn]: quotes long enough to find, and a page for file references.
 - **unused_images** [warn] and **order_window** [3]: as before.
 

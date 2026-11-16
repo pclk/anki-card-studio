@@ -8,7 +8,7 @@
  *   quota_mb    storage limit in MB (null = no limit)
  *   signed_out  sessions that started before this time are refused ("sign out everywhere")
  */
-import { db, ensureSchema } from "./db";
+import { db, ensureSchema, transaction } from "./db";
 import { HttpError, ID_RE } from "./store";
 import type { User } from "./user";
 
@@ -69,7 +69,7 @@ export async function usage(owner: string): Promise<{ projects: number; projectB
   const [extra] = await db()<{ bytes: string }>(`select coalesce(sum(n),0) as bytes from (
     select octet_length(data) as n from acs_settings where owner=$1
     union all select octet_length(entry) from acs_index where owner=$1
-    union all select octet_length(data) from acs_upload_chunks where owner=$1
+    union all select coalesce(byte_size, octet_length(data)) from acs_upload_chunks where owner=$1
   ) usage`, [owner]);
   return { projects: Number(p.n), projectBytes, files: Number(f.n), fileBytes, total: projectBytes + fileBytes + Number(extra.bytes) };
 }
@@ -139,7 +139,7 @@ export async function updateUser(owner: string, patch: { role?: string; status?:
 }
 
 /** remove everything an account has stored (and, with forget, the account's row) */
-export async function wipeUser(owner: string, forget: boolean): Promise<void> {
+async function wipeUserInner(owner: string, forget: boolean): Promise<void> {
   await ensureSchema();
   for (const t of ["acs_upload_chunks", "acs_upload_files", "acs_chunks", "acs_files", "acs_history", "acs_projects", "acs_index", "acs_deleted", "acs_settings"])
     await db()(`delete from ${t} where owner = $1`, [owner]);
@@ -261,3 +261,5 @@ export async function trimHistory(owner: string): Promise<void> {
       row_number() over (partition by id order by at desc, ctid desc) as n
       from acs_history where owner=$1) ranked where bytes > $2 or n > 30)`, [owner,budget]);
 }
+
+export async function wipeUser(owner: string, forget: boolean): Promise<void> { return transaction(owner, () => wipeUserInner(owner,forget)); }

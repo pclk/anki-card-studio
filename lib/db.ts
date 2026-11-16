@@ -9,9 +9,12 @@ import { Pool, neonConfig, neon } from "@neondatabase/serverless";
 export type Query = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>;
 
 type Transaction = <T>(work: (q: Query) => Promise<T>) => Promise<T>;
+const intents = new AsyncLocalStorage<{key:string;owner:string}[]>();
 const context = new AsyncLocalStorage<Query>();
 let transact: Transaction | null = null;
 let query: Query | null = null;
+let closeEmbedded: (() => Promise<void>) | null = null;
+export async function closeDb(): Promise<void> { await closeEmbedded?.(); closeEmbedded=null; }
 let ready: Promise<void> | null = null;
 
 export function setDb(q: Query | null, transaction: Transaction | null = null): void {
@@ -29,6 +32,7 @@ export function db(): Query {
     if (!url && process.env.ACS_PGLITE_DIR && !process.env.VERCEL) {
       const dir = process.env.ACS_PGLITE_DIR;
       const pg = import("@electric-sql/pglite").then(({ PGlite }) => new PGlite(dir));
+      closeEmbedded = async () => { await (await pg).close(); };
       transact = async (work) => (await pg).transaction(async tx => work((async (text: string, params: unknown[] = []) => (await tx.query(text, params)).rows) as Query));
       query = (async (text: string, params: unknown[] = []) => (await (await pg).query(text, params)).rows) as Query;
       return query;
@@ -38,6 +42,17 @@ export function db(): Query {
     query = (async (text: string, params: unknown[] = []) => (await sql.query(text, params)) as never) as Query;
   }
   return query;
+}
+
+/** Autocommit before PUT; independent of the request's potentially ambiguous commit. */
+export async function objectIntent(key: string, owner: string): Promise<void> {
+  if (transact) { // Embedded test DB has one connection; flush after its transaction settles.
+    const pending = intents.getStore();
+    if (!pending) throw new Error('Object writes require transaction');
+    pending.push({key,owner});
+    return;
+  }
+  await context.exit(() => db()("insert into acs_object_gc(object_key,owner) values($1,$2) on conflict do nothing", [key,owner]));
 }
 
 /** Tables, created on first use (idempotent), so a fresh database needs no manual step. */
@@ -112,6 +127,33 @@ SCHEMA.push('create table if not exists acs_upload_files (like acs_files includi
   "alter table acs_files add column if not exists upload_id text not null default ''",
   "alter table acs_upload_files add column if not exists upload_id text not null default ''");
 
+// Additive migration: legacy payloads remain valid; object rows carry logical byte size.
+for (const table of ['acs_chunks', 'acs_upload_chunks']) SCHEMA.push(
+  `alter table ${table} alter column data drop not null`,
+  `alter table ${table} add column if not exists object_key text`,
+  `alter table ${table} add column if not exists sha256 text`,
+  `alter table ${table} add column if not exists byte_size bigint`
+);
+
+// Queue survives account deletion. Triggers also enroll pre-existing object references.
+SCHEMA.push(`create table if not exists acs_object_gc (
+ object_key text primary key, owner text not null,
+ eligible_at timestamptz not null default now() + interval '7 days')`,
+ `create index if not exists acs_object_gc_due on acs_object_gc(eligible_at)`,
+ `create or replace function acs_queue_object() returns trigger language plpgsql as $$
+ begin
+ if OLD.object_key is not null then
+ insert into acs_object_gc(object_key,owner) values(OLD.object_key,OLD.owner)
+ on conflict(object_key) do update set eligible_at=now()+interval '7 days';
+ end if;
+ if TG_OP = 'DELETE' then return OLD; end if;
+ return NEW;
+ end $$`);
+for (const table of ['acs_chunks','acs_upload_chunks']) SCHEMA.push(
+ `create index if not exists ${table}_object_key on ${table}(object_key) where object_key is not null`,
+ `create or replace trigger acs_object_retirement before delete or update of object_key on ${table}
+ for each row execute function acs_queue_object()`);
+
 export async function ensureSchema(): Promise<void> {
   if (!ready) {
     ready = (async () => {
@@ -132,7 +174,11 @@ export async function transaction<T>(owner: string, work: () => Promise<T>): Pro
     await q("select pg_advisory_xact_lock(hashtextextended($1, 0))", [owner]);
     return work();
   });
-  if (transact) return transact(run);
+  if (transact) {
+    const pending: {key:string;owner:string}[] = [];
+    try { return await intents.run(pending, () => transact!(run)); }
+    finally { for (const i of pending) await query!("insert into acs_object_gc(object_key,owner) values($1,$2) on conflict do nothing", [i.key,i.owner]); }
+  }
   neonConfig.webSocketConstructor = WebSocket;
   const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL });
   let client;

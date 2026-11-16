@@ -1,0 +1,411 @@
+[
+  {
+    "name": "clean inline and display maths",
+    "card": {
+      "type": "basic",
+      "front": "What is \\(\\frac{d}{dx} x^2\\)?",
+      "back": "\\[2x\\]"
+    },
+    "want": []
+  },
+  {
+    "name": "dollar maths counts as maths",
+    "card": {
+      "type": "basic",
+      "front": "Simplify $x^2 \\cdot x^3$.",
+      "back": "$$x^5$$"
+    },
+    "want": []
+  },
+  {
+    "name": "money and snake_case are not maths",
+    "card": {
+      "type": "basic",
+      "front": "Does a $5 ticket cost less than $10?",
+      "back": "Yes; see is_empty and https://x.org/a_b"
+    },
+    "want": []
+  },
+  {
+    "name": "power as plain text",
+    "card": {
+      "type": "basic",
+      "front": "What is the derivative of x^2?",
+      "back": "2x"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "subscript as plain text",
+    "card": {
+      "type": "basic",
+      "front": "What does the recurrence give?",
+      "back": "a_1 = 3"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "bare LaTeX command",
+    "card": {
+      "type": "basic",
+      "front": "Evaluate \\frac{1}{2} + 1.",
+      "back": "1.5"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "sqrt and unicode operators",
+    "card": {
+      "type": "cloze",
+      "text": "The norm is {{c1::sqrt(x)}}"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "integral sign in prose",
+    "card": {
+      "type": "basic",
+      "front": "Area?",
+      "back": "∫ f over the interval"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "multi-line inline maths",
+    "card": {
+      "type": "basic",
+      "front": "Solve.",
+      "back": "\\(x = 1 \\\\ y = 2\\)"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "cases inline",
+    "card": {
+      "type": "basic",
+      "front": "Define f.",
+      "back": "\\(f(x) = \\begin{cases} 1 & x > 0 \\\\ 0 & x \\le 0 \\end{cases}\\)"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "small inline matrix is fine",
+    "card": {
+      "type": "basic",
+      "front": "Identity?",
+      "back": "\\(\\begin{pmatrix}1 & 0 \\\\ 0 & 1\\end{pmatrix}\\)"
+    },
+    "want": []
+  },
+  {
+    "name": "long inline formula",
+    "card": {
+      "type": "basic",
+      "front": "Expand.",
+      "back": "\\(a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5 + a_6 x^6 + a_7 x^7 + a_8 x^8 + a_9 x^9\\)"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "display maths may be long",
+    "card": {
+      "type": "basic",
+      "front": "Expand.",
+      "back": "\\[a_0 + a_1 x + a_2 x^2 + a_3 x^3 + a_4 x^4 + a_5 x^5 + a_6 x^6 + a_7 x^7 + a_8 x^8 + a_9 x^9\\]"
+    },
+    "want": []
+  },
+  {
+    "name": "LaTeX in inline code",
+    "card": {
+      "type": "basic",
+      "front": "Ratio?",
+      "back": "<code>\\frac{a}{b}</code>"
+    },
+    "want": [
+      "math_in_code"
+    ]
+  },
+  {
+    "name": "delimited maths in a plain code block",
+    "card": {
+      "type": "basic",
+      "front": "Formula?",
+      "back": "<pre><code>\\(e^{i\\pi}\\)</code></pre>"
+    },
+    "want": [
+      "math_in_code",
+      "code_language"
+    ]
+  },
+  {
+    "name": "code with a language is left alone",
+    "card": {
+      "type": "basic",
+      "front": "What does it print?",
+      "back": "<pre><code class=\"language-python\">plt.title(r\"$\\alpha$\")\nprint(\"\\n\")</code></pre>"
+    },
+    "want": []
+  },
+  {
+    "name": "C escapes in inline code are not maths",
+    "card": {
+      "type": "basic",
+      "front": "What does <code>printf(\"\\n\")</code> print?",
+      "back": "A newline."
+    },
+    "want": []
+  },
+  {
+    "name": "cites an equation by number",
+    "card": {
+      "type": "basic",
+      "front": "Using Eq. (3), find the speed.",
+      "back": "\\(v = 4\\)"
+    },
+    "want": [
+      "unshown_math"
+    ]
+  },
+  {
+    "name": "cites a theorem by number",
+    "card": {
+      "type": "cloze",
+      "text": "By Theorem 2.1 the series {{c1::converges}}."
+    },
+    "want": [
+      "unshown_math"
+    ]
+  },
+  {
+    "name": "cites a bare equation number",
+    "card": {
+      "type": "basic",
+      "front": "Substituting into (4), what is y?",
+      "back": "7"
+    },
+    "want": [
+      "unshown_math"
+    ]
+  },
+  {
+    "name": "the formula above",
+    "card": {
+      "type": "basic",
+      "front": "What does the formula above give for n = 3?",
+      "back": "9"
+    },
+    "want": [
+      "unshown_math"
+    ]
+  },
+  {
+    "name": "equation shown in display maths",
+    "card": {
+      "type": "basic",
+      "front": "Using equation (3), \\[ v = u + at \\] find v when a = 0.",
+      "back": "\\(v = u\\)"
+    },
+    "want": []
+  },
+  {
+    "name": "refs-ok skips citations",
+    "card": {
+      "type": "basic",
+      "front": "State Theorem 2.",
+      "back": "It holds.",
+      "tags": [
+        "refs-ok"
+      ]
+    },
+    "want": []
+  },
+  {
+    "name": "numbers inside maths are not citations",
+    "card": {
+      "type": "basic",
+      "front": "Is \\(\\text{Lemma}\\ (3)\\) the right label?",
+      "back": "Yes."
+    },
+    "want": []
+  },
+  {
+    "name": "bare pre maths",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "<pre>\\frac{a}{b}</pre>",
+      "tags": []
+    },
+    "want": [
+      "math_in_code",
+      "code_language"
+    ]
+  },
+  {
+    "name": "language on pre is respected",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "<pre class=\"language-latex\">\\frac{a}{b}</pre>",
+      "tags": []
+    },
+    "want": [
+      "code_language"
+    ]
+  },
+  {
+    "name": "long maths inside named code is not presentation maths",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "<pre><code class=\"language-python\">title = \"\\(x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x\\)\"</code></pre>",
+      "tags": []
+    },
+    "want": []
+  },
+  {
+    "name": "inline code maths gets one kind of presentation warning",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "<code>\\(x=1 \\\\ y=2\\)</code>",
+      "tags": []
+    },
+    "want": [
+      "math_in_code"
+    ]
+  },
+  {
+    "name": "display code does not supply missing equation",
+    "card": {
+      "type": "basic",
+      "front": "Using Eq. (3), find x. <code>\\[x=2\\]</code>",
+      "back": "A",
+      "tags": []
+    },
+    "want": [
+      "unshown_math",
+      "math_in_code"
+    ]
+  },
+  {
+    "name": "extra field checked",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "A",
+      "tags": [],
+      "extra": "\\sqrt{x}"
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "source annotation not checked",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "A",
+      "tags": [],
+      "source": "Eq. (3) \\frac{a}{b}"
+    },
+    "want": []
+  },
+  {
+    "name": "HTML entity operator",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "&#x2211; x",
+      "tags": []
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "named HTML entity operator",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "&sum; x",
+      "tags": []
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "encoded code command",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "<code>&#92;frac{a}{b}</code>",
+      "tags": []
+    },
+    "want": [
+      "math_in_code"
+    ]
+  },
+  {
+    "name": "URL with powers ignored",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "https://example.org/x^2",
+      "tags": []
+    },
+    "want": []
+  },
+  {
+    "name": "inline at limit allowed",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "\\(xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\)",
+      "tags": []
+    },
+    "want": []
+  },
+  {
+    "name": "inline above limit warns",
+    "card": {
+      "type": "basic",
+      "front": "Find the value.",
+      "back": "\\(xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\)",
+      "tags": []
+    },
+    "want": [
+      "math_as_text"
+    ]
+  },
+  {
+    "name": "cloze hint and formula",
+    "card": {
+      "type": "cloze",
+      "front": "Find the value.",
+      "back": "A",
+      "tags": [],
+      "text": "{{c1::\\(x^2\\)::square}}"
+    },
+    "want": []
+  }
+]

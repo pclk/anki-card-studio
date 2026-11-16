@@ -57,7 +57,7 @@ REVISE_CARDS>>>`;
 /* ---- formatting pass: batches of cards sent to Claude for presentation-only fixes (see formatIssues) */
 /* The queue lives on the cards: c.fmt = its prompt ("F3") while waiting for Claude (c.fmtSt 'todo' | 'copied'),
    c.fmtDone = the prompt that answered it. So it is saved and synced with the project like everything else. */
-const FMT_LABEL = {outside_refs: 'outside references', unshown_code: 'unshown code', code_as_text: 'code as plain text', code_language: 'code without a language'};
+const FMT_LABEL = {outside_refs: 'outside references', unshown_code: 'unshown code', code_as_text: 'code as plain text', code_language: 'code without a language', unshown_math: 'unshown maths', math_as_text: 'maths as plain text', math_in_code: 'maths inside code'};
 function fmtCandidates(){
   const scope = $('#fmtScope').value, stf = $('#fmtStatus').value;
   return ordered(S.cards.filter(c => inScope(c) && c.status !== 'drop' && !c.fmt && (stf === 'any' || c.status === stf)
@@ -143,8 +143,9 @@ function fmtPrompt(cards){
 - Do NOT change what a card tests, its answer, its "why", its images or its tags. Do not delete, merge or split cards.
 - Fix only how the card is written:
   1. **Code:** statements and snippets go in a code block (\`<pre><code class="language-java">…</code></pre>\`, or \`code(src, "java")\` with anki_helper.py), never as plain text and never squeezed into one inline \`<code>\`. Names of classes, methods, variables and types go in inline \`<code>\`.
-  2. **Self-contained:** the card must carry everything needed to answer it - the reader has no notes, slides or other cards. If the question depends on code, a definition or a figure (e.g. what a method it calls does), put it on the front, cut down to what matters. Remove references to the notes, slides, lectures or other cards.
-  3. Maths as LaTeX (\\( … \\)), comparisons as tables, long answers as bullets.
+  2. **Maths:** formulas go in LaTeX - inline \\( … \\), display \\[ … \\] for multi-line or long ones (\\\\ line breaks, aligned, cases) - never as plain text (x^2, a_1, sqrt(x), a bare \\frac) and never inside \`<code>\`.
+  3. **Self-contained:** the card must carry everything needed to answer it - the reader has no notes, slides or other cards. If the question depends on code, a definition, an equation or theorem it cites (e.g. "Eq. (3)", "Theorem 2") or a figure, put it on the front, cut down to what matters. Remove references to the notes, slides, lectures or other cards.
+  4. Comparisons as tables, long answers as bullets.
 - Each card's "feedback" says what the automatic checks found. They can be wrong: if a card is fine, leave it out.
 - Return ONLY the cards you changed, with their ids unchanged. Then list each changed card in one line: what changed.`;
   return (promptMode() === 'skill'

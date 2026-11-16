@@ -64,3 +64,20 @@ test('a tab restores its edits after another device deletes its project',async({
  await expect.poll(async()=>page.evaluate(async id=>{const r=await fetch('/api/project/'+id);return r.ok?(await r.json()).projectName:null;},pid),{timeout:15000}).toBe('Restored from stale tab');
  expect(await page.evaluate('sync.paused')).toBe(false);
 });
+test('maths checks show in the Checker and flag maths written as text in Review',async({page})=>{
+ await page.goto('/');await page.waitForFunction('Store.on && curProject && S.cards.length > 0');
+ await page.evaluate(()=>(window as any).eval(`S.cards.push({id:'m1',type:'basic',front:'What is the derivative of x^2?',back:'<code>\\\\frac{a}{b}</code>',extra:'',source:'',tags:[],status:'new',why:'x'},
+   {id:'m2',type:'basic',front:'What is \\\\(\\\\frac{d}{dx} x^2\\\\)?',back:'\\\\[2x\\\\]',extra:'',source:'',tags:[],status:'new',why:'x'});save();`));
+ await page.locator('#tabs button[data-tab="checker"]').click();
+ await expect(page.locator('#ckGrid h4',{hasText:'Maths'})).toHaveCount(1);
+ await expect(page.locator('#ckGrid h4',{hasText:'Self-contained'})).toHaveCount(1);
+ // checker settings are saved for the user, not the project: start from the defaults and put them back afterwards
+ const keys=['unshown_math','math_as_text','math_in_code'];
+ expect(await page.evaluate(k=>(window as any).eval('CHECK_DEFS').filter((d:any)=>k.includes(d.key)).map((d:any)=>d.def),keys)).toEqual(['warn','warn','warn']);
+ for (const k of keys) await page.locator('#ck_'+k).selectOption('warn');
+ const flagged=()=>page.evaluate(()=>(window as any).eval(`S.cards.filter(c=>checksOf(c).some(x=>x.key==='math_as_text')).map(c=>c.id)`));
+ expect(await flagged()).toEqual(['m1']);
+ await page.locator('#ck_math_as_text').selectOption('off');
+ try { expect(await flagged()).toEqual([]); } finally { await page.locator('#ck_math_as_text').selectOption('warn'); }
+ expect(await page.evaluate(()=>(window as any).eval(`formatIssues(S.cards.find(c=>c.id==='m1')).join(' ')`))).toMatch(/maths inside code/);
+});

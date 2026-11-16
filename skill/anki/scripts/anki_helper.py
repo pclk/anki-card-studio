@@ -743,6 +743,9 @@ CHECK_DEFAULTS = {
     "unshown_code": "warn",        # the question calls a method whose code the front doesn't show
     "code_as_text": "warn",        # code written as plain text, or several lines squeezed into inline <code>
     "code_language": "warn",       # a code block without a language (no highlighting)
+    "unshown_math": "warn",        # the question cites an equation or theorem ("Eq. (3)", "Theorem 2") the card doesn't state
+    "math_as_text": "warn",        # maths written as plain text (x^2, a_1, \frac), or a big formula squeezed into inline \( \)
+    "math_in_code": "warn",        # maths inside <code> / a code block without a language: shown as raw LaTeX
     "ref_quote_min_chars": 25,     # source quotes shorter than this can't be found reliably (0 = any length)
     "ref_page": "warn",            # a ref to a file without a page
     "unused_images": "warn",       # an image registered but not used by any card
@@ -802,6 +805,87 @@ def _code_as_text(c):
             t = _html.unescape(re.sub(r"<[^>]+>", "", x))
             if t.count(";") >= 2 or "\n" in t.strip() or (re.search(r"\{[\s\S]*\}", t) and len(t) > 40):
                 probs.append(f"{name} squeezes several lines of code into inline <code> ({t.strip()[:40]!r}...) - use a code() block")
+                break
+        else:
+            continue
+        break
+    return probs
+
+
+# maths written as plain text: bare LaTeX commands, powers (x^2, e^{-x}), subscripts (a_1, x_{n+1}), sqrt(...), ∑ ∫ √
+_TEX_CMD = (r"\\(?:d?frac|sqrt|sum|prod|o?int|lim|log|ln|exp|sin|cos|tan|alpha|beta|gamma|delta|v?epsilon|theta|lambda|mu|pi|rho|"
+            r"sigma|tau|v?phi|omega|Gamma|Delta|Theta|Lambda|Sigma|Phi|Omega|infty|c?dots|ldots|times|div|pm|leq?|geq?|neq|approx|"
+            r"equiv|sim|propto|in|notin|subseteq|supseteq|cup|cap|forall|exists|neg|land|lor|implies|iff|to|mapsto|rightarrow|"
+            r"leftarrow|Rightarrow|Leftrightarrow|partial|nabla|math(?:bb|bf|rm|cal)|text|operatorname|begin|end|left|right|binom|"
+            r"vec|hat|bar|overline|det)(?![A-Za-z])")
+_TEX_CMD_RE = re.compile(_TEX_CMD)
+_MATH_LIKE = re.compile(_TEX_CMD + r"|[\w)\]]\^(?:\{[^{}\n]{1,30}\}|[-+]?\w)|\b[A-Za-z]_(?:\{[^{}\n]{1,30}\}|\d+|[a-z])(?!\w)"
+                        r"|\bsqrt\s*\(|[∑∏∫∮√]")
+# an equation or theorem the question cites by number, or "the formula above"
+_MATH_REF = re.compile(
+    r"\b(?:(?:equations?|eqns?\.?|eq\.)\s*\(?\d+(?:\.\d+)*[a-z]?\)?"
+    r"|(?:theorem|lemma|proposition|corollary|identity|formula)\s+\(?\d+(?:\.\d+)*\)?(?!\s*[-+×*/=<>])"
+    r"|(?:using|by|from|into|see|in|of)\s+\(\d+(?:\.\d+)*\)"
+    r"|(?:the|this|that)\s+(?:equation|formula|identity|theorem|lemma|proof|derivation|result|expression|recurrence)\s+(?:above|earlier|before))", re.I)
+
+
+def _math_without_code(h):
+    return re.sub(r"<pre\b[\s\S]*?</pre>|<code\b[^>]*>[\s\S]*?</code>", " ", str(h or ""), flags=re.I)
+
+
+def _math_code_samples(h):
+    for m in re.finditer(r"<pre\b([^>]*)>([\s\S]*?)</pre>|<code\b([^>]*)>([\s\S]*?)</code>", str(h or ""), re.I):
+        if re.search(r"\blanguage-", m.group(1) or m.group(3) or "", re.I):
+            continue
+        if m.group(2) and re.match(r"\s*<code\b[^>]*\blanguage-", m.group(2), re.I):
+            continue
+        yield _html.unescape(re.sub(r"<[^>]+>", "", m.group(2) if m.group(2) is not None else m.group(4)))
+
+
+def _math_prose(h):
+    """card HTML without code, maths ($…$ included) and tags: what's left should hold no maths"""
+    t = _MATH_RE.sub(" ", fix_math(str(h or "")))
+    t = _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>|<code[^>]*>[\s\S]*?</code>", " ", t, flags=re.I)))
+    return re.sub(r"https?://\S+", " ", t)
+
+
+def _math_squeezed(body):
+    """the formula, if it's too big for inline \\( … \\): a line break outside a matrix, a multi-line environment, 80+ chars"""
+    t = _html.unescape(re.sub(r"<[^>]+>", "", _un_cloze(body))).strip()
+    if (re.search(r"\\\\", re.sub(r"\\begin\{([pbvBV]?matrix|smallmatrix)\}[\s\S]*?\\end\{\1\}", "", t))
+            or re.search(r"\\begin\{(?:align|aligned|gather|gathered|split|multline|eqnarray|cases|array)\*?\}", t) or len(t) > 80):
+        return t
+    return ""
+
+
+def _math_checks(c):
+    """[(check key, problem)] for maths that isn't written as maths. (The same rules as Anki Card Studio's checks.)"""
+    cloze = c.get("type") == "cloze"
+    q = _un_cloze(c.get("text") if cloze else c.get("front"))
+    parts = [("text" if cloze else "front", q)] + ([] if cloze else [("back", str(c.get("back") or ""))]) + [("extra", str(c.get("extra") or ""))]
+    probs = []
+    if "refs-ok" not in (c.get("tags") or []) and "\\[" not in fix_math(_math_without_code(q)):
+        m = _MATH_REF.search(_math_prose(q))
+        if m:
+            probs.append(("unshown_math", f"the question cites {m.group(0).strip()!r} but the card doesn't state it - if answering "
+                                          "needs it, write it on the front with tex(..., display=True)"))
+    for name, h in parts:
+        m = _MATH_LIKE.search(_math_prose(h))
+        if m:
+            probs.append(("math_as_text", f"{name} has maths written as plain text ({m.group(0).strip()[:40]!r}) - use tex() "
+                                          "(\\( … \\) inline, \\[ … \\] display)"))
+            break
+    for name, h in parts:
+        big = next((b for b in (_math_squeezed(m.group(1)) for m in _MATH_RE.finditer(fix_math(_math_without_code(h))) if m.group(1) is not None) if b), "")
+        if big:
+            probs.append(("math_as_text", f"{name} squeezes a multi-line or long formula into inline \\( … \\) ({big[:40]!r}...) - "
+                                          "use tex(..., display=True)"))
+            break
+    for name, h in parts:
+        for t in _math_code_samples(h):
+            if re.search(r"\\\(|\\\[", t) or _TEX_CMD_RE.search(t):
+                probs.append(("math_in_code", f"{name} has maths inside code ({t.strip()[:40]!r}), shown as raw LaTeX - write it "
+                                              "with tex() instead"))
                 break
         else:
             continue
@@ -1818,6 +1902,9 @@ class Deck:
             if at_strict("code_as_text"):
                 for prob in _code_as_text(c):
                     at_strict("code_as_text")(f"{cid}: {prob}")
+            for key, prob in _math_checks(c):
+                if at_strict(key):
+                    at_strict(key)(f"{cid}: {prob}")
             if ck["back_max_words"]:
                 bw = len(_html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", str(c.get("text" if c.get("type") == "cloze" else "back") or "") + " " + (str(c.get("extra") or "") if c.get("type") == "cloze" else "")))).split())
                 if bw > ck["back_max_words"]:

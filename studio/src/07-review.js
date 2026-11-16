@@ -42,9 +42,29 @@ const FMT_EXT = new RegExp(String.raw`\b(?:(?:previous|earlier|last|next|other|a
 const FMT_CARDREF = /\b(?:(?:previous|earlier|last|next|other|above|preceding|following) cards?|cards? (?:above|before|earlier)|(?:the|this|that) (?:example|code|snippet|listing|program|figure|diagram) above|as (?:shown|seen|defined) above)/i;
 // code-looking text: statements, calls ending in ;, lambdas, generics, declarations
 const FMT_CODELIKE = /(?:\b[A-Za-z_]\w*(?:\.\w+)*\([^()\n]{0,60}\)\s*;)|(?:\b(?:int|double|boolean|String|var|final|void|char|long)\s+[a-z]\w*\s*(?:=|;|\())|(?:\bnew\s+[A-Z]\w*(?:<[^>]*>)?\s*\()|(?:\b[a-z]\w*\s*->\s*[\w(])|(?:\b[A-Z]\w*<[A-Z?][\w<>?, ]*>)|(?:\breturn\s+[^.?!]{1,40};)|(?:\b(?:public|private|protected|static)\s+(?:static\s+|final\s+|abstract\s+)*(?:class|interface|void|int|double|boolean|String|[A-Z]\w*)\b)/;
+// maths written as plain text: bare LaTeX commands, powers (x^2, e^{-x}), subscripts (a_1, x_{n+1}), sqrt(…), ∑ ∫ √
+const FMT_TEXCMD = String.raw`\\(?:d?frac|sqrt|sum|prod|o?int|lim|log|ln|exp|sin|cos|tan|alpha|beta|gamma|delta|v?epsilon|theta|lambda|mu|pi|rho|sigma|tau|v?phi|omega|Gamma|Delta|Theta|Lambda|Sigma|Phi|Omega|infty|c?dots|ldots|times|div|pm|leq?|geq?|neq|approx|equiv|sim|propto|in|notin|subseteq|supseteq|cup|cap|forall|exists|neg|land|lor|implies|iff|to|mapsto|rightarrow|leftarrow|Rightarrow|Leftrightarrow|partial|nabla|math(?:bb|bf|rm|cal)|text|operatorname|begin|end|left|right|binom|vec|hat|bar|overline|det)(?![A-Za-z])`;
+const FMT_TEXCMD_RE = new RegExp(FMT_TEXCMD);
+const FMT_MATHLIKE = new RegExp(FMT_TEXCMD + String.raw`|[\w)\]]\^(?:\{[^{}\n]{1,30}\}|[-+]?\w)|\b[A-Za-z]_(?:\{[^{}\n]{1,30}\}|\d+|[a-z])(?!\w)|\bsqrt\s*\(|[∑∏∫∮√]`);
+// an equation or theorem the question cites by number, or "the formula above"
+const FMT_MATHREF = /\b(?:(?:equations?|eqns?\.?|eq\.)\s*\(?\d+(?:\.\d+)*[a-z]?\)?|(?:theorem|lemma|proposition|corollary|identity|formula)\s+\(?\d+(?:\.\d+)*\)?(?!\s*[-+×*/=<>])|(?:using|by|from|into|see|in|of)\s+\(\d+(?:\.\d+)*\)|(?:the|this|that)\s+(?:equation|formula|identity|theorem|lemma|proof|derivation|result|expression|recurrence)\s+(?:above|earlier|before))/i;
+// a formula too big for inline \( … \): line breaks (outside matrices), multi-line environments, or over 80 characters
+function mathSqueezed(body){
+  const t = decodeEnt(unCloze(body).replace(/<[^>]+>/g, '')).trim();
+  return /\\\\/.test(t.replace(/\\begin\{([pbvBV]?matrix|smallmatrix)\}[\s\S]*?\\end\{\1\}/g, '')) || /\\begin\{(?:align|aligned|gather|gathered|split|multline|eqnarray|cases|array)\*?\}/.test(t) || t.length > 80 ? t : '';
+}
+/** Ignore code samples when deciding whether the card's prose contains displayed maths. */
+const mathWithoutCode = h => String(h || '').replace(/<pre\b[\s\S]*?<\/pre>|<code\b[^>]*>[\s\S]*?<\/code>/gi, ' ');
+function mathCodeSamples(h){
+  return [...String(h || '').matchAll(/<pre\b([^>]*)>([\s\S]*?)<\/pre>|<code\b([^>]*)>([\s\S]*?)<\/code>/gi)]
+    .filter(m => !/\blanguage-/i.test(m[1] || m[3] || '') && !(m[2] && /^\s*<code\b[^>]*\blanguage-/i.test(m[2])))
+    .map(m => decodeEnt((m[2] ?? m[4]).replace(/<[^>]+>/g, '')));
+}
+/** prose outside code and maths (maths in $…$ counts as maths): what's left should have no maths in it */
+const mathProse = h => fmtProse(String(fixMath(h || '')).replace(MATH_SPAN_RE, ' ')).replace(/https?:\/\/\S+/g, ' ');
 function fmtProse(h){ return decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/pre>/gi, ' ').replace(/<code[^>]*>[\s\S]*?<\/code>/gi, ' ').replace(/<[^>]+>/g, ' ')); }
 const unCloze = s => String(s || '').replace(/\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}/g, '$1');
-function decodeEnt(s){ return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&'); }
+function decodeEnt(s){ return new DOMParser().parseFromString(String(s).replace(/</g, '&lt;'), 'text/html').body.textContent || ''; }
 /* ---- the checker: the same card-quality checks as the skill's validate(), with the same settings (SET.checks, edited on
    the Prompt page and passed to Claude in every prompt). Used by the formatting pass and the Analytics tab. */
 const CHECK_DEFS = [
@@ -56,8 +76,11 @@ const CHECK_DEFS = [
   {key: 'multi_question', group: 'One idea per card', label: 'Several questions bundled on one card', kind: 'level', def: 'error'},
   {key: 'outside_refs', group: 'Self-contained', label: 'Points at notes, slides, figures or other cards', kind: 'level', def: 'error'},
   {key: 'unshown_code', group: 'Self-contained', label: "Calls a method whose code the card doesn't show", kind: 'level', def: 'warn'},
+  {key: 'unshown_math', group: 'Self-contained', label: "Cites an equation or theorem the card doesn't show", kind: 'level', def: 'warn'},
   {key: 'code_as_text', group: 'Code', label: 'Code written as plain text / squeezed into inline code', kind: 'level', def: 'warn'},
   {key: 'code_language', group: 'Code', label: 'Code block without a language', kind: 'level', def: 'warn'},
+  {key: 'math_as_text', group: 'Maths', label: 'Maths written as plain text / squeezed into inline maths', kind: 'level', def: 'warn'},
+  {key: 'math_in_code', group: 'Maths', label: 'Maths written inside code', kind: 'level', def: 'warn'},
   {key: 'ref_quote_min_chars', group: 'Sources', label: 'Minimum source-quote length', kind: 'num', def: 25, unit: 'chars'},
   {key: 'ref_page', group: 'Sources', label: 'Source reference without a page', kind: 'level', def: 'warn'},
   {key: 'unused_images', group: 'Images', label: 'Image not used by any card (checked by Claude)', kind: 'level', def: 'warn'},
@@ -76,6 +99,9 @@ const CHECK_HOW = {
   unshown_code: 'Cards tagged refs-ok, and questions that contain a code block (<pre>), are skipped. Otherwise it looks in the question text and its inline <code> for a method called on a variable: a lowercase name, a dot, a method name and "(" - like p1.distanceTo(p2). Common library methods are ignored (add, get, set, put, remove, contains, size, isEmpty, equals, hashCode, toString, compareTo, length, charAt, substring, indexOf, append, map, filter, reduce, forEach, collect, stream, of, iterate, limit, sum, count, apply, accept, test, andThen, compose, next, hasNext, sort, split, trim, format, println, print and similar).',
   code_as_text: 'Two signs. (1) In the front, back or Extra, outside code tags: a call ending in ";" (foo(x);), a typed declaration (int x = …, String s;), new Foo(…), a lambda (x -> …), generics (List<Integer>), "return …;", or modifiers before a type (public static void, private final Point). (2) Inline <code> holding several statements - 2+ semicolons, a line break, or { … } over 40 characters - in a field without a code block.',
   code_language: 'A code block (<pre>) whose <code> has no language-… class, so it is shown without syntax highlighting. code() in the skill always adds one.',
+  unshown_math: 'Cards tagged refs-ok, and questions that contain display maths \\[ … \\], are skipped. Otherwise it looks in the question, outside code and maths, for an equation or result cited by number or position: "equation 3", "Eq. (2.1)", "eqn 4", "Theorem 2", "Lemma 3.1", "Proposition / Corollary / Identity / Formula 5", "using / by / from / in (3)", or "the equation / formula / identity / theorem / lemma / proof / derivation / result above / earlier".',
+  math_as_text: 'Two signs. (1) In the front, back or Extra, outside code and maths: a LaTeX command (\\frac, \\sum, \\alpha, \\leq, \\begin …), a power (x^2, e^{-x}, (a+b)^2), a one-letter subscript (a_1, x_i, x_{n+1}), sqrt(…), or ∑ ∏ ∫ √. (2) Inline maths \\( … \\) that is too big for a line - a line break \\\\ outside a matrix, an align / aligned / gather / cases / array environment, or over 80 characters.',
+  math_in_code: 'Inline <code> or a code block without a language-… class (code with a language, language-latex included, is left alone) holding maths: \\( … \\), \\[ … \\] or a LaTeX command like \\frac or \\sum. Code shows it as raw LaTeX instead of a formula.',
   ref_quote_min_chars: 'Each source reference\'s quote, with runs of spaces collapsed, must be at least this many characters, so it can be found again in the material. (When the material is loaded, Claude also checks that the quote really is on that page - that part is always an error.)',
   ref_page: 'A source reference to a file (anything that isn\'t an http(s) address) without a page number.',
   unused_images: 'Run by Claude only: an image registered on the deck that no card\'s HTML uses.',
@@ -146,6 +172,22 @@ function cardChecks(c, C = ck()){
     if (long){ strict('code_as_text', `${name} squeezes several lines of code into inline <code> ("${long.trim().slice(0, 40)}…"): use a code block.`); break; }
   }
   if (FIELDS[c.type].some(f => /<pre(?![^>]*>\s*<code)|<pre[^>]*>\s*<code(?![^>]*language-)/i.test(c[f] || ''))) strict('code_language', 'A code block has no language, so it is not highlighted.');
+  if (!tags.includes('refs-ok') && !/\\\[/.test(fixMath(mathWithoutCode(q)))){
+    const m = FMT_MATHREF.exec(mathProse(q));
+    if (m) strict('unshown_math', `The question cites "${m[0].trim()}" but the card doesn't state it: if answering needs it, write it on the front as maths (\\[ … \\]).`);
+  }
+  for (const [name, h] of parts){
+    const hit = FMT_MATHLIKE.exec(mathProse(h));
+    if (hit){ strict('math_as_text', `${name} has maths written as plain text ("${hit[0].trim().slice(0, 40)}"): write it as LaTeX in \\( … \\) (inline) or \\[ … \\] (display).`); break; }
+  }
+  for (const [name, h] of parts){
+    const big = [...String(fixMath(mathWithoutCode(h))).matchAll(MATH_SPAN_RE)].map(x => x[1] !== undefined ? mathSqueezed(x[1]) : '').find(Boolean);
+    if (big){ strict('math_as_text', `${name} squeezes a multi-line or long formula into inline \\( … \\) ("${big.slice(0, 40)}…"): use display maths \\[ … \\].`); break; }
+  }
+  for (const [name, h] of parts){
+    const hit = mathCodeSamples(h).find(t => /\\\(|\\\[/.test(t) || FMT_TEXCMD_RE.test(t));
+    if (hit){ strict('math_in_code', `${name} has maths inside code ("${hit.trim().slice(0, 40)}"), so it shows as raw LaTeX: write it as maths, \\( … \\) inline or \\[ … \\] display.`); break; }
+  }
   for (const r of c.refs || []){
     if (r && r.file && !r.page && !/^https?:/.test(r.file)){ strict('ref_page', `The source reference to ${r.file} has no page.`); break; }
   }
@@ -156,7 +198,7 @@ function cardChecks(c, C = ck()){
   return out;
 }
 /** what the formatting pass sends: the presentation problems only */
-const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language']);
+const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'unshown_math', 'math_as_text', 'math_in_code']);
 /* checks are re-run for a card only when it or the settings change (Analytics and the check filter look at every card) */
 const chkMemo = new WeakMap();
 function checksOf(c, C = ck(), cs = J(C)){
@@ -168,7 +210,7 @@ function checksOf(c, C = ck(), cs = J(C)){
 const CHECK_ROWS = [
   {key: 'why', label: 'No "why this card"', test: c => checksOf(c).some(x => x.key === 'why')},
   {key: 'why_min_words', label: '"Why" too short', test: c => checksOf(c).some(x => x.key === 'why_min_words')},
-  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'ref_page', 'ref_quote_min_chars']
+  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'unshown_math', 'math_as_text', 'math_in_code', 'ref_page', 'ref_quote_min_chars']
     .map(k => ({key: k, label: CHECK_DEFS.find(d => d.key === k).label, test: c => checksOf(c).some(x => x.key === k)})),
   {key: 'missing_img', label: 'Image missing or not loaded', test: c => cardMissing(c), studio: true}
 ];

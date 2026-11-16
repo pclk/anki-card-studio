@@ -245,7 +245,8 @@ async function adminApi(req: Request, p: string[], me: User): Promise<Response> 
         const f = await st.fileMeta(owner, id, kind, name);
         if (!f) return json(404, { ok: false, error: "not found" });
         const parts: Buffer[] = [];
-        for (let i = 0; i < f.chunks; i++) { const b = await st.readChunk(owner, id, kind, name, i); if (b) parts.push(b); }
+        for (let i = 0; i < f.chunks; i++) { const b = await st.readChunk(owner, id, kind, name, i); if (!b) throw new Error("Missing file chunk"); parts.push(b); }
+        if (parts.reduce((n,b)=>n+b.length,0) !== f.size) throw new Error("File size mismatch");
         return bytes(Buffer.concat(parts), f.mime, { "Content-Disposition": `attachment; filename="${name.replace(/"/g, "")}"` });
       }
     }
