@@ -23,6 +23,7 @@ async function loadDevices(){
 function renderBridgeButtons(){
   const on = bridgeReady();
   $$('.brRun').forEach(b => { b.hidden = !on; });
+  applyCopyButtons();   // the Copy buttons hide only while a Mac is paired
   if (typeof renderBatch === 'function' && $('#batchOut') && !$('#batchOut').hidden) renderBatch();
 }
 const agentName = a => a === 'codex' ? 'Codex' : 'Claude Code';
@@ -93,6 +94,11 @@ $('#brScript').onclick = () => download(new Blob([$('#bridgeSrc').textContent.re
 $('#brJobsOpen').onclick = () => { $('#setDlg').close(); openJobs(); };
 
 /* ---- making a job: the prompt, its attachments and this Studio's own copy of the skill, as files */
+/** hex SHA-256 of a blob, or undefined where the browser has no crypto.subtle (plain http): the bridge then just downloads it */
+async function blobSha256(blob){
+  try { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map(x => x.toString(16).padStart(2, '0')).join(''); }
+  catch { return undefined; }
+}
 async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
   if (!bridgeReady()) return toast('Add a device in Settings → Mac bridge first'), null;
   if (!prompt) return toast('Nothing to run'), null;
@@ -108,8 +114,9 @@ async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
   let job = null;
   try {
     const agent = SET.bridgeAgent || 'claude';
+    // each file's sha256: the bridge keeps files by content, so the skill and the same slides are downloaded once
     job = await brCall('POST', 'jobs', {project: curProject, kind, agent, options: brOpts(agent), title: String(title).slice(0, 200), meta,
-      files: files.map(f => ({name: f.name, size: f.blob.size}))});
+      files: await Promise.all(files.map(async f => ({name: f.name, size: f.blob.size, sha256: await blobSha256(f.blob)})))});
     for (const f of files) await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream');
     const queued = await brCall('POST', `jobs/${job.id}/queue`);
     BR.jobs = [queued, ...BR.jobs.filter(j => j.id !== queued.id)];

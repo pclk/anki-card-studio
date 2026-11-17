@@ -183,7 +183,8 @@ test("the bridge runs a job end to end: files in a fresh folder, fixed flags, ev
   assert.ok(!log.argv.some((a: string) => a.includes("classes") || a.includes("blueprint")));   // …never the prompt
   for (const f of ["--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--strict-mcp-config", "--allowedTools"]) assert.ok(log.argv.includes(f), f);
   assert.ok(!log.argv.includes("--dangerously-skip-permissions") && !log.argv.includes("bypassPermissions"));
-  assert.equal(log.cwd, join(HOME, "jobs", id)); assert.equal(log.out, join(HOME, "jobs", id, "anki_out"));
+  assert.match(log.cwd, new RegExp(`^${join(HOME, "jobs", id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-[A-Za-z0-9]{6}$`));   // a new folder per run
+  assert.equal(log.out, join(log.cwd, "anki_out"));
   assert.deepEqual(log.files, ["AGENTS.md", "L01_p3-5.pdf", "anki-skill", "anki_out", "anki_prompt.txt"]);
   assert.deepEqual(log.skill, ["anki_helper.py"]);
   assert.match(log.prompt, /Make cards about classes/);
@@ -198,10 +199,11 @@ test("the bridge runs a job end to end: files in a fresh folder, fixed flags, ev
   assert.equal((await call("alice", "POST", `jobs/${id}/imported`)).json.first, true);
   assert.equal((await call("alice", "POST", `jobs/${id}/imported`)).json.first, false);
   assert.equal((await call("bob", "GET", `jobs/${id}/out/anki_bundle.json`)).status, 404);
-  assert.ok(!existsSync(join(HOME, "jobs", id, "anki_prompt.txt")), "a finished job's folder is removed");
+  assert.ok(!existsSync(log.cwd), "a finished job's folder is removed");
 });
 
-test("a failing agent, or one that makes no bundle, fails the job and keeps its folder", async () => {
+const runDirs = (id: string) => readdirSync(join(HOME, "jobs")).filter((n) => n.startsWith(id));
+test("a failing agent, or one that makes no bundle, fails the job and removes its folder", async () => {
   const d = await addDevice();
   for (const [mode, err] of [["crash", /exited with code 3: boom: model overloaded/], ["nothing", /no anki_bundle\.json was made/]] as const) {
     const id = await queuedJob("p3");
@@ -210,7 +212,8 @@ test("a failing agent, or one that makes no bundle, fails the job and keeps its 
     assert.equal(r.ok, false);
     const j = await job(id);
     assert.equal(j.status, "failed"); assert.match(j.error, err);
-    assert.ok(existsSync(join(HOME, "jobs", id, "anki_prompt.txt")));
+    assert.deepEqual(runDirs(id), [], "nothing is left behind");
+    assert.equal(r.dir, undefined, "and the log doesn't point at a folder that is gone");
     assert.equal((await call("alice", "POST", `jobs/${id}/imported`)).status, 409);
   }
 });
@@ -562,4 +565,13 @@ test("in the background a removed device ends the bridge cleanly (no restart loo
   assert.equal(tty.status, 1);
   const unpaired = await runScript(["run"], { ACS_BRIDGE_HOME: mkdtempSync(join(tmpdir(), "acs-none-")), ACS_BRIDGE_SERVICE: "1" });
   assert.equal(unpaired.status, 0); assert.match(unpaired.stderr, /not paired yet/);
+});
+
+test("a job's files may declare a sha256 (64 hex digits), which the bridge gets back; anything else is refused", async () => {
+  const post = (sha256: unknown) => call("alice", "POST", "jobs", { project: "p-sha", kind: "cards", files: [{ name: "anki_prompt.txt", size: 2, sha256 }] });
+  for (const bad of ["abc", "../../x", "A".repeat(64), 12, null]) assert.equal((await post(bad)).status, 400, String(bad));
+  const ok = "0123456789abcdef".repeat(4), j = (await post(ok)).json;
+  assert.deepEqual(j.files, [{ name: "anki_prompt.txt", size: 2, sha256: ok }]);
+  assert.deepEqual((await job(j.id)).files[0].sha256, ok);
+  assert.deepEqual((await call("alice", "POST", "jobs", { project: "p-sha", kind: "cards", files: [{ name: "anki_prompt.txt", size: 2 }] })).json.files, [{ name: "anki_prompt.txt", size: 2 }], "optional");
 });
