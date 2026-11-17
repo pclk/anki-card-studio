@@ -145,7 +145,7 @@ function renderSyncInfo(){
 }
 /* ---- conflict resolver */
 let resolverReopen = null;
-const CF_LABEL = {why: 'Why this card', whyOnCard: 'Why on card', whyAll: 'Why on every card', front: 'Front', back: 'Back', text: 'Text', extra: 'Extra', source: 'Source', tags: 'Tags', status: 'Status', feedback: 'Feedback', deck: 'Sub-deck', refs: 'Source location', type: 'Card type', ord: 'Study position', edited: 'Field-edited', revised: 'Revised', prev: 'Previous version', projectName: 'Project name', generalFeedback: 'General feedback'};
+const CF_LABEL = {why: 'Why this card', whyOnCard: 'Why on card', whyAll: 'Why on every card', front: 'Front', back: 'Back', text: 'Text', extra: 'Extra', source: 'Source', tags: 'Tags', status: 'Status', feedback: 'Feedback', deck: 'Sub-deck', refs: 'Source location', skipped_checks: 'Checks skipped by AI', type: 'Card type', ord: 'Study position', edited: 'Field-edited', revised: 'Revised', prev: 'Previous version', projectName: 'Project name', generalFeedback: 'General feedback'};
 const cfShow = v => { const s3 = v === undefined || v === null ? '(empty)' : typeof v === 'string' ? v : JSON.stringify(v); return esc(s3.length > 700 ? s3.slice(0, 700) + '…' : s3); };
 function openResolver(conflicts, merged, local, remote, finish){
   const dlg2 = $('#syncDlg'), list = $('#syncList');

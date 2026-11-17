@@ -70,7 +70,7 @@ test('a formatting prompt that failed on the Mac is to do again',async({page,req
  const j=await macEnds(request,bearer,'fail');
  await ev(page,'pollJobs()');
  await expect.poll(()=>ev(page,'S.cards[0].fmtSt')).toBe('todo');
- expect(await ev(page,'fmtItems("F")[0].status')).toBe('todo');
+ expect(await ev(page,'fmtItems()[0].status')).toBe('todo');
  await request.delete(`/api/jobs/${j.id}`,{headers});
  await request.delete(`/api/devices/${dev.id}`,{headers});
 });

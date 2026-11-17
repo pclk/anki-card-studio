@@ -253,7 +253,7 @@ function updateTabCounts(){
   const n = S.cards.filter(c => c.status === 'new').length, ch = S.cards.filter(c => c.status === 'change').length;
   const rc = S.cards.filter(c => c.recheck).length;
   $('#tabReviewCount').textContent = S.cards.length ? `${n} left` + (rc ? ` · ${rc} re-check` : '') : '';
-  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (formatting / checker fix)${rc ? ' · ' + rc : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
+  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (checker fix)${rc ? ' · ' + rc : ''}`; const so = $('#filter option[value=skipped]'), sn = S.cards.filter(c => c.skipped_checks && Object.keys(c.skipped_checks).length).length; if (so) so.textContent = `Checks skipped by AI${sn ? ' · ' + sn : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
   const bi = brokenImages().length;   // cards to change + broken images to redo
   $('#tabReviseCount').textContent = ch + bi ? String(ch + bi) : ''; $('#tabReviseCount').hidden = !(ch + bi);
   const bo = $('#filter option[value=brokenimg]'); if (bo) bo.textContent = `Broken images${bi ? ' · ' + bi : ''}`;

@@ -30,14 +30,14 @@ test('marking a partially answered checker batch answered must retain every memb
  await open(page,request,info,[CARD,{...CARD,id:'bug-second'}]);
  // Persisted state after one member has been answered, with another still pending.
  await ev(page,`cardById('bug-card').fmtDone='K1';cardById('bug-second').fmt='K1';cardById('bug-second').fmtSt='copied';showTab('revise')`);
- await page.locator('#kqList [data-fq=done]').click();
- expect(await ev(page,`fmtItems('K')[0].cards.map(c=>c.id).sort()`)).toEqual(['bug-card','bug-second']);
+ await page.locator('#fqList [data-fq=done]').click();
+ expect(await ev(page,`fmtItems()[0].cards.map(c=>c.id).sort()`)).toEqual(['bug-card','bug-second']);
 });
 
 test('checker prompt must not request reference pages when the page check is off',async({page,request},info)=>{
  await open(page,request,info,[{...CARD,refs:[{file:'notes.pdf',page:1,quote:'short'}]}]);
  // Local-only settings avoid changing shared server settings for other tests.
  await ev(page,`SET.checks={...ck(),ref_page:'off',ref_quote_min_chars:25}`);
- const prompt=await ev(page,`fixPrompt([cardById('bug-card')])`);
+ const prompt=await ev(page,`fixPrompt([cardById('bug-card')],[...FIX_KEYS])`);
  expect(prompt).not.toContain('give each reference the page it is on');
 });

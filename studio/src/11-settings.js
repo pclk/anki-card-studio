@@ -6,6 +6,8 @@ const DEFAULT_SETTINGS = {
   promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
+  fixRules: [...FMT_KEYS],                         // the rules a checker fix sends (Revise → Checker fixes)
+  fixPresets: [],                                  // your own rule presets there: [{name, rules}]
   keys: {exclude: ['q'], change: ['w'], approve: ['d'], reset: ['r'], next: ['Meta', 'ArrowRight'], prev: ['ArrowLeft'],
          flip: ['Tab'], copy: ['c'], pane: ['e'], order: ['o'], image: ['i'], sidebar: ['\\']},
   leader: [
@@ -34,6 +36,9 @@ function mergeSettings(j){
     if (d.kind === 'level'){ if (['error', 'warn', 'off'].includes(v)) out.checks[d.key] = v; }
     else if (Number.isFinite(+v) && +v >= 0) out.checks[d.key] = Math.round(+v);
   }
+  if (j && Array.isArray(j.fixRules)) out.fixRules = FIX_RULES.filter(k => j.fixRules.includes(k));
+  if (j && Array.isArray(j.fixPresets)) out.fixPresets = j.fixPresets.filter(p => p && typeof p.name === 'string' && p.name.trim() && Array.isArray(p.rules))
+    .map(p => ({name: p.name.trim().slice(0, 40), rules: FIX_RULES.filter(k => p.rules.includes(k))})).filter(p => p.rules.length).slice(0, 20);
   if (j && j.swipe && typeof j.swipe === 'object'){
     const n = (v, lo, hi, d) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d;
     out.swipe = {dist: n(j.swipe.dist, 8, 60, 25), angle: n(j.swipe.angle, 10, 75, 50), effects: j.swipe.effects !== false};

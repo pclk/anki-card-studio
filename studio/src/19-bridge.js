@@ -111,7 +111,7 @@ async function pollJobs(){
   if (BR.jobs.some(j => JOB_OPEN.includes(j.status))) pollJobsSoon(3000);
   else if (BR.jobs.some(j => j.status === 'done' && (!j.importedAt || BR.claimed.has(j.id)) && (BR.tries.get(j.id) || 0) < IMPORT_TRIES)) pollJobsSoon(BR.retryMs);
 }
-/** a Mac job that failed or was cancelled gives its prompt back: the batch item or formatting / checker-fix prompt it
+/** a Mac job that failed or was cancelled gives its prompt back: the batch item or checker-fix prompt it
     took is "to do" again, so "Run all on Mac" sends it again. Only while that job is still the one that took it (it.macJob,
     c.fmtJob): it happens once, and never undoes a copy the user made by hand since. */
 function requeueFailed(){
@@ -151,7 +151,7 @@ async function importJob(j, again = false){
       if (typeof renderBatch === 'function') renderBatch();
       toast(s.ok ? `🖥 ${j.title}: ${r.sums.reduce((a, x) => a + x.added, 0)} new card(s) imported - review them` : `🖥 ${j.title}: nothing imported`, 4500);
     } else if (j.kind === 'revision') await applyRevisionResult(await importFiles(files, 'merge', {revision: true}));
-    else await fqApplied(await importFiles(files, 'merge', {revision: true}), passOf(j.meta && j.meta.fmt));
+    else await fqApplied(await importFiles(files, 'merge', {revision: true}));
     j.importedAt = new Date().toISOString(); BR.claimed.delete(j.id);
   } catch (er) {
     // a network blip: the next poll tries again by itself, so only the last automatic try (or a manual one) says so
@@ -254,23 +254,12 @@ $('#runImageFix').onclick = async () => {
   onMacToast(await runOnMac({kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
 };
 $('#runFmt').onclick = async () => {
-  const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No formatting prompt is still to do');
+  const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No checker-fix prompt is still to do');
   let sent = 0;
   for (const it of todo){
-    const j = await runOnMac({kind: 'format', title: `Formatting ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: fmtPrompt(it.cards), meta: {fmt: it.id}});
-    if (!j) break;
-    it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
-  }
-  save(); renderFmtPass();
-  if (sent) toast(`🖥 ${sent} formatting prompt(s) sent to your Mac`, 4000);
-};
-$('#runFix').onclick = async () => {
-  const todo = fmtItems('K').filter(i => i.status === 'todo'); if (!todo.length) return toast('No checker-fix prompt is still to do');
-  let sent = 0;
-  for (const it of todo){
-    // a new session has none of the material, and the "why" and source references come from it
-    const atts = planAttachments(refSourceList(it.cards)), prompt = fixPrompt(it.cards);
-    const j = await runOnMac({kind: 'format', title: `Checker fix ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
+    // a new session has none of the material: content fixes (the "why", source references) come from it, formatting doesn't need it
+    const rules = itemRules(it.cards), atts = formattingOnly(rules) ? [] : planAttachments(refSourceList(it.cards)), prompt = fixPrompt(it.cards, rules);
+    const j = await runOnMac({kind: 'format', title: `${rulesName(rules)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
     if (!j) break;
     it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
   }

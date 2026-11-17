@@ -66,7 +66,7 @@ function fmtProse(h){ return decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/p
 const unCloze = s => String(s || '').replace(/\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}/g, '$1');
 function decodeEnt(s){ return new DOMParser().parseFromString(String(s).replace(/</g, '&lt;'), 'text/html').body.textContent || ''; }
 /* ---- the checker: the same card-quality checks as the skill's validate(), with the same settings (SET.checks, edited on
-   the Prompt page and passed to Claude in every prompt). Used by the formatting pass and the Analytics tab. */
+   the Prompt page and passed to Claude in every prompt). Used by the checker fixes and the Analytics tab. */
 const CHECK_DEFS = [
   {key: 'why', group: 'Why this card', label: '"Why" present and long enough', kind: 'level', def: 'warn'},
   {key: 'why_min_words', group: 'Why this card', label: 'Minimum words in "why"', kind: 'num', def: 45, unit: 'words'},
@@ -212,14 +212,15 @@ function codeLines(c){
       out.push(l.replace(/[^\t]*\t/g, s => s.slice(0, -1) + ' '.repeat(8 - (s.length - 1) % 8)).replace(/\s+$/, ''));
   return out;
 }
-/** what the formatting pass sends: the presentation problems only */
+/** the Formatting preset: the presentation problems only (a checker fix with only these is a formatting pass) */
 const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'code_line_chars', 'unshown_math', 'math_as_text', 'math_in_code']);
 /* checks are re-run for a card only when it or the settings change (Analytics and the check filter look at every card) */
 const chkMemo = new WeakMap();
 function checksOf(c, C = ck(), cs = J(C)){
-  const sig = [c.type, c.front, c.back, c.text, c.extra, c.why, (c.tags || []).join(' '), c.refs ? J(c.refs) : '', cs], m = chkMemo.get(c);
+  const sig = [c.type, c.front, c.back, c.text, c.extra, c.why, (c.tags || []).join(' '), c.refs ? J(c.refs) : '', c.skipped_checks ? J(c.skipped_checks) : '', cs], m = chkMemo.get(c);
   if (m && m.sig.every((v, i) => v === sig[i])) return m.res;
-  const res = cardChecks(c, C); chkMemo.set(c, {sig, res}); return res;
+  // a check the card skips on purpose (skipped_checks, with the AI's reason) doesn't count anywhere: Review, the fixes, Analytics, Export
+  const sk = c.skipped_checks || {}, res = cardChecks(c, C).filter(x => !sk[x.key]); chkMemo.set(c, {sig, res}); return res;
 }
 // a check key as used by the Review filter ("chk:<key>"); 'missing_img' is the Studio's own image check
 const CHECK_ROWS = [
@@ -243,9 +244,18 @@ function ensureCheckOption(key){
     const o = document.createElement('option'); o.value = 'chk:' + key; o.dataset.chk = 1; o.textContent = 'Check: ' + r.label; sel.appendChild(o); }
 }
 function formatIssues(c){ return checksOf(c).filter(x => FMT_KEYS.has(x.key)).map(x => x.msg); }
-/** what the checker fix sends: every other check the Studio runs (content, length, rationale and sources) */
+/** the Others preset: every other per-card check (content, length, rationale and sources) */
 const FIX_KEYS = new Set(['why', 'why_min_words', 'front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'ref_page', 'ref_quote_min_chars']);
 function fixIssues(c){ return checksOf(c).filter(x => FIX_KEYS.has(x.key)).map(x => x.msg); }
+/** every check a checker fix can send (the per-card ones), in the Checker's order: the rule picker on the Revise tab */
+const FIX_RULES = CHECK_DEFS.map(d => d.key).filter(k => FMT_KEYS.has(k) || FIX_KEYS.has(k));
+/** the checks a card can skip on purpose ("skipped_checks": {check: reason}, set by the AI): the per-card ones */
+const SKIPPABLE = FIX_RULES;
+/** the card's skips, and whether each check would still flag it */
+function skippedOf(c, C = ck()){
+  const sk = c.skipped_checks || {}, all = Object.keys(sk).length ? cardChecks(c, C) : [];
+  return Object.entries(sk).map(([key, reason]) => ({key, reason, label: (CHECK_DEFS.find(d => d.key === key) || {label: key}).label, hits: all.filter(x => x.key === key)}));
+}
 
 /** set a card's review status; any decision on a card also settles a pending formatting re-check */
 function setCardStatus(c, st){ c.status = st; if (c.recheck) delete c.recheck; }
@@ -258,6 +268,7 @@ function filtered(){
     if (S.filter === 'missing' && !cardMissing(c)) return false;
     if (S.filter === 'brokenimg' && !cardBrokenImg(c)) return false;
     if (S.filter === 'recheck' && !c.recheck) return false;
+    if (S.filter === 'skipped' && !(c.skipped_checks && Object.keys(c.skipped_checks).length)) return false;
     if (S.filter.startsWith('chk:')){ const r = checkRow(S.filter.slice(4)); if (r && !r.test(c)) return false; }
     if (['new','ok','change','drop'].includes(S.filter) && c.status !== S.filter) return false;
     if (q && !(c.id + ' ' + FIELDS[c.type].map(f => c[f]).join(' ') + ' ' + c.tags.join(' ')).toLowerCase().includes(q)) return false;
@@ -551,6 +562,12 @@ function prevDiffHTML(c){
     changed++; const d = lineDiff(refTxt(p.refs), refTxt(c.refs));
     h += `<div class="df-field"><b>Source location</b><div class="df">${d.map(x => `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`).join('')}</div></div>`;
   }
+  // checks skipped by the AI, when the old version kept them
+  const skTxt = o => Object.entries(o || {}).map(([k, r]) => `${(CHECK_DEFS.find(d => d.key === k) || {label: k}).label}: ${r}`);
+  if ('skipped_checks' in p && J(p.skipped_checks || {}) !== J(c.skipped_checks || {})){
+    changed++; const d = lineDiff(skTxt(p.skipped_checks), skTxt(c.skipped_checks));
+    h += `<div class="df-field"><b>Checks skipped by AI</b><div class="df">${d.map(x => `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`).join('')}</div></div>`;
+  }
   if (!changed) h += '<div class="muted">No field changes.</div>';
   return h;
 }
@@ -558,11 +575,20 @@ function prevDiffHTML(c){
 function renderCurChecks(c){
   const box = $('#curChecks'); if (!box) return;
   const res = c ? checksOf(c).concat(cardMissing(c) ? [{key: 'missing_img', level: 'W', msg: 'An image is missing or not loaded.'}] : []) : [];
-  box.hidden = !res.length; if (!res.length) return;
+  const sk = c ? skippedOf(c) : [];
+  box.hidden = !res.length && !sk.length; if (box.hidden) return;
   const e = res.filter(x => x.level === 'E').length, w = res.length - e;
-  box.querySelector('summary').innerHTML = `Checker: ${e ? `<b class="E" style="color:var(--bad)">${e} error${e > 1 ? 's' : ''}</b>` : ''}${e && w ? ', ' : ''}${w ? `<b style="color:var(--warn)">${w} warning${w > 1 ? 's' : ''}</b>` : ''}`;
-  box.querySelector('ul').innerHTML = res.map(x => `<li class="${x.level}"><span style="color:var(--text)">${esc(x.msg)}</span> <span class="muted">(${esc((CHECK_DEFS.find(d => d.key === x.key) || {label: 'Studio'}).label)})</span></li>`).join('');
+  box.querySelector('summary').innerHTML = `Checker: ${e ? `<b class="E" style="color:var(--bad)">${e} error${e > 1 ? 's' : ''}</b>` : ''}${e && w ? ', ' : ''}${w ? `<b style="color:var(--warn)">${w} warning${w > 1 ? 's' : ''}</b>` : ''}${!res.length ? 'no problems' : ''}${sk.length ? ` <span class="muted">· ${sk.length} skipped by AI</span>` : ''}`;
+  box.querySelector('ul').innerHTML = res.map(x => `<li class="${x.level}"><span style="color:var(--text)">${esc(x.msg)}</span> <span class="muted">(${esc((CHECK_DEFS.find(d => d.key === x.key) || {label: 'Studio'}).label)})</span></li>`).join('')
+    + sk.map(x => `<li class="skip" data-skip="${esc(x.key)}"><span style="color:var(--text)">Skipped by AI: <b>${esc(x.label)}</b> - “${esc(x.reason)}”</span>
+      <span class="muted">${x.hits.length ? `(would flag: ${esc(x.hits.map(h => h.msg).join(' '))})` : '(no longer flagged)'}</span>
+      <button class="btn sm" data-unskip="${esc(x.key)}" title="Apply this check to the card again">Undo skip</button></li>`).join('');
 }
+$('#curChecks ul').addEventListener('click', e => {
+  const b = e.target.closest('[data-unskip]'), c = curCard(); if (!b || !c || !c.skipped_checks) return;
+  delete c.skipped_checks[b.dataset.unskip]; if (!Object.keys(c.skipped_checks).length) delete c.skipped_checks;
+  save(); renderReviewSoft(); toast('The check applies to this card again');
+});
 function badgesHTML(c){
   renderCurChecks(c);
   return `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> `

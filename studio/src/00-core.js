@@ -273,6 +273,13 @@ function normCard(raw){
   const refs = normRefs(c.refs ?? c.ref);
   if (refs.length) out.refs = refs;
   if (typeof c.ord === 'number') out.ord = c.ord;
+  if ('skipped_checks' in c) out.skipped_checks = normSkips(c.skipped_checks);   // {} clears them (a revision that undoes its skips)
+  return out;
+}
+/** checks the AI skipped on purpose for a card, each with its reason: {check: reason}. Unknown checks and empty reasons are dropped */
+function normSkips(v){
+  const out = {}, items = Array.isArray(v) ? v.map(x => Array.isArray(x) ? x : [x && x.check, x && x.reason]) : v && typeof v === 'object' ? Object.entries(v) : [];
+  for (const [k, why] of items){ const r = String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300); if (SKIPPABLE.includes(k) && r) out[k] = r; }
   return out;
 }
 

@@ -31,6 +31,8 @@ function updateModeUI(mode){
   $('#rvMode').value = mode;
 }
 /* ---- checker settings: the Prompt page panel, and the section every prompt carries when they differ from the defaults */
+/** how the AI records a check it skips on purpose for one card (the Studio shows the reason, and the user can undo it) */
+const SKIP_RULE = helper => `If one of the quality checks is genuinely wrong for a particular card (fixing it would make the card worse - e.g. a URL in a code line that can't be broken, or a whole problem statement the question needs), don't distort the card: record the skip on it with your reason, \`"skipped_checks": {"code_line_chars": "the URL can't be broken"}\`${helper ? ' (helper: `skip={...}` on add_basic/add_cloze/update, or `deck.skip(id, check, reason)`)' : ''}. Use the check names (${SKIPPABLE.join(', ')}). Skip rarely: I see every skip and its reason, and can undo it.`;
 function checkerSection(mode){
   const C = ck(), changed = CHECK_DEFS.filter(d => C[d.key] !== d.def);
   if (!changed.length) return '';
@@ -188,7 +190,7 @@ ${load}
 2. Create the deck: \`deck = Deck(${JSON.stringify(p.pDeck || 'AI Generated Deck')}${p.pTags ? ', tags=' + JSON.stringify(p.pTags.split(/\s+/).filter(Boolean)) : ''})\`
 3. Make images with the helper (each call RETURNS the filename to use - extensions can change) and add cards with deck.add_basic(...) / deck.add_cloze(...), using the HTML helpers answer(), box(kind, html), img(name, caption), bullets(), table(). Give every card an extensive why=rationale(tests=…, matters=…, mistake=…, connects=…): 1-3 specific sentences per part (~60-150 words): what exactly it tests and what a full answer must show; why it matters (where it comes up - later topics, labs, exams, practice - and what goes wrong without it); the misconception it guards against; prerequisites and related cards. No generic filler.
    Call \`deck.load_source(...)\` with the material your refs point into, so quotes get checked: the file paths (no argument = every uploaded PDF), or the id of a <<<SOURCE block - never retype a block into code.
-4. Run \`deck.validate()\`: fix every ERROR and look at every warn. Repeat until clean.
+4. Run \`deck.validate()\`: fix every ERROR and look at every warn. Repeat until clean (a check that is wrong for one card can be skipped with a reason - see "Output format").
 5. **Look at every image - not optional.** Run \`deck.contact_sheet()\` (and \`deck.preview_png()\` for the cards), then OPEN each PNG it prints with your image-viewing tool and check every image: elements overlapping or covering each other, anything cut off, unreadable text, wrong content. Redraw and look again until they are clean. validate() also reports overlaps it can measure and stays red until every new image has been on a contact sheet - but only your own look catches everything.
 6. ${p.pOrder ? '\`deck.set_order(deck.suggest_order())\`, then \`deck.check_order()\`. ' : ''}Run \`deck.save()\`: it writes **anki_bundle.json** (cards + all images) - make sure I get it as a downloadable file.
 7. Your whole reply is \`print(deck.summary(issues))\` - see "Final reply".
@@ -231,6 +233,7 @@ ${workflow}
 
 ## Output format
 Card ids must be unique (c001, c002, …). The JSON must be valid (escape quotes inside strings).
+${SKIP_RULE(p.pScript !== 'none')}
 ${schema}
 
 ## Final reply

@@ -865,6 +865,27 @@ CHECK_DEFAULTS = {
     "order_window": 3,             # check_order(): how many cards back a spoiler counts
 }
 CHECK_LEVELS = ("error", "warn", "off")
+# the per-card checks a card can skip on purpose (skipped_checks = {check: reason}); the deck-wide ones can't be skipped
+SKIPPABLE = tuple(k for k in CHECK_DEFAULTS if k not in ("unused_images", "order_window"))
+
+
+def _skips(v):
+    """skipped_checks as {check: reason}: from a dict, or a list of (check, reason) / {"check":, "reason":}."""
+    if not v:
+        return {}
+    if isinstance(v, dict):
+        items = v.items()
+    else:
+        items = [(x.get("check"), x.get("reason")) if isinstance(x, dict) else tuple(x) for x in v]
+    out = {}
+    for k, why in items:
+        if k not in SKIPPABLE:
+            raise ValueError(f"can't skip {k!r} - skippable checks: {', '.join(SKIPPABLE)}")
+        why = " ".join(str(why or "").split())
+        if not why:
+            raise ValueError(f"skipping {k!r} needs a reason (why the check is wrong for this card)")
+        out[k] = why[:300]
+    return out
 
 
 def _check_value(key, v):
@@ -1102,7 +1123,7 @@ class Deck:
         return out
 
     def add_basic(self, front, back, extra="", source="", tags=(), images=(), id=None, after=None, ref=None,
-                  name=None, group=None, prereq=(), why=""):
+                  name=None, group=None, prereq=(), why="", skip=None):
         """Front/back card. `images` (filenames or (filename, caption)) are appended to the back
         unless already referenced in a field. `ref` = where it comes from (the Studio shows a picture of it):
         ("lecture.pdf", 12, "verbatim quote") or a list of those.
@@ -1111,6 +1132,8 @@ class Deck:
         why = an extensive explanation of why this card exists - build it with rationale(tests=, matters=, mistake=,
         connects=): what it tests, why it matters, the mistake it guards against, how it connects (shown to the user
         while reviewing; they can choose to put it on the card).
+        skip = checks validate() should not apply to this card, each with your reason: {"code_line_chars": "a URL that
+        can't be broken"}. Only when the check is really wrong for the card - the user sees every skip and its reason.
         Returns the card id."""
         card = {"id": id or self._next_id(), "type": "basic", "front": fix_math(front), "back": fix_math(back),
                 "extra": fix_math(extra), "source": source, "tags": list(tags)}
@@ -1118,11 +1141,13 @@ class Deck:
             card["why"] = str(why).strip()
         if ref:
             card["refs"] = self._refs(ref)
+        if skip:
+            card["skipped_checks"] = _skips(skip)
         self._attach(card, images, "back")
         return self._remember(self._put(card, after), name, group, prereq)
 
     def add_cloze(self, text, extra="", source="", tags=(), images=(), id=None, after=None, ref=None,
-                  name=None, group=None, prereq=(), why=""):
+                  name=None, group=None, prereq=(), why="", skip=None):
         """Cloze card - text must contain {{c1::...}}. `images` are appended to Extra. Other args as add_basic."""
         if not re.search(r"\{\{c\d+::", text):
             raise ValueError("Cloze text needs at least one {{c1::...}} deletion")
@@ -1132,6 +1157,8 @@ class Deck:
             card["why"] = str(why).strip()
         if ref:
             card["refs"] = self._refs(ref)
+        if skip:
+            card["skipped_checks"] = _skips(skip)
         self._attach(card, images, "extra")
         return self._remember(self._put(card, after), name, group, prereq)
 
@@ -1148,16 +1175,41 @@ class Deck:
         self.order = ids
         return ids
 
-    def update(self, cid, images=(), ref=None, **fields):
-        """Change fields of an existing card (id or name), e.g. deck.update("c004", back="...")."""
+    def update(self, cid, images=(), ref=None, skip=None, **fields):
+        """Change fields of an existing card (id or name), e.g. deck.update("c004", back="...").
+        skip= adds checks to skip on it ({check: reason}, as add_basic); unskip with deck.skip(cid, check, None)."""
         cid = self._rid(cid)
         c = self.get(cid)
         if not c:
             raise KeyError(cid)
         if ref:
             c["refs"] = self._refs(ref)
+        if skip:
+            c["skipped_checks"] = {**_skips(c.get("skipped_checks")), **_skips(skip)}
+        if "skipped_checks" in fields:
+            fields["skipped_checks"] = _skips(fields["skipped_checks"])
         c.update({k: fix_math(v) if k in ("front", "back", "extra", "text") else v for k, v in fields.items()})
         self._attach(c, images, "back" if c["type"] == "basic" else "extra")
+        self._dirty.add(cid)
+        return cid
+
+    def skip(self, cid, check, reason):
+        """Tell validate() (and the Studio's checker) not to apply one check to this card, with your reason - only when
+        the check is wrong for it, e.g. deck.skip("c012", "front_max_chars", "the full problem statement is needed to
+        answer it"). The user sees the skip and its reason, and can undo it. reason=None removes the skip."""
+        cid = self._rid(cid)
+        c = self.get(cid)
+        if not c:
+            raise KeyError(cid)
+        sk = _skips(c.get("skipped_checks"))
+        if reason is None:
+            sk.pop(check, None)
+        else:
+            sk.update(_skips({check: reason}))
+        if sk:
+            c["skipped_checks"] = sk
+        else:
+            c.pop("skipped_checks", None)
         self._dirty.add(cid)
         return cid
 
@@ -2011,14 +2063,23 @@ class Deck:
         ck = {**CHECK_DEFAULTS, **getattr(self, "checks", {})}
         window = ck["order_window"] if window is None else window
 
+        skip, n_skipped = {}, [0]   # the current card's skipped_checks, and how many problems they hid
+
+        def on(key):
+            # a check the card skips on purpose (skipped_checks) is not reported
+            if key in skip:
+                n_skipped[0] += 1
+                return False
+            return True
+
         def at(key, designed="W"):
-            # the reporter for a configurable check: None when it's off, warn when set to warn, else as designed
+            # the reporter for a configurable check: None when it's off or skipped, warn when set to warn, else as designed
             lv = ck[key]
-            return None if lv == "off" else W if lv == "warn" or designed == "W" else E
+            return None if lv == "off" else (lambda m: on(key) and (W if lv == "warn" or designed == "W" else E)(m))
 
         def at_strict(key):
             lv = ck[key]
-            return None if lv == "off" else E if lv == "error" else W
+            return None if lv == "off" else (lambda m: on(key) and (E if lv == "error" else W)(m))
         ids = [c["id"] for c in self.cards]
         for d in sorted({i for i in ids if ids.count(i) > 1}):
             E(f"duplicate id {d}")
@@ -2027,13 +2088,18 @@ class Deck:
         self._fix_math_all()
         for c in self.cards:
             cid = c["id"]
+            try:
+                skip = _skips(c.get("skipped_checks"))
+            except ValueError as er:
+                E(f"{cid}: skipped_checks: {er}")
+                skip = {}
             rep_why = at_strict("why")
             if rep_why and not str(c.get("why") or "").strip():
                 rep_why(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
             elif rep_why and ck["why_min_words"]:
                 wn = len(re.sub(r"<[^>]+>", " ", c["why"]).split())
-                if wn < ck["why_min_words"]:
-                    rep_why(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
+                if wn < ck["why_min_words"] and on("why_min_words"):
+                    (E if ck["why"] == "error" else W)(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
                             "matters, the common mistake, what it connects to (rationale() builds it)")
             if "multi-ok" not in (c.get("tags") or []) and ck["multi_question"] != "off":
                 for level, prob in _multi_question(c):
@@ -2049,7 +2115,7 @@ class Deck:
                     at_strict("code_as_text")(f"{cid}: {prob}")
             if ck["code_line_chars"]:
                 long = [ln for ln in _code_lines(c) if len(ln) > ck["code_line_chars"]]
-                if long:
+                if long and on("code_line_chars"):
                     w = max(long, key=len)
                     W(f"{cid}: {len(long)} code line(s) longer than {ck['code_line_chars']} characters (longest {len(w)}: {w.strip()[:40]!r}) - "
                       "break long lines (after a comma or operator, one chained call per line) so the block fits a phone screen")
@@ -2058,11 +2124,11 @@ class Deck:
                     at_strict(key)(f"{cid}: {prob}")
             if ck["back_max_words"]:
                 bw = len(_html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", str(c.get("text" if c.get("type") == "cloze" else "back") or "") + " " + (str(c.get("extra") or "") if c.get("type") == "cloze" else "")))).split())
-                if bw > ck["back_max_words"]:
+                if bw > ck["back_max_words"] and on("back_max_words"):
                     W(f"{cid}: answer has {bw} words (limit {ck['back_max_words']}) - trim it or move secondary depth to extra")
             if c.get("type") == "cloze" and ck["cloze_max_deletions"]:
                 nd = len(set(re.findall(r"\{\{c(\d+)::", str(c.get("text") or ""))))
-                if nd > ck["cloze_max_deletions"]:
+                if nd > ck["cloze_max_deletions"] and on("cloze_max_deletions"):
                     W(f"{cid}: {nd} cloze numbers (limit {ck['cloze_max_deletions']}) - split it or hide related items together under one number")
             fields = {k: v for k, v in c.items() if k in ("front", "back", "text", "extra", "source") and isinstance(v, str)}
             if c["type"] == "basic":
@@ -2070,7 +2136,7 @@ class Deck:
                     E(f"{cid}: empty front")
                 if not c.get("back", "").strip():
                     E(f"{cid}: empty back")
-                if ck["front_max_chars"] and len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > ck["front_max_chars"]:
+                if ck["front_max_chars"] and len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > ck["front_max_chars"] and on("front_max_chars"):
                     W(f"{cid}: front has >{ck['front_max_chars']} characters of prose - does it test one idea?")
             elif c["type"] == "cloze":
                 t = c.get("text", "")
@@ -2145,7 +2211,7 @@ class Deck:
                 if at_strict("ref_page") and not r.get("page") and not str(r["file"]).startswith(("http://", "https://")):
                     at_strict("ref_page")(f"{cid}: ref has no page - fine for a web page / note, otherwise give the page ({r['file']})")
                 q = r.get("quote") or ""
-                if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"]:
+                if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"] and on("ref_quote_min_chars"):
                     W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~{ck['ref_quote_min_chars']} characters so it can be found")
                 src = self._source_for(r["file"])
                 if q and src:
@@ -2205,6 +2271,10 @@ class Deck:
             n_img = sum(1 for c in self.cards if "<img" in json.dumps(c))
             print(f"{len(self.cards)} cards ({n_img} with images), {len(self.media)} images: {len(errs)} error(s), {len(warns)} warning(s)")
             print("\n".join("  ! " + p for p in probs) if probs else "  no problems found")
+            n_sk = sum(1 for c in self.cards if c.get("skipped_checks"))
+            if n_sk:
+                print(f"  ({n_skipped[0]} problem(s) not reported: {n_sk} card(s) skip checks on purpose, each with a reason the user sees - "
+                      "skip only checks that are wrong for that card)")
         return probs
 
     def check_web_images(self, timeout=8):

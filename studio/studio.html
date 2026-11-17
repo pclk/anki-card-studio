@@ -136,6 +136,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid color-mix(in srgb,var(
   #irDlg .ir-body{grid-template-columns:1fr;overflow-y:auto} #irDlg .ir-img{min-height:180px;max-height:46vh} #irDlg .ir-img img{max-height:46vh} #irDlg .ir-side{max-height:none;overflow:visible;flex:none}
   #irDlg .ir-acts .btn:not(.sm){flex:1;padding:12px} #irDlg .ir-hint{display:block} #irDlg .kbd{display:none} }
 .status-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.fx-presets{flex-wrap:wrap;gap:6px} .fx-presets .btn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.fx-rm{margin-left:6px;opacity:.7} .fx-rm:hover{opacity:1}
+.fx-rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 14px}
+.fx-g{display:flex;flex-direction:column;gap:3px;min-width:0} .fx-g h4{margin:0 0 2px;font-size:12px;color:var(--muted);font-weight:600}
+.fx-g label.check{overflow-wrap:anywhere}
 .qlist{display:flex;flex-direction:column;gap:4px;max-height:52vh;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:4px}
 .qi{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;border:1px solid transparent}
 .qi:hover{background:var(--panel2)} .qi.next{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
@@ -263,7 +268,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;height:
 .adm-json{width:100%;min-height:320px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre;tab-size:2}
 .adm-danger{border-color:color-mix(in srgb,var(--bad) 50%,var(--line))}
 @media (max-width:760px){ .adm-body{grid-template-columns:1fr;grid-template-rows:auto 1fr} .adm-list{border-right:0;border-bottom:1px solid var(--line);max-height:34vh} }
-#curChecks summary{cursor:pointer}#curChecks ul{margin:6px 0 0;padding-left:18px}#curChecks li{margin:2px 0}#curChecks .E{color:var(--bad)}#curChecks .W{color:var(--warn)}
+#curChecks summary{cursor:pointer}#curChecks ul{margin:6px 0 0;padding-left:18px}#curChecks li{margin:2px 0}#curChecks .E{color:var(--bad)}#curChecks .W{color:var(--warn)}#curChecks li.skip{color:var(--muted)}#curChecks li.skip .btn{margin-left:6px;padding:1px 7px}
 .ck-grid{display:flex;flex-direction:column;gap:2px;font-size:13px}
 .ck-grid h4{margin:12px 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .ck-row{display:grid;grid-template-columns:1fr 130px;gap:2px 12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
@@ -538,7 +543,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
 <section class="tab" id="tab-checker">
   <div class="panel stack" style="max-width:1000px">
     <div class="row" style="flex-wrap:wrap;gap:8px"><h2 style="margin:0">Checker</h2><span class="small muted" id="ckSum"></span><span class="spacer"></span><button class="btn" id="ckReset">Reset to defaults</button></div>
-    <p class="small muted" style="margin:0">The card-quality checks, set once here and used everywhere: Claude runs them while writing cards (<code>validate()</code>), and they drive the <b>Prompt</b>, <b>Analytics</b>, the card's check list in <b>Review</b>, revisions and the formatting pass in <b>Revise</b>, and the verdict in <b>Export</b>. <i>error</i> must be fixed, <i>warn</i> is fixed unless clearly fine, <i>off</i> is ignored; for limits, 0 means no limit. Kept for all your projects. Open <b>What it looks for</b> on any check to see exactly how it decides.</p>
+    <p class="small muted" style="margin:0">The card-quality checks, set once here and used everywhere: Claude runs them while writing cards (<code>validate()</code>), and they drive the <b>Prompt</b>, <b>Analytics</b>, the card's check list in <b>Review</b>, revisions and the checker fixes in <b>Revise</b>, and the verdict in <b>Export</b>. <i>error</i> must be fixed, <i>warn</i> is fixed unless clearly fine, <i>off</i> is ignored; for limits, 0 means no limit. Kept for all your projects. Open <b>What it looks for</b> on any check to see exactly how it decides.</p>
     <div id="ckGrid" class="ck-grid"></div>
   </div>
 </section>
@@ -714,7 +719,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <div class="row" style="margin-top:8px;gap:6px">
         <select id="filter" style="flex:1;width:auto">
           <option value="all">All cards</option><option value="new">Unreviewed</option><option value="ok">Approved</option>
-          <option value="change">Change requested</option><option value="drop">Excluded</option><option value="recheck">Re-check (formatting pass)</option><option value="edited">Field-edited</option><option value="missing">Missing images</option><option value="brokenimg">Broken images</option>
+          <option value="change">Change requested</option><option value="drop">Excluded</option><option value="recheck">Re-check (checker fix)</option><option value="skipped">Checks skipped by AI</option><option value="edited">Field-edited</option><option value="missing">Missing images</option><option value="brokenimg">Broken images</option>
         </select>
       </div>
       <div class="stack" style="margin-top:6px;gap:6px">
@@ -805,19 +810,21 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary" id="biCopy">📋 Copy</button></div>
     <textarea id="biOut" readonly rows="6" placeholder="The image-fix prompt appears here"></textarea>
   </div>
-  <div class="panel stack" id="fmtPanel" style="margin-bottom:14px">
-    <div class="row"><h2 style="margin:0">Formatting pass</h2><span class="spacer"></span><span id="fqStats" class="small muted"></span></div>
-    <p class="small muted" style="margin:0">Fix how cards are written without reviewing them again: Claude only changes presentation. Approved cards stay approved; the ones it changes get a quick <b>Re-check</b> with a before/after diff. Cards in the selected sub-deck only.</p>
+  <div class="panel stack" id="fixPanel" style="margin-bottom:14px">
+    <div class="row"><h2 style="margin:0">Checker fixes</h2><span class="spacer"></span><span id="fqStats" class="small muted"></span></div>
+    <p class="small muted" style="margin:0">Fix what the Checker found without reviewing the cards again. Pick the rules (or a preset): Claude fixes only the problems those rules found. Rules that are all about formatting make a <b>formatting pass</b> - Claude changes how cards are written, never what they test. Approved cards stay approved; the ones it changes get a <b>Re-check</b> with a before/after diff. Cards in the selected sub-deck only.</p>
+    <div class="row fx-presets" id="fxPresets"></div>
+    <div class="fx-rules" id="fxRules"></div>
     <div class="small" id="fqUses"></div>
     <div class="row" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
-      <label class="f">Which cards<select id="fmtScope"><option value="flag">Flagged by the checks</option><option value="flagok">Flagged + every approved card</option><option value="all">Every card that isn't excluded</option></select></label>
-      <label class="f">Status<select id="fmtStatus"><option value="any">Any</option><option value="new">Unreviewed only</option><option value="ok">Approved only</option></select></label>
-      <label class="f">Cards per prompt<select id="fmtSize"><option>25</option><option selected>40</option><option>60</option></select></label>
+      <label class="f">Which cards<select id="fixScope"><option value="flag">Flagged by the picked rules</option><option value="err">Flagged with an error</option><option value="flagok">Flagged + every approved card</option><option value="all">Every card that isn't excluded</option></select></label>
+      <label class="f">Status<select id="fixStatus"><option value="any">Any</option><option value="new">Unreviewed only</option><option value="ok">Approved only</option></select></label>
+      <label class="f">Cards per prompt<select id="fixSize"><option>10</option><option selected>25</option><option>40</option><option>60</option></select></label>
       <button class="btn primary" id="fqBuild">Build queue</button><span class="small muted" id="fqBuildInfo"></span>
     </div>
     <div id="fqPanel" class="stack" hidden>
       <div class="row">
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every formatting prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
+        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
         <span class="small" id="fqNextLabel"></span><span class="spacer"></span>
         <button class="btn sm" id="fqReset" title="Mark every prompt as not copied (answered ones stay ticked)">↺ Reset</button>
         <button class="btn sm" id="fqClear" title="Remove the queue">✕ Clear</button>
@@ -828,31 +835,6 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <details><summary class="small">…or paste Claude's reply</summary><textarea id="fqPaste" rows="5"></textarea>
         <div class="row" style="margin-top:4px"><span class="spacer"></span><button class="btn sm" id="fqApply">Apply</button></div></details>
       <div id="fqResult"></div>
-    </div>
-  </div>
-  <div class="panel stack" id="fixPanel" style="margin-bottom:14px">
-    <div class="row"><h2 style="margin:0">Checker fixes</h2><span class="spacer"></span><span id="kqStats" class="small muted"></span></div>
-    <p class="small muted" style="margin:0">Fix the Checker's other warnings and errors - a missing or short "why", fronts and answers that are too long, too many cloze numbers, several questions on one card, source references without a page or with a short quote. Claude fixes only what the checks found and splits bundled cards (the new parts come in as <i>Unreviewed</i>). Approved cards stay approved; the ones it changes get a <b>Re-check</b> with a before/after diff. Cards in the selected sub-deck only.</p>
-    <div class="small" id="kqUses"></div>
-    <div class="row" style="flex-wrap:wrap;gap:10px;align-items:flex-end">
-      <label class="f">Which cards<select id="fixScope"><option value="flag">Flagged by the checks</option><option value="err">Flagged with an error</option></select></label>
-      <label class="f">Status<select id="fixStatus"><option value="any">Any</option><option value="new">Unreviewed only</option><option value="ok">Approved only</option></select></label>
-      <label class="f">Cards per prompt<select id="fixSize"><option>10</option><option selected>25</option><option>40</option></select></label>
-      <button class="btn primary" id="kqBuild">Build queue</button><span class="small muted" id="kqBuildInfo"></span>
-    </div>
-    <div id="kqPanel" class="stack" hidden>
-      <div class="row">
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFix" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary" id="kqNext">📋 Copy next prompt <span class="kbd">N</span></button>
-        <span class="small" id="kqNextLabel"></span><span class="spacer"></span>
-        <button class="btn sm" id="kqReset" title="Mark every prompt as not copied (answered ones stay ticked)">↺ Reset</button>
-        <button class="btn sm" id="kqClear" title="Remove the queue">✕ Clear</button>
-      </div>
-      <div class="progress" id="kqProg" title="answered / copied"></div>
-      <div class="qlist" id="kqList"></div>
-      <div class="drop" id="kqDrop"><b>Drop the anki_revision.json files here</b> - any number, any order<br><span class="small">Each one is matched to its prompt by its cards, applied, and ticked off.</span><input type="file" id="kqFile" multiple hidden accept=".json,.zip,.txt"></div>
-      <details><summary class="small">…or paste Claude's reply</summary><textarea id="kqPaste" rows="5"></textarea>
-        <div class="row" style="margin-top:4px"><span class="spacer"></span><button class="btn sm" id="kqApply">Apply</button></div></details>
-      <div id="kqResult"></div>
     </div>
   </div>
   <div class="grid2">
@@ -1201,7 +1183,7 @@ The user pastes a `<<<REVISE_CARDS … REVISE_CARDS>>>` block. Each card has its
 
 **Formatting pass** (the prompt says so, and each card's feedback starts "Formatting pass"): the user has already reviewed these cards. Change only how they're written: code into `code()` blocks, long code lines broken to fit `code_line_chars`, names into inline `<code>`, missing code/definitions/equations onto the card (rule 2), maths into `tex()` (display for multi-line or long formulas, never inside `<code>`). Never change what a card tests, its answer, `why`, images or tags; never delete, merge or split. The feedback comes from automatic checks and can be wrong: leave fine cards out. Save only the cards you changed.
 
-**Checker fix** (the prompt says so, and each card's feedback starts "Checker fix"): the user has already reviewed these cards; the feedback lists what the automatic checks found. Fix only those problems: write or extend `why` (`rationale()`, at least `why_min_words`), cut a front or answer to the limit (keep everything needed to answer it; move background into `why`), split a note with too many cloze numbers or a card that asks several questions (keep the original id for the first part, `after=` for the others, each with its own `why`), and give source references their page and a verbatim quote of at least `ref_quote_min_chars` from the material (if you don't have the material, leave them and say so). Keep what a card tests, its answer, images and tags; never delete or merge. The checks can be wrong: leave fine cards out. Save only changed and split-off cards.
+**Checker fix** (the prompt says so, and each card's feedback starts "Checker fix"): the user has already reviewed these cards; the feedback lists what the automatic checks found. Fix only those problems: write or extend `why` (`rationale()`, at least `why_min_words`), cut a front or answer to the limit (keep everything needed to answer it; move background into `why`), split a note with too many cloze numbers or a card that asks several questions (keep the original id for the first part, `after=` for the others, each with its own `why`), and give source references their page and a verbatim quote of at least `ref_quote_min_chars` from the material (if you don't have the material, leave them and say so). It can also list formatting problems (code, maths, outside references): fix those as in a formatting pass. Keep what a card tests, its answer, images and tags; never delete or merge. The checks can be wrong: leave fine cards out. Save only changed and split-off cards.
 
 **Image fix** (each card's feedback starts "Image fix"; the broken images are in `media` with `"broken": true` and the user's `problem`, when they wrote one): redo only those images. Work out what each should show from the card and the material, make a correct, legible replacement (redraw it with `deck.figure`/`labeled_image`, re-snip the right page region, or use `web_image` with a credit), give it a **NEW filename**, and point the card's `<img>` at it. Check them with `contact_sheet()` before saving. Change nothing else on the card; never delete, merge or split. If an image adds nothing, remove it from the card and say so. Then `deck.save(revision=True)`.
 
@@ -1210,6 +1192,8 @@ If asked to fill gaps, add cards for important uncovered concepts, continuing th
 ## What the checker looks for
 
 `validate()` runs these card-quality checks with the settings from `configure_checks()` (defaults in brackets). Write cards that pass them first time. Tag `multi-ok` / `refs-ok` only when a flag is genuinely wrong.
+
+**Skipping a check on one card.** When a check is genuinely wrong for a card (fixing it would make the card worse: a URL in a code line that can't be broken, a problem statement the question really needs), don't distort the card. Skip the check on that card with your reason: `deck.skip("c012", "front_max_chars", "the whole problem statement is needed to answer it")`, or `skip={"code_line_chars": "…"}` on `add_basic`/`add_cloze`/`update`. It is saved as `"skipped_checks": {check: reason}` on the card; `validate()` and the Studio then stop flagging that check for that card, and the user sees each skip with its reason and can undo it (`deck.skip(id, check, None)` removes one). Only the per-card checks below can be skipped (not `unused_images`, `order_window`, or the quote-on-page check), and every skip needs a reason. Skip rarely. In a formatting pass or checker fix, a flagged card that is fine as it is gets the skip (and is saved) instead of being left out.
 - **why** [warn, ≥45 words]: `why=` is non-empty, and has at least the minimum words once HTML is removed.
 - **front_max_chars** [300]: basic fronts, counting characters after removing `<pre>`, inline `<code>`, `\( … \)` / `\[ … \]` maths and tags.
 - **back_max_words** [no limit]: words on the back (or cloze text + extra), code blocks and tags removed.
@@ -1241,7 +1225,7 @@ If asked to fill gaps, add cards for important uncovered concepts, continuing th
 ANKI_CARDS>>>
 ```
 
-Ids must be unique. Split more than ~40 cards over several complete blocks. A revision adds `"revision": true` and includes only changed, added or deleted cards (`{"id": "c007", "delete": true}`).
+Ids must be unique. A card can carry `"skipped_checks": {"code_line_chars": "reason"}` (see "Skipping a check on one card"). Split more than ~40 cards over several complete blocks. A revision adds `"revision": true` and includes only changed, added or deleted cards (`{"id": "c007", "delete": true}`).
 </script>
 <script type="text/plain" id="extractSrc">
 # /// script
@@ -2802,6 +2786,27 @@ CHECK_DEFAULTS = {
     "order_window": 3,             # check_order(): how many cards back a spoiler counts
 }
 CHECK_LEVELS = ("error", "warn", "off")
+# the per-card checks a card can skip on purpose (skipped_checks = {check: reason}); the deck-wide ones can't be skipped
+SKIPPABLE = tuple(k for k in CHECK_DEFAULTS if k not in ("unused_images", "order_window"))
+
+
+def _skips(v):
+    """skipped_checks as {check: reason}: from a dict, or a list of (check, reason) / {"check":, "reason":}."""
+    if not v:
+        return {}
+    if isinstance(v, dict):
+        items = v.items()
+    else:
+        items = [(x.get("check"), x.get("reason")) if isinstance(x, dict) else tuple(x) for x in v]
+    out = {}
+    for k, why in items:
+        if k not in SKIPPABLE:
+            raise ValueError(f"can't skip {k!r} - skippable checks: {', '.join(SKIPPABLE)}")
+        why = " ".join(str(why or "").split())
+        if not why:
+            raise ValueError(f"skipping {k!r} needs a reason (why the check is wrong for this card)")
+        out[k] = why[:300]
+    return out
 
 
 def _check_value(key, v):
@@ -3039,7 +3044,7 @@ class Deck:
         return out
 
     def add_basic(self, front, back, extra="", source="", tags=(), images=(), id=None, after=None, ref=None,
-                  name=None, group=None, prereq=(), why=""):
+                  name=None, group=None, prereq=(), why="", skip=None):
         """Front/back card. `images` (filenames or (filename, caption)) are appended to the back
         unless already referenced in a field. `ref` = where it comes from (the Studio shows a picture of it):
         ("lecture.pdf", 12, "verbatim quote") or a list of those.
@@ -3048,6 +3053,8 @@ class Deck:
         why = an extensive explanation of why this card exists - build it with rationale(tests=, matters=, mistake=,
         connects=): what it tests, why it matters, the mistake it guards against, how it connects (shown to the user
         while reviewing; they can choose to put it on the card).
+        skip = checks validate() should not apply to this card, each with your reason: {"code_line_chars": "a URL that
+        can't be broken"}. Only when the check is really wrong for the card - the user sees every skip and its reason.
         Returns the card id."""
         card = {"id": id or self._next_id(), "type": "basic", "front": fix_math(front), "back": fix_math(back),
                 "extra": fix_math(extra), "source": source, "tags": list(tags)}
@@ -3055,11 +3062,13 @@ class Deck:
             card["why"] = str(why).strip()
         if ref:
             card["refs"] = self._refs(ref)
+        if skip:
+            card["skipped_checks"] = _skips(skip)
         self._attach(card, images, "back")
         return self._remember(self._put(card, after), name, group, prereq)
 
     def add_cloze(self, text, extra="", source="", tags=(), images=(), id=None, after=None, ref=None,
-                  name=None, group=None, prereq=(), why=""):
+                  name=None, group=None, prereq=(), why="", skip=None):
         """Cloze card - text must contain {{c1::...}}. `images` are appended to Extra. Other args as add_basic."""
         if not re.search(r"\{\{c\d+::", text):
             raise ValueError("Cloze text needs at least one {{c1::...}} deletion")
@@ -3069,6 +3078,8 @@ class Deck:
             card["why"] = str(why).strip()
         if ref:
             card["refs"] = self._refs(ref)
+        if skip:
+            card["skipped_checks"] = _skips(skip)
         self._attach(card, images, "extra")
         return self._remember(self._put(card, after), name, group, prereq)
 
@@ -3085,16 +3096,41 @@ class Deck:
         self.order = ids
         return ids
 
-    def update(self, cid, images=(), ref=None, **fields):
-        """Change fields of an existing card (id or name), e.g. deck.update("c004", back="...")."""
+    def update(self, cid, images=(), ref=None, skip=None, **fields):
+        """Change fields of an existing card (id or name), e.g. deck.update("c004", back="...").
+        skip= adds checks to skip on it ({check: reason}, as add_basic); unskip with deck.skip(cid, check, None)."""
         cid = self._rid(cid)
         c = self.get(cid)
         if not c:
             raise KeyError(cid)
         if ref:
             c["refs"] = self._refs(ref)
+        if skip:
+            c["skipped_checks"] = {**_skips(c.get("skipped_checks")), **_skips(skip)}
+        if "skipped_checks" in fields:
+            fields["skipped_checks"] = _skips(fields["skipped_checks"])
         c.update({k: fix_math(v) if k in ("front", "back", "extra", "text") else v for k, v in fields.items()})
         self._attach(c, images, "back" if c["type"] == "basic" else "extra")
+        self._dirty.add(cid)
+        return cid
+
+    def skip(self, cid, check, reason):
+        """Tell validate() (and the Studio's checker) not to apply one check to this card, with your reason - only when
+        the check is wrong for it, e.g. deck.skip("c012", "front_max_chars", "the full problem statement is needed to
+        answer it"). The user sees the skip and its reason, and can undo it. reason=None removes the skip."""
+        cid = self._rid(cid)
+        c = self.get(cid)
+        if not c:
+            raise KeyError(cid)
+        sk = _skips(c.get("skipped_checks"))
+        if reason is None:
+            sk.pop(check, None)
+        else:
+            sk.update(_skips({check: reason}))
+        if sk:
+            c["skipped_checks"] = sk
+        else:
+            c.pop("skipped_checks", None)
         self._dirty.add(cid)
         return cid
 
@@ -3948,14 +3984,23 @@ class Deck:
         ck = {**CHECK_DEFAULTS, **getattr(self, "checks", {})}
         window = ck["order_window"] if window is None else window
 
+        skip, n_skipped = {}, [0]   # the current card's skipped_checks, and how many problems they hid
+
+        def on(key):
+            # a check the card skips on purpose (skipped_checks) is not reported
+            if key in skip:
+                n_skipped[0] += 1
+                return False
+            return True
+
         def at(key, designed="W"):
-            # the reporter for a configurable check: None when it's off, warn when set to warn, else as designed
+            # the reporter for a configurable check: None when it's off or skipped, warn when set to warn, else as designed
             lv = ck[key]
-            return None if lv == "off" else W if lv == "warn" or designed == "W" else E
+            return None if lv == "off" else (lambda m: on(key) and (W if lv == "warn" or designed == "W" else E)(m))
 
         def at_strict(key):
             lv = ck[key]
-            return None if lv == "off" else E if lv == "error" else W
+            return None if lv == "off" else (lambda m: on(key) and (E if lv == "error" else W)(m))
         ids = [c["id"] for c in self.cards]
         for d in sorted({i for i in ids if ids.count(i) > 1}):
             E(f"duplicate id {d}")
@@ -3964,13 +4009,18 @@ class Deck:
         self._fix_math_all()
         for c in self.cards:
             cid = c["id"]
+            try:
+                skip = _skips(c.get("skipped_checks"))
+            except ValueError as er:
+                E(f"{cid}: skipped_checks: {er}")
+                skip = {}
             rep_why = at_strict("why")
             if rep_why and not str(c.get("why") or "").strip():
                 rep_why(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
             elif rep_why and ck["why_min_words"]:
                 wn = len(re.sub(r"<[^>]+>", " ", c["why"]).split())
-                if wn < ck["why_min_words"]:
-                    rep_why(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
+                if wn < ck["why_min_words"] and on("why_min_words"):
+                    (E if ck["why"] == "error" else W)(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
                             "matters, the common mistake, what it connects to (rationale() builds it)")
             if "multi-ok" not in (c.get("tags") or []) and ck["multi_question"] != "off":
                 for level, prob in _multi_question(c):
@@ -3986,7 +4036,7 @@ class Deck:
                     at_strict("code_as_text")(f"{cid}: {prob}")
             if ck["code_line_chars"]:
                 long = [ln for ln in _code_lines(c) if len(ln) > ck["code_line_chars"]]
-                if long:
+                if long and on("code_line_chars"):
                     w = max(long, key=len)
                     W(f"{cid}: {len(long)} code line(s) longer than {ck['code_line_chars']} characters (longest {len(w)}: {w.strip()[:40]!r}) - "
                       "break long lines (after a comma or operator, one chained call per line) so the block fits a phone screen")
@@ -3995,11 +4045,11 @@ class Deck:
                     at_strict(key)(f"{cid}: {prob}")
             if ck["back_max_words"]:
                 bw = len(_html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<pre[\s\S]*?</pre>", " ", str(c.get("text" if c.get("type") == "cloze" else "back") or "") + " " + (str(c.get("extra") or "") if c.get("type") == "cloze" else "")))).split())
-                if bw > ck["back_max_words"]:
+                if bw > ck["back_max_words"] and on("back_max_words"):
                     W(f"{cid}: answer has {bw} words (limit {ck['back_max_words']}) - trim it or move secondary depth to extra")
             if c.get("type") == "cloze" and ck["cloze_max_deletions"]:
                 nd = len(set(re.findall(r"\{\{c(\d+)::", str(c.get("text") or ""))))
-                if nd > ck["cloze_max_deletions"]:
+                if nd > ck["cloze_max_deletions"] and on("cloze_max_deletions"):
                     W(f"{cid}: {nd} cloze numbers (limit {ck['cloze_max_deletions']}) - split it or hide related items together under one number")
             fields = {k: v for k, v in c.items() if k in ("front", "back", "text", "extra", "source") and isinstance(v, str)}
             if c["type"] == "basic":
@@ -4007,7 +4057,7 @@ class Deck:
                     E(f"{cid}: empty front")
                 if not c.get("back", "").strip():
                     E(f"{cid}: empty back")
-                if ck["front_max_chars"] and len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > ck["front_max_chars"]:
+                if ck["front_max_chars"] and len(re.sub(r"<[^>]+>", "", prose(c.get("front", "")))) > ck["front_max_chars"] and on("front_max_chars"):
                     W(f"{cid}: front has >{ck['front_max_chars']} characters of prose - does it test one idea?")
             elif c["type"] == "cloze":
                 t = c.get("text", "")
@@ -4082,7 +4132,7 @@ class Deck:
                 if at_strict("ref_page") and not r.get("page") and not str(r["file"]).startswith(("http://", "https://")):
                     at_strict("ref_page")(f"{cid}: ref has no page - fine for a web page / note, otherwise give the page ({r['file']})")
                 q = r.get("quote") or ""
-                if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"]:
+                if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"] and on("ref_quote_min_chars"):
                     W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~{ck['ref_quote_min_chars']} characters so it can be found")
                 src = self._source_for(r["file"])
                 if q and src:
@@ -4142,6 +4192,10 @@ class Deck:
             n_img = sum(1 for c in self.cards if "<img" in json.dumps(c))
             print(f"{len(self.cards)} cards ({n_img} with images), {len(self.media)} images: {len(errs)} error(s), {len(warns)} warning(s)")
             print("\n".join("  ! " + p for p in probs) if probs else "  no problems found")
+            n_sk = sum(1 for c in self.cards if c.get("skipped_checks"))
+            if n_sk:
+                print(f"  ({n_skipped[0]} problem(s) not reported: {n_sk} card(s) skip checks on purpose, each with a reason the user sees - "
+                      "skip only checks that are wrong for that card)")
         return probs
 
     def check_web_images(self, timeout=8):
@@ -4606,6 +4660,13 @@ function normCard(raw){
   const refs = normRefs(c.refs ?? c.ref);
   if (refs.length) out.refs = refs;
   if (typeof c.ord === 'number') out.ord = c.ord;
+  if ('skipped_checks' in c) out.skipped_checks = normSkips(c.skipped_checks);   // {} clears them (a revision that undoes its skips)
+  return out;
+}
+/** checks the AI skipped on purpose for a card, each with its reason: {check: reason}. Unknown checks and empty reasons are dropped */
+function normSkips(v){
+  const out = {}, items = Array.isArray(v) ? v.map(x => Array.isArray(x) ? x : [x && x.check, x && x.reason]) : v && typeof v === 'object' ? Object.entries(v) : [];
+  for (const [k, why] of items){ const r = String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300); if (SKIPPABLE.includes(k) && r) out[k] = r; }
   return out;
 }
 
@@ -5024,7 +5085,7 @@ function renderSyncInfo(){
 }
 /* ---- conflict resolver */
 let resolverReopen = null;
-const CF_LABEL = {why: 'Why this card', whyOnCard: 'Why on card', whyAll: 'Why on every card', front: 'Front', back: 'Back', text: 'Text', extra: 'Extra', source: 'Source', tags: 'Tags', status: 'Status', feedback: 'Feedback', deck: 'Sub-deck', refs: 'Source location', type: 'Card type', ord: 'Study position', edited: 'Field-edited', revised: 'Revised', prev: 'Previous version', projectName: 'Project name', generalFeedback: 'General feedback'};
+const CF_LABEL = {why: 'Why this card', whyOnCard: 'Why on card', whyAll: 'Why on every card', front: 'Front', back: 'Back', text: 'Text', extra: 'Extra', source: 'Source', tags: 'Tags', status: 'Status', feedback: 'Feedback', deck: 'Sub-deck', refs: 'Source location', skipped_checks: 'Checks skipped by AI', type: 'Card type', ord: 'Study position', edited: 'Field-edited', revised: 'Revised', prev: 'Previous version', projectName: 'Project name', generalFeedback: 'General feedback'};
 const cfShow = v => { const s3 = v === undefined || v === null ? '(empty)' : typeof v === 'string' ? v : JSON.stringify(v); return esc(s3.length > 700 ? s3.slice(0, 700) + '…' : s3); };
 function openResolver(conflicts, merged, local, remote, finish){
   const dlg2 = $('#syncDlg'), list = $('#syncList');
@@ -5752,7 +5813,7 @@ function updateTabCounts(){
   const n = S.cards.filter(c => c.status === 'new').length, ch = S.cards.filter(c => c.status === 'change').length;
   const rc = S.cards.filter(c => c.recheck).length;
   $('#tabReviewCount').textContent = S.cards.length ? `${n} left` + (rc ? ` · ${rc} re-check` : '') : '';
-  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (formatting / checker fix)${rc ? ' · ' + rc : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
+  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (checker fix)${rc ? ' · ' + rc : ''}`; const so = $('#filter option[value=skipped]'), sn = S.cards.filter(c => c.skipped_checks && Object.keys(c.skipped_checks).length).length; if (so) so.textContent = `Checks skipped by AI${sn ? ' · ' + sn : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
   const bi = brokenImages().length;   // cards to change + broken images to redo
   $('#tabReviseCount').textContent = ch + bi ? String(ch + bi) : ''; $('#tabReviseCount').hidden = !(ch + bi);
   const bo = $('#filter option[value=brokenimg]'); if (bo) bo.textContent = `Broken images${bi ? ' · ' + bi : ''}`;
@@ -5791,6 +5852,8 @@ function updateModeUI(mode){
   $('#rvMode').value = mode;
 }
 /* ---- checker settings: the Prompt page panel, and the section every prompt carries when they differ from the defaults */
+/** how the AI records a check it skips on purpose for one card (the Studio shows the reason, and the user can undo it) */
+const SKIP_RULE = helper => `If one of the quality checks is genuinely wrong for a particular card (fixing it would make the card worse - e.g. a URL in a code line that can't be broken, or a whole problem statement the question needs), don't distort the card: record the skip on it with your reason, \`"skipped_checks": {"code_line_chars": "the URL can't be broken"}\`${helper ? ' (helper: `skip={...}` on add_basic/add_cloze/update, or `deck.skip(id, check, reason)`)' : ''}. Use the check names (${SKIPPABLE.join(', ')}). Skip rarely: I see every skip and its reason, and can undo it.`;
 function checkerSection(mode){
   const C = ck(), changed = CHECK_DEFS.filter(d => C[d.key] !== d.def);
   if (!changed.length) return '';
@@ -5948,7 +6011,7 @@ ${load}
 2. Create the deck: \`deck = Deck(${JSON.stringify(p.pDeck || 'AI Generated Deck')}${p.pTags ? ', tags=' + JSON.stringify(p.pTags.split(/\s+/).filter(Boolean)) : ''})\`
 3. Make images with the helper (each call RETURNS the filename to use - extensions can change) and add cards with deck.add_basic(...) / deck.add_cloze(...), using the HTML helpers answer(), box(kind, html), img(name, caption), bullets(), table(). Give every card an extensive why=rationale(tests=…, matters=…, mistake=…, connects=…): 1-3 specific sentences per part (~60-150 words): what exactly it tests and what a full answer must show; why it matters (where it comes up - later topics, labs, exams, practice - and what goes wrong without it); the misconception it guards against; prerequisites and related cards. No generic filler.
    Call \`deck.load_source(...)\` with the material your refs point into, so quotes get checked: the file paths (no argument = every uploaded PDF), or the id of a <<<SOURCE block - never retype a block into code.
-4. Run \`deck.validate()\`: fix every ERROR and look at every warn. Repeat until clean.
+4. Run \`deck.validate()\`: fix every ERROR and look at every warn. Repeat until clean (a check that is wrong for one card can be skipped with a reason - see "Output format").
 5. **Look at every image - not optional.** Run \`deck.contact_sheet()\` (and \`deck.preview_png()\` for the cards), then OPEN each PNG it prints with your image-viewing tool and check every image: elements overlapping or covering each other, anything cut off, unreadable text, wrong content. Redraw and look again until they are clean. validate() also reports overlaps it can measure and stays red until every new image has been on a contact sheet - but only your own look catches everything.
 6. ${p.pOrder ? '\`deck.set_order(deck.suggest_order())\`, then \`deck.check_order()\`. ' : ''}Run \`deck.save()\`: it writes **anki_bundle.json** (cards + all images) - make sure I get it as a downloadable file.
 7. Your whole reply is \`print(deck.summary(issues))\` - see "Final reply".
@@ -5991,6 +6054,7 @@ ${workflow}
 
 ## Output format
 Card ids must be unique (c001, c002, …). The JSON must be valid (escape quotes inside strings).
+${SKIP_RULE(p.pScript !== 'none')}
 ${schema}
 
 ## Final reply
@@ -6309,8 +6373,8 @@ function extractBundles(text){
 }
 /** Apply a bundle. mode: 'merge' | 'replace'. Returns summary. */
 function applyBundle(d, mode, opts = {}){
-  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0, passes: []};
-  const fmtSeen = new Set();   // formatting-pass / checker-fix batches this reply answers
+  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0};
+  const fmtSeen = new Set();   // checker-fix prompts this reply answers
   const isProject = d.format === PROJECT_FORMAT;
   const isRevision = !!(opts.revision || d.revision);
   if (mode === 'replace'){ S.cards = []; for (const k of Object.keys(S.media)) dropURL(k); S.media = {}; }
@@ -6330,7 +6394,7 @@ function applyBundle(d, mode, opts = {}){
   }
   for (const raw of d.cards || []){
     if (!raw) continue;
-    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); sum.fmtSame++; continue; }   // a formatting pass or checker fix never removes cards
+    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); sum.fmtSame++; continue; }   // a checker fix never removes cards
       if (c){ c.status = 'drop'; c.revised = true; sum.deleted++; } continue; }
     const n = normCard(raw);
     if (!n.deck && bundleDeck) n.deck = bundleDeck;
@@ -6350,21 +6414,24 @@ function applyBundle(d, mode, opts = {}){
         fmtSeen.add(existing.fmt); fmtFinish(existing);
         // a checker fix may change only the "why" or the source references, so those count as changes too
         const same = n.type === existing.type && FIELDS[existing.type].every(f => (n[f] || '') === (existing[f] || ''))
-          && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || []);
+          && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || [])
+          && (!('skipped_checks' in n) || J(n.skipped_checks) === J(existing.skipped_checks || {}));
         if (same){ sum.fmtSame++; continue; }
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], feedback: ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: ''};
         existing.revised = true; existing.edited = false;
         sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
         // keep the review state and any feedback the user already wrote
         for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
       } else if (!isProject){
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], feedback: existing.feedback || ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
       Object.assign(existing, n);
+      if (existing.skipped_checks && !Object.keys(existing.skipped_checks).length) delete existing.skipped_checks;
       if (isProject) Object.assign(existing, pickStatus(raw));
       sum.updated++;
     } else {
+      if (n.skipped_checks && !Object.keys(n.skipped_checks).length) delete n.skipped_checks;
       if (!n.id) n.id = nextId();
       if (origId) idMap[origId] = n.id;
       const card = Object.assign(n, {status: 'new', feedback: '', revised: !!opts.revision}, isProject ? pickStatus(raw) : {});
@@ -6385,12 +6452,11 @@ function applyBundle(d, mode, opts = {}){
   }
   // cards of an answered formatting batch that the reply left out were fine as they were
   if (fmtSeen.size) for (const c of S.cards) if (c.fmt && fmtSeen.has(c.fmt)){ fmtFinish(c); sum.fmtSame++; }
-  sum.passes = [...new Set([...fmtSeen].map(id => id[0]))];
   if (!isProject && !isRevision) markBatch(d, sum, idMap);
   syncTree();
   return sum;
 }
-const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo', ...(r.fmtJob ? {fmtJob: r.fmtJob} : {})} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
+const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo', ...(r.fmtJob ? {fmtJob: r.fmtJob} : {})} : {}), ...(Array.isArray(r.fmtRules) ? {fmtRules: r.fmtRules.map(String)} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
 
 async function importFiles(files, mode, opts = {}){
   const sums = []; let imgs = 0; const errors = [];
@@ -6418,7 +6484,6 @@ async function importFiles(files, mode, opts = {}){
 }
 function summarize({sums, imgs, errors}){
   const t = sums.reduce((a, s) => ({added: a.added + s.added, updated: a.updated + s.updated, deleted: a.deleted + s.deleted, media: a.media + s.media, recheck: a.recheck + (s.recheck || 0), fmtSame: a.fmtSame + (s.fmtSame || 0), fmtUpd: a.fmtUpd + (s.fmtUpd || 0)}), {added: 0, updated: 0, deleted: 0, media: 0, recheck: 0, fmtSame: 0, fmtUpd: 0});
-  const kinds = new Set(sums.flatMap(s => s.passes || [])), pass = kinds.has('K') ? (kinds.has('F') ? 'Formatting pass and checker fix' : 'Checker fix') : 'Formatting pass';
   const parts = [];
   if (t.added) parts.push(`${t.added} new card${t.added > 1 ? 's' : ''}`);
   if (t.updated) parts.push(`${t.updated} updated`);
@@ -6427,7 +6492,7 @@ function summarize({sums, imgs, errors}){
   let html = '';
   if (parts.length) html += `<div class="note ok">Imported ${parts.join(', ')}.</div>`;
   else if (!errors.length && !t.fmtSame) html += `<div class="note warn">Nothing found to import.</div>`;
-  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">${pass}: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
+  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">Checker fix: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
   if (!parts.length && t.fmtSame && !errors.length) return {html, ok: true, recheck: 0, plain: 0};
   if (errors.length) html += `<div class="note bad" style="margin-top:6px"><b>Problems:</b><br>${errors.map(esc).join('<br>')}<br><span class="small">If the reply was cut off, ask Claude to "continue the JSON" or to save the bundle file instead.</span></div>`;
   const missing = Object.entries(S.media).filter(([n, m]) => !m.blob && !m.remote && m.origin === 'generated').map(([n]) => n);
@@ -6583,7 +6648,7 @@ function fmtProse(h){ return decodeEnt(String(h || '').replace(/<pre[\s\S]*?<\/p
 const unCloze = s => String(s || '').replace(/\{\{c\d+::([\s\S]*?)(?:::[^{}]*)?\}\}/g, '$1');
 function decodeEnt(s){ return new DOMParser().parseFromString(String(s).replace(/</g, '&lt;'), 'text/html').body.textContent || ''; }
 /* ---- the checker: the same card-quality checks as the skill's validate(), with the same settings (SET.checks, edited on
-   the Prompt page and passed to Claude in every prompt). Used by the formatting pass and the Analytics tab. */
+   the Prompt page and passed to Claude in every prompt). Used by the checker fixes and the Analytics tab. */
 const CHECK_DEFS = [
   {key: 'why', group: 'Why this card', label: '"Why" present and long enough', kind: 'level', def: 'warn'},
   {key: 'why_min_words', group: 'Why this card', label: 'Minimum words in "why"', kind: 'num', def: 45, unit: 'words'},
@@ -6729,14 +6794,15 @@ function codeLines(c){
       out.push(l.replace(/[^\t]*\t/g, s => s.slice(0, -1) + ' '.repeat(8 - (s.length - 1) % 8)).replace(/\s+$/, ''));
   return out;
 }
-/** what the formatting pass sends: the presentation problems only */
+/** the Formatting preset: the presentation problems only (a checker fix with only these is a formatting pass) */
 const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'code_line_chars', 'unshown_math', 'math_as_text', 'math_in_code']);
 /* checks are re-run for a card only when it or the settings change (Analytics and the check filter look at every card) */
 const chkMemo = new WeakMap();
 function checksOf(c, C = ck(), cs = J(C)){
-  const sig = [c.type, c.front, c.back, c.text, c.extra, c.why, (c.tags || []).join(' '), c.refs ? J(c.refs) : '', cs], m = chkMemo.get(c);
+  const sig = [c.type, c.front, c.back, c.text, c.extra, c.why, (c.tags || []).join(' '), c.refs ? J(c.refs) : '', c.skipped_checks ? J(c.skipped_checks) : '', cs], m = chkMemo.get(c);
   if (m && m.sig.every((v, i) => v === sig[i])) return m.res;
-  const res = cardChecks(c, C); chkMemo.set(c, {sig, res}); return res;
+  // a check the card skips on purpose (skipped_checks, with the AI's reason) doesn't count anywhere: Review, the fixes, Analytics, Export
+  const sk = c.skipped_checks || {}, res = cardChecks(c, C).filter(x => !sk[x.key]); chkMemo.set(c, {sig, res}); return res;
 }
 // a check key as used by the Review filter ("chk:<key>"); 'missing_img' is the Studio's own image check
 const CHECK_ROWS = [
@@ -6760,9 +6826,18 @@ function ensureCheckOption(key){
     const o = document.createElement('option'); o.value = 'chk:' + key; o.dataset.chk = 1; o.textContent = 'Check: ' + r.label; sel.appendChild(o); }
 }
 function formatIssues(c){ return checksOf(c).filter(x => FMT_KEYS.has(x.key)).map(x => x.msg); }
-/** what the checker fix sends: every other check the Studio runs (content, length, rationale and sources) */
+/** the Others preset: every other per-card check (content, length, rationale and sources) */
 const FIX_KEYS = new Set(['why', 'why_min_words', 'front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'ref_page', 'ref_quote_min_chars']);
 function fixIssues(c){ return checksOf(c).filter(x => FIX_KEYS.has(x.key)).map(x => x.msg); }
+/** every check a checker fix can send (the per-card ones), in the Checker's order: the rule picker on the Revise tab */
+const FIX_RULES = CHECK_DEFS.map(d => d.key).filter(k => FMT_KEYS.has(k) || FIX_KEYS.has(k));
+/** the checks a card can skip on purpose ("skipped_checks": {check: reason}, set by the AI): the per-card ones */
+const SKIPPABLE = FIX_RULES;
+/** the card's skips, and whether each check would still flag it */
+function skippedOf(c, C = ck()){
+  const sk = c.skipped_checks || {}, all = Object.keys(sk).length ? cardChecks(c, C) : [];
+  return Object.entries(sk).map(([key, reason]) => ({key, reason, label: (CHECK_DEFS.find(d => d.key === key) || {label: key}).label, hits: all.filter(x => x.key === key)}));
+}
 
 /** set a card's review status; any decision on a card also settles a pending formatting re-check */
 function setCardStatus(c, st){ c.status = st; if (c.recheck) delete c.recheck; }
@@ -6775,6 +6850,7 @@ function filtered(){
     if (S.filter === 'missing' && !cardMissing(c)) return false;
     if (S.filter === 'brokenimg' && !cardBrokenImg(c)) return false;
     if (S.filter === 'recheck' && !c.recheck) return false;
+    if (S.filter === 'skipped' && !(c.skipped_checks && Object.keys(c.skipped_checks).length)) return false;
     if (S.filter.startsWith('chk:')){ const r = checkRow(S.filter.slice(4)); if (r && !r.test(c)) return false; }
     if (['new','ok','change','drop'].includes(S.filter) && c.status !== S.filter) return false;
     if (q && !(c.id + ' ' + FIELDS[c.type].map(f => c[f]).join(' ') + ' ' + c.tags.join(' ')).toLowerCase().includes(q)) return false;
@@ -7068,6 +7144,12 @@ function prevDiffHTML(c){
     changed++; const d = lineDiff(refTxt(p.refs), refTxt(c.refs));
     h += `<div class="df-field"><b>Source location</b><div class="df">${d.map(x => `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`).join('')}</div></div>`;
   }
+  // checks skipped by the AI, when the old version kept them
+  const skTxt = o => Object.entries(o || {}).map(([k, r]) => `${(CHECK_DEFS.find(d => d.key === k) || {label: k}).label}: ${r}`);
+  if ('skipped_checks' in p && J(p.skipped_checks || {}) !== J(c.skipped_checks || {})){
+    changed++; const d = lineDiff(skTxt(p.skipped_checks), skTxt(c.skipped_checks));
+    h += `<div class="df-field"><b>Checks skipped by AI</b><div class="df">${d.map(x => `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`).join('')}</div></div>`;
+  }
   if (!changed) h += '<div class="muted">No field changes.</div>';
   return h;
 }
@@ -7075,11 +7157,20 @@ function prevDiffHTML(c){
 function renderCurChecks(c){
   const box = $('#curChecks'); if (!box) return;
   const res = c ? checksOf(c).concat(cardMissing(c) ? [{key: 'missing_img', level: 'W', msg: 'An image is missing or not loaded.'}] : []) : [];
-  box.hidden = !res.length; if (!res.length) return;
+  const sk = c ? skippedOf(c) : [];
+  box.hidden = !res.length && !sk.length; if (box.hidden) return;
   const e = res.filter(x => x.level === 'E').length, w = res.length - e;
-  box.querySelector('summary').innerHTML = `Checker: ${e ? `<b class="E" style="color:var(--bad)">${e} error${e > 1 ? 's' : ''}</b>` : ''}${e && w ? ', ' : ''}${w ? `<b style="color:var(--warn)">${w} warning${w > 1 ? 's' : ''}</b>` : ''}`;
-  box.querySelector('ul').innerHTML = res.map(x => `<li class="${x.level}"><span style="color:var(--text)">${esc(x.msg)}</span> <span class="muted">(${esc((CHECK_DEFS.find(d => d.key === x.key) || {label: 'Studio'}).label)})</span></li>`).join('');
+  box.querySelector('summary').innerHTML = `Checker: ${e ? `<b class="E" style="color:var(--bad)">${e} error${e > 1 ? 's' : ''}</b>` : ''}${e && w ? ', ' : ''}${w ? `<b style="color:var(--warn)">${w} warning${w > 1 ? 's' : ''}</b>` : ''}${!res.length ? 'no problems' : ''}${sk.length ? ` <span class="muted">· ${sk.length} skipped by AI</span>` : ''}`;
+  box.querySelector('ul').innerHTML = res.map(x => `<li class="${x.level}"><span style="color:var(--text)">${esc(x.msg)}</span> <span class="muted">(${esc((CHECK_DEFS.find(d => d.key === x.key) || {label: 'Studio'}).label)})</span></li>`).join('')
+    + sk.map(x => `<li class="skip" data-skip="${esc(x.key)}"><span style="color:var(--text)">Skipped by AI: <b>${esc(x.label)}</b> - “${esc(x.reason)}”</span>
+      <span class="muted">${x.hits.length ? `(would flag: ${esc(x.hits.map(h => h.msg).join(' '))})` : '(no longer flagged)'}</span>
+      <button class="btn sm" data-unskip="${esc(x.key)}" title="Apply this check to the card again">Undo skip</button></li>`).join('');
 }
+$('#curChecks ul').addEventListener('click', e => {
+  const b = e.target.closest('[data-unskip]'), c = curCard(); if (!b || !c || !c.skipped_checks) return;
+  delete c.skipped_checks[b.dataset.unskip]; if (!Object.keys(c.skipped_checks).length) delete c.skipped_checks;
+  save(); renderReviewSoft(); toast('The check applies to this card again');
+});
 function badgesHTML(c){
   renderCurChecks(c);
   return `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> `
@@ -7633,6 +7724,8 @@ const DEFAULT_SETTINGS = {
   promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
+  fixRules: [...FMT_KEYS],                         // the rules a checker fix sends (Revise → Checker fixes)
+  fixPresets: [],                                  // your own rule presets there: [{name, rules}]
   keys: {exclude: ['q'], change: ['w'], approve: ['d'], reset: ['r'], next: ['Meta', 'ArrowRight'], prev: ['ArrowLeft'],
          flip: ['Tab'], copy: ['c'], pane: ['e'], order: ['o'], image: ['i'], sidebar: ['\\']},
   leader: [
@@ -7661,6 +7754,9 @@ function mergeSettings(j){
     if (d.kind === 'level'){ if (['error', 'warn', 'off'].includes(v)) out.checks[d.key] = v; }
     else if (Number.isFinite(+v) && +v >= 0) out.checks[d.key] = Math.round(+v);
   }
+  if (j && Array.isArray(j.fixRules)) out.fixRules = FIX_RULES.filter(k => j.fixRules.includes(k));
+  if (j && Array.isArray(j.fixPresets)) out.fixPresets = j.fixPresets.filter(p => p && typeof p.name === 'string' && p.name.trim() && Array.isArray(p.rules))
+    .map(p => ({name: p.name.trim().slice(0, 40), rules: FIX_RULES.filter(k => p.rules.includes(k))})).filter(p => p.rules.length).slice(0, 20);
   if (j && j.swipe && typeof j.swipe === 'object'){
     const n = (v, lo, hi, d) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d;
     out.swipe = {dist: n(j.swipe.dist, 8, 60, 25), angle: n(j.swipe.angle, 10, 75, 50), effects: j.swipe.effects !== false};
@@ -8216,6 +8312,7 @@ function cardForAI(c, withFeedback){
   if (c.deck) o.deck = c.deck;
   if (c.refs && c.refs.length) o.refs = c.refs;
   if (c.why) o.why = c.why;
+  if (c.skipped_checks && Object.keys(c.skipped_checks).length) o.skipped_checks = c.skipped_checks;
   if (withFeedback) o.feedback = c.feedback || '(no specific comment - improve it using the general feedback)';
   return o;
 }
@@ -8240,6 +8337,7 @@ ${rb.text}`
 - Keep following the original card-writing rules (ONE question per card - split any card that bundles several; descriptive back with answer → explanation → example/image, HTML with the aa-* classes). Keep each card's "why" (an extensive explanation in HTML: <p><b>Tests:</b> …</p><p><b>Why it matters:</b> …</p><p><b>Common mistake:</b> …</p><p><b>Connects to:</b> …</p>); give new and split cards one, and update it when a change alters what the card tests.
 - Images I already have (listed under "media") can be reused by filename. For new or changed images use anki_helper.py as before; for a changed image give it a NEW filename.
 - The block below is the CURRENT version of each card (it includes my own edits) - work from it, not from older versions.
+- A card's "skipped_checks" are checks you skipped on purpose earlier, with your reason: keep them, drop one your change makes unneeded (\`"skipped_checks": {}\` drops them all), or add one if a check is genuinely wrong for the changed card.
 - If you have code execution (load anki_helper.py again if needed): \`deck = Deck.load("${rb.id}")\` (it reads the REVISE_CARDS block with that id from this prompt saved as a file (an attachment, the working folder or Downloads), so never retype the block; if it is not found, ask me to send the prompt as a file), read \`deck.feedback\` / \`deck.show()\`, apply changes with deck.update(...), deck.add_basic(...), deck.add_cloze(...), deck.delete(...), run deck.validate() (ignore "registered but not used" for images I already have), then \`deck.save(revision=True)\` and give me **anki_revision.json** as a download.
 - Otherwise output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block with "revision": true.
 - For every card whose feedback is “I don't understand this card”: fix the card if its wording caused the confusion, and explain step by step why the card says what it says (start from what I already know, give each step's reason, add a small worked example where it helps). One or two short explanations can go in your reply; if there are more, or they are long, put them all in a markdown file **anki_explanations.md** (one section per card, with the card's question) and give me that file. (With the helper: deck.explain(id, markdown) for each, then deck.save_explanations(). Without file creation, put the markdown in one fenced block.)
@@ -8250,165 +8348,199 @@ ${rb.text}`;
   if ($('#rvContext').checked && others.length) txt += `\n\n## Other cards already in the deck (do not duplicate; change them only if the general feedback requires it)\n` + others.map(c => `${c.id}: ${cardTitle(c).slice(0, 110)}`).join('\n');
   $('#rvOut').value = txt;
 };
-/* ---- formatting pass and checker fixes: batches of cards sent to Claude to fix what the Checker found */
-/* The queue lives on the cards: c.fmt = its prompt ("F3" formatting pass, "K3" checker fix) while waiting for Claude
-   (c.fmtSt 'todo' | 'copied'), c.fmtJob = the Mac job it was sent to, c.fmtDone = the prompt that answered it. So it is saved and synced with the project like
-   everything else. A card waits in one queue at a time. */
+/* ---- checker fixes: batches of cards sent to Claude to fix what the picked Checker rules found */
+/* The queue lives on the cards: c.fmt = its prompt ("Q3"; "F3" / "K3" come from the old separate formatting and checker-fix
+   queues) while waiting for Claude (c.fmtSt 'todo' | 'copied'), c.fmtRules = the rules that prompt fixes, c.fmtJob = the Mac
+   job it was sent to, c.fmtDone = the prompt that answered it. So it is saved and synced with the project like everything
+   else. A card waits in one prompt at a time. */
 const FMT_LABEL = {outside_refs: 'outside references', unshown_code: 'unshown code', code_as_text: 'code as plain text', code_language: 'code without a language', code_line_chars: 'code lines too wide for a phone', unshown_math: 'unshown maths', math_as_text: 'maths as plain text', math_in_code: 'maths inside code',
   why: 'no "why"', why_min_words: 'short "why"', front_max_chars: 'long front', back_max_words: 'long answer', cloze_max_deletions: 'too many cloze numbers', multi_question: 'several questions', ref_page: 'source without a page', ref_quote_min_chars: 'short source quote'};
-// q: the prefix of the queue's element ids; sel: its Which / Status / Size selects
-const PASS = {
-  F: {keys: FMT_KEYS, issues: formatIssues, prompt: cards => fmtPrompt(cards), q: 'fq', sel: 'fmt', name: 'Formatting', defSize: 40},
-  K: {keys: FIX_KEYS, issues: fixIssues, prompt: cards => fixPrompt(cards), q: 'kq', sel: 'fix', name: 'Checker fix', defSize: 25}
-};
-const passOf = id => PASS[String(id || 'F')[0]] ? String(id || 'F')[0] : 'F';
-/** the checks a pass looks for that are switched on (a limit of 0 is off; the "why" length follows the "why" check) */
-const passOn = (kind, C = ck()) => [...PASS[kind].keys].filter(k => C[k] !== 'off' && C[k] !== 0 && !(k === 'why_min_words' && C.why === 'off'));
-function fmtCandidates(kind = 'F'){
-  const P = PASS[kind], scope = $('#' + P.sel + 'Scope').value, stf = $('#' + P.sel + 'Status').value;
+/** the built-in rule presets; your own are SET.fixPresets. Rules that are all formatting make a formatting pass: Claude may not touch the content */
+const FIX_PRESETS = [
+  {name: 'Formatting', rules: [...FMT_KEYS]},
+  {name: 'Others', rules: [...FIX_KEYS]},
+  {name: 'Everything', rules: FIX_RULES},
+  {name: 'Code', rules: ['unshown_code', 'code_as_text', 'code_language', 'code_line_chars']},
+  {name: 'Maths', rules: ['unshown_math', 'math_as_text', 'math_in_code']},
+  {name: 'Length', rules: ['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question']},
+  {name: 'Sources', rules: ['ref_page', 'ref_quote_min_chars']}
+];
+const fixPresets = () => [...FIX_PRESETS, ...(SET.fixPresets || []).map(p => ({...p, own: true}))];
+const sameRules = (a, b) => a.length === b.length && a.every(k => b.includes(k));
+const rulesName = rules => (fixPresets().find(p => sameRules(p.rules, rules)) || {name: `${rules.length} rule${rules.length === 1 ? '' : 's'}`}).name;
+/** the rules picked on the Revise tab, in the Checker's order */
+const pickedRules = () => FIX_RULES.filter(k => (SET.fixRules || []).includes(k));
+/** the ones the Checker has switched on (a limit of 0 is off; the "why" length follows the "why" check) */
+const rulesOn = (rules, C = ck()) => rules.filter(k => C[k] !== 'off' && C[k] !== 0 && !(k === 'why_min_words' && C.why === 'off'));
+const formattingOnly = rules => rulesOn(rules).every(k => FMT_KEYS.has(k));
+/** a queued prompt's rules, saved on its cards (the old queues had fixed ones); cards not queued use the picked rules */
+function itemRules(cards){
+  const c = cards.find(x => Array.isArray(x.fmtRules)); if (c) return FIX_RULES.filter(k => c.fmtRules.includes(k));
+  const id = String((cards[0] && (cards[0].fmt || cards[0].fmtDone)) || '');
+  return id[0] === 'K' ? [...FIX_KEYS] : id[0] === 'F' ? [...FMT_KEYS] : pickedRules();
+}
+const issuesFor = (c, rules) => checksOf(c).filter(x => rules.includes(x.key));
+function fmtCandidates(rules = rulesOn(pickedRules())){
+  const scope = $('#fixScope').value, stf = $('#fixStatus').value;
+  if (!rules.length) return [];
   return ordered(S.cards.filter(c => inScope(c) && c.status !== 'drop' && !c.fmt && (stf === 'any' || c.status === stf)
-    && (kind === 'K' ? checksOf(c).some(x => P.keys.has(x.key) && (scope !== 'err' || x.level === 'E'))
-      : scope === 'all' || formatIssues(c).length || (scope === 'flagok' && c.status === 'ok'))), S.order || 'source');
+    && (scope === 'all' || (scope === 'flagok' && c.status === 'ok') || issuesFor(c, rules).some(x => scope !== 'err' || x.level === 'E'))), S.order || 'source');
 }
-function fmtItems(kind = 'F'){
+const fmtNum = id => +String(id).slice(1) || 0;
+function fmtItems(){
   const m = new Map();
-  for (const c of S.cards){ const id = c.fmt || c.fmtDone; if (!id || passOf(id) !== kind) continue; if (!m.has(id)) m.set(id, []); m.get(id).push(c); }
+  for (const c of S.cards){ const id = c.fmt || c.fmtDone; if (!id) continue; if (!m.has(id)) m.set(id, []); m.get(id).push(c); }
   return [...m.entries()].map(([id, cards]) => ({id, cards, status: cards.some(c => c.fmt) ? (cards.some(c => c.fmt && c.fmtSt === 'copied') ? 'copied' : 'todo') : 'done'}))
-    .sort((a, b) => (+a.id.slice(1) || 0) - (+b.id.slice(1) || 0));
+    .sort((a, b) => fmtNum(a.id) - fmtNum(b.id) || a.id.localeCompare(b.id));
 }
-const fmtNext = (kind = 'F') => fmtItems(kind).find(i => i.status === 'todo');
+const fmtNext = () => fmtItems().find(i => i.status === 'todo');
 function fmtFinish(c){ c.fmtDone = c.fmt; delete c.fmt; delete c.fmtSt; delete c.fmtJob; }
-function renderFmtPass(){ for (const k of Object.keys(PASS)) renderPass(k); }
-function renderPass(kind){
-  const P = PASS[kind], q = id => $('#' + P.q + id);
-  if (!q('List')) return;
-  const C = ck(), on = passOn(kind, C), unit = k => (CHECK_DEFS.find(d => d.key === k) || {}).unit;
-  q('Uses').innerHTML = `Looks for, using the <a href="#" data-to-ck>Checker</a>: ${on.length ? on.map(k => `<b>${FMT_LABEL[k]}</b> <span class="muted">(${typeof C[k] === 'number' ? C[k] + ' ' + unit(k) : k === 'why_min_words' ? C.why : C[k]})</span>`).join(', ') : '<span style="color:var(--warn)">nothing - all its checks are off</span>'}`;
-  q('Uses').querySelector('[data-to-ck]').onclick = e => { e.preventDefault(); showTab('checker'); };
-  const cand = fmtCandidates(kind), size = +$('#' + P.sel + 'Size').value || P.defSize;
-  q('BuildInfo').textContent = cand.length ? `${cand.length} card(s) → ${Math.ceil(cand.length / size)} prompt(s)` : 'no cards to add with these settings';
-  q('Build').disabled = !cand.length;
-  const items = fmtItems(kind); q('Panel').hidden = !items.length;
-  if (!items.length){ q('Stats').textContent = ''; return; }
-  const n = items.length, cnt = k => items.filter(i => i.status === k).length, nx = fmtNext(kind);
-  q('Stats').textContent = `${n} prompts · ${cnt('copied') + cnt('done')} copied · ${cnt('done')} answered`;
-  q('Prog').innerHTML = `<i style="width:${cnt('done') / n * 100}%;background:var(--ok)"></i><i style="width:${cnt('copied') / n * 100}%;background:var(--accent)"></i>`;
-  q('NextLabel').innerHTML = nx ? `next: <b>${items.indexOf(nx) + 1}. ${esc(nx.cards[0].id)} … ${esc(nx.cards[nx.cards.length - 1].id)}</b>` : '<span style="color:var(--ok)">all copied ✓</span>';
-  q('Next').disabled = !nx;
-  q('List').innerHTML = items.map((it, i) => {
-    const tally = {}; for (const c of it.cards) for (const x of checksOf(c)) if (P.keys.has(x.key)) tally[x.key] = (tally[x.key] || 0) + 1;
+const ruleSetting = (k, C) => typeof C[k] === 'number' ? C[k] + ' ' + (CHECK_DEFS.find(d => d.key === k) || {}).unit : k === 'why_min_words' ? C.why : C[k];
+function renderRulePicker(picked, C){
+  $('#fxPresets').innerHTML = fixPresets().map((p, i) => `<button class="btn sm ${sameRules(p.rules, picked) ? 'on' : ''}" data-preset="${i}" title="${esc(p.rules.map(k => FMT_LABEL[k]).join(', '))}">${esc(p.name)}${p.own ? `<span class="fx-rm" data-rm-preset="${i}" title="Delete this preset">✕</span>` : ''}</button>`).join('')
+    + `<button class="btn sm" id="fxSave" title="Save the rules ticked below as a preset of your own" ${picked.length ? '' : 'disabled'}>＋ Save as preset</button>`;
+  let g = '', h = '';
+  for (const k of FIX_RULES){
+    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length;
+    if (d.group !== g){ h += `${g ? '</div>' : ''}<div class="fx-g"><h4>${esc(d.group)}</h4>`; g = d.group; }
+    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''}> <span>${esc(FMT_LABEL[k])} <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
+  }
+  $('#fxRules').innerHTML = h + '</div>';
+}
+function renderFmtPass(){
+  if (!$('#fqList')) return;
+  const C = ck(), picked = pickedRules(), on = rulesOn(picked, C);
+  renderRulePicker(picked, C);
+  $('#fqUses').innerHTML = `Looks for, using the <a href="#" data-to-ck>Checker</a>: ${on.length ? on.map(k => `<b>${FMT_LABEL[k]}</b> <span class="muted">(${esc(String(ruleSetting(k, C)))})</span>`).join(', ') : `<span style="color:var(--warn)">nothing - ${picked.length ? 'the picked rules are all off in the Checker' : 'pick some rules'}</span>`}`
+    + (on.length ? `<div class="muted" style="margin-top:2px">${formattingOnly(on) ? '<b>Formatting only:</b> Claude changes how the cards are written, never what they test, and never splits them.' : 'Claude may rewrite content to fix these, and splits cards that bundle several questions (the new parts come in as <i>Unreviewed</i>).'}</div>` : '');
+  $('#fqUses').querySelector('[data-to-ck]').onclick = e => { e.preventDefault(); showTab('checker'); };
+  const cand = fmtCandidates(on), size = +$('#fixSize').value || 25;
+  $('#fqBuildInfo').textContent = cand.length ? `${cand.length} card(s) → ${Math.ceil(cand.length / size)} prompt(s)` : 'no cards to add with these settings';
+  $('#fqBuild').disabled = !cand.length;
+  const items = fmtItems(); $('#fqPanel').hidden = !items.length;
+  if (!items.length){ $('#fqStats').textContent = ''; return; }
+  const n = items.length, cnt = k => items.filter(i => i.status === k).length, nx = fmtNext();
+  $('#fqStats').textContent = `${n} prompts · ${cnt('copied') + cnt('done')} copied · ${cnt('done')} answered`;
+  $('#fqProg').innerHTML = `<i style="width:${cnt('done') / n * 100}%;background:var(--ok)"></i><i style="width:${cnt('copied') / n * 100}%;background:var(--accent)"></i>`;
+  $('#fqNextLabel').innerHTML = nx ? `next: <b>${items.indexOf(nx) + 1}. ${esc(nx.cards[0].id)} … ${esc(nx.cards[nx.cards.length - 1].id)}</b>` : '<span style="color:var(--ok)">all copied ✓</span>';
+  $('#fqNext').disabled = !nx;
+  $('#fqList').innerHTML = items.map((it, i) => {
+    const rules = itemRules(it.cards), tally = {};
+    for (const c of it.cards) for (const x of issuesFor(c, rules)) tally[x.key] = (tally[x.key] || 0) + 1;
     const ok = it.cards.filter(c => c.status === 'ok').length, rc = it.cards.filter(c => c.recheck).length;
     return `<div class="qi ${it.status} ${it === nx ? 'next' : ''}"><span class="n">${i + 1}</span>
-      <div style="min-width:0"><div class="tt">${esc(it.cards[0].id)} … ${esc(it.cards[it.cards.length - 1].id)}</div>
+      <div style="min-width:0"><div class="tt">${esc(it.cards[0].id)} … ${esc(it.cards[it.cards.length - 1].id)} <span class="muted small">· ${esc(rulesName(rules))}</span></div>
       <div class="sub">${it.cards.length} cards · ${ok} approved${rc ? ` · ${rc} to re-check` : ''}${Object.keys(tally).length ? ' · ' + Object.entries(tally).map(([k, v]) => `${FMT_LABEL[k]} ${v}`).join(', ') : ''}</div></div>
       <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'answered'}[it.status]}</span>
         <button class="btn sm" data-fq="view" data-id="${it.id}" title="Open the full prompt in a new tab">👁</button>
         <button class="btn sm" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
         <button class="btn sm" data-fq="done" data-id="${it.id}" title="Toggle answered">✓</button></div></div>`; }).join('');
-  const cur = q('List').querySelector('.qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
+  const cur = $('#fqList').querySelector('.qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
 }
 function fmtCopy(it){
-  const kind = passOf(it.id);
-  copyPrompt(PASS[kind].prompt(it.cards)); it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; delete c.fmtJob; } }); save(); renderFmtPass();
-  toast(`Prompt ${fmtItems(kind).findIndex(x => x.id === it.id) + 1} copied (${it.cards.length} cards)`);
+  copyPrompt(fixPrompt(it.cards)); it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; delete c.fmtJob; } }); save(); renderFmtPass();
+  toast(`Prompt ${fmtItems().findIndex(x => x.id === it.id) + 1} copied (${it.cards.length} cards)`);
 }
-/** a reply to a formatting / checker-fix prompt: shown in the queue of the prompt it answers */
-async function fqApplied(r, kind = 'F'){ const s2 = summarize(r); $('#' + PASS[kind].q + 'Result').innerHTML = s2.html; await applyRevisionResult(r, true); renderFmtPass(); }
-for (const [kind, P] of Object.entries(PASS)){
-  const q = id => $('#' + P.q + id);
-  if (!q('List')) continue;
-  q('Build').onclick = () => {
-    const cand = fmtCandidates(kind), size = +$('#' + P.sel + 'Size').value || P.defSize; if (!cand.length) return;
-    // numbered per pass, so F3 and K3 can both exist
-    let k = Math.max(0, ...S.cards.map(c => c.fmt || c.fmtDone).filter(id => id && passOf(id) === kind).map(id => +String(id).slice(1) || 0));
-    for (let i = 0; i < cand.length; i += size){ const id = kind + (++k); cand.slice(i, i + size).forEach(c => { c.fmt = id; c.fmtSt = 'todo'; delete c.fmtDone; delete c.fmtJob; }); }
-    save(); renderFmtPass(); toast(`Queue: ${Math.ceil(cand.length / size)} prompt(s)`);
+/** a reply to a checker-fix prompt: shown under the queue */
+async function fqApplied(r){ const s2 = summarize(r); $('#fqResult').innerHTML = s2.html; await applyRevisionResult(r, true); renderFmtPass(); }
+function setFixRules(rules){ SET.fixRules = FIX_RULES.filter(k => rules.includes(k)); saveSettings(); renderFmtPass(); }
+if ($('#fqList')){
+  $('#fxRules').addEventListener('change', e => { if (e.target.dataset.rule) setFixRules([...$$('#fxRules [data-rule]:checked')].map(x => x.dataset.rule)); });
+  $('#fxPresets').addEventListener('click', e => {
+    const ps = fixPresets(), rm = e.target.closest('[data-rm-preset]');
+    if (rm){ const p = ps[+rm.dataset.rmPreset]; if (!p || !confirm(`Delete the preset “${p.name}”?`)) return;
+      SET.fixPresets = (SET.fixPresets || []).filter(x => x.name !== p.name); saveSettings(); renderFmtPass(); return; }
+    if (e.target.closest('#fxSave')){
+      const name = (prompt('Name for this preset', '') || '').trim().slice(0, 40); if (!name) return;
+      if (FIX_PRESETS.some(p => p.name.toLowerCase() === name.toLowerCase())) return toast('That name is taken by a built-in preset');
+      SET.fixPresets = [...(SET.fixPresets || []).filter(x => x.name !== name), {name, rules: pickedRules()}]; saveSettings(); renderFmtPass(); toast(`Preset “${name}” saved`); return;
+    }
+    const b = e.target.closest('[data-preset]'); if (b) setFixRules(ps[+b.dataset.preset].rules);
+  });
+  $('#fqBuild').onclick = () => {
+    // the prompt keeps the picked rules (it leaves out the ones the Checker has off when it is made)
+    const rules = pickedRules(), cand = fmtCandidates(rulesOn(rules)), size = +$('#fixSize').value || 25; if (!cand.length) return;
+    let k = Math.max(0, ...S.cards.map(c => c.fmt || c.fmtDone).filter(Boolean).map(fmtNum));
+    for (let i = 0; i < cand.length; i += size){ const id = 'Q' + (++k); cand.slice(i, i + size).forEach(c => { c.fmt = id; c.fmtSt = 'todo'; c.fmtRules = [...rules]; delete c.fmtDone; delete c.fmtJob; }); }
+    save(); renderFmtPass(); toast(`Queue: ${Math.ceil(cand.length / size)} prompt(s) · ${rulesName(rules)}`);
   };
-  q('Next').onclick = () => { const nx = fmtNext(kind); if (nx) fmtCopy(nx); };
-  q('List').addEventListener('click', e => {
+  $('#fqNext').onclick = () => { const nx = fmtNext(); if (nx) fmtCopy(nx); };
+  $('#fqList').addEventListener('click', e => {
     const b = e.target.closest('[data-fq]'); if (!b) return;
-    const it = fmtItems(kind).find(x => x.id === b.dataset.id); if (!it) return;
+    const it = fmtItems().find(x => x.id === b.dataset.id); if (!it) return;
     if (b.dataset.fq === 'copy') fmtCopy(it);
-    if (b.dataset.fq === 'view'){ const w = window.open(URL.createObjectURL(new Blob([P.prompt(it.cards)], {type: 'text/plain;charset=utf-8'})), '_blank'); if (!w) toast('Allow pop-ups to view the prompt'); }
+    if (b.dataset.fq === 'view'){ const w = window.open(URL.createObjectURL(new Blob([fixPrompt(it.cards)], {type: 'text/plain;charset=utf-8'})), '_blank'); if (!w) toast('Allow pop-ups to view the prompt'); }
     if (b.dataset.fq === 'done'){ if (it.status === 'done') it.cards.forEach(c => { c.fmt = c.fmtDone; c.fmtSt = 'copied'; delete c.fmtDone; }); else it.cards.forEach(c => { if (c.fmt) fmtFinish(c); }); save(); renderFmtPass(); }   // answered members keep their batch
   });
-  q('Reset').onclick = () => { if (!confirm('Mark every prompt as not copied (answered ones stay ticked)?')) return; S.cards.forEach(c => { if (c.fmt && passOf(c.fmt) === kind) c.fmtSt = 'todo'; }); save(); renderFmtPass(); };
-  q('Clear').onclick = () => { if (!confirm(`Remove the ${P.name.toLowerCase()} queue? Cards and re-checks are not affected.`)) return;
-    S.cards.forEach(c => { if (passOf(c.fmt || c.fmtDone) === kind && (c.fmt || c.fmtDone)){ delete c.fmt; delete c.fmtSt; delete c.fmtDone; delete c.fmtJob; } }); save(); renderFmtPass(); };
-  wireDrop(q('Drop'), q('File'), async files => fqApplied(await importFiles(files, 'merge', {revision: true}), kind));
-  q('Apply').onclick = async () => {
-    const txt = q('Paste').value.trim(); if (!txt) return toast('Paste the reply first');
+  $('#fqReset').onclick = () => { if (!confirm('Mark every prompt as not copied (answered ones stay ticked)?')) return; S.cards.forEach(c => { if (c.fmt) c.fmtSt = 'todo'; }); save(); renderFmtPass(); };
+  $('#fqClear').onclick = () => { if (!confirm('Remove the checker-fix queue? Cards and re-checks are not affected.')) return;
+    S.cards.forEach(c => { delete c.fmt; delete c.fmtSt; delete c.fmtDone; delete c.fmtJob; delete c.fmtRules; }); save(); renderFmtPass(); };
+  wireDrop($('#fqDrop'), $('#fqFile'), async files => fqApplied(await importFiles(files, 'merge', {revision: true})));
+  $('#fqApply').onclick = async () => {
+    const txt = $('#fqPaste').value.trim(); if (!txt) return toast('Paste the reply first');
     const {bundles, errors} = extractBundles(txt);
-    await fqApplied({sums: bundles.map(b => applyBundle(b, 'merge', {revision: true})), imgs: 0, errors}, kind);
-    if (bundles.length) q('Paste').value = '';
+    await fqApplied({sums: bundles.map(b => applyBundle(b, 'merge', {revision: true})), imgs: 0, errors});
+    if (bundles.length) $('#fqPaste').value = '';
   };
-  ['Scope', 'Status', 'Size'].forEach(x => $('#' + P.sel + x).onchange = renderFmtPass);
+  ['Scope', 'Status', 'Size'].forEach(x => $('#fix' + x).onchange = renderFmtPass);
 }
 document.addEventListener('keydown', e => {
   if (!$('#tab-revise').classList.contains('active') || e.key.toLowerCase() !== 'n') return;
   if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
-  // the formatting queue first, then the checker fixes
-  const kind = Object.keys(PASS).find(k => !$('#' + PASS[k].q + 'Panel').hidden && fmtNext(k)); if (!kind) return;
-  e.preventDefault(); $('#' + PASS[kind].q + 'Next').click();
+  if ($('#fqPanel').hidden || !fmtNext()) return;
+  e.preventDefault(); $('#fqNext').click();
 });
 const mediaForAI = cards => [...new Set(cards.flatMap(cardImages))].filter(n => S.media[n]).map(n => { const m = S.media[n]; const e = {filename: n, origin: m.origin}; for (const k of ['url','hint','caption','credit']) if (m[k]) e[k] = m[k]; return e; });
-function fmtPrompt(cards){
+/** the checker-fix prompt: fixes for exactly the problems the picked rules found (only the ones the Checker has on). Rules that
+    are all about formatting make a formatting pass, which may not change what a card says */
+function fixPrompt(cards, rules = itemRules(cards)){
+  const C = ck(), onList = rulesOn(rules, C), on = new Set(onList), fmtOnly = onList.every(k => FMT_KEYS.has(k)), what = fmtOnly ? 'Formatting pass' : 'Checker fix';
+  const has = (...ks) => ks.some(k => on.has(k));
   const block = {format: FORMAT, deck: S.deck, tags: S.tags, existing_ids: S.cards.map(c => c.id), media: mediaForAI(cards),
-    cards: cards.map(c => { const o = cardForAI(c, false), iss = formatIssues(c);
-      o.feedback = iss.length ? 'Formatting pass - the checks found: ' + iss.join(' ') : 'Formatting pass - no automatic flag: check it against the rules and leave it out unless something needs fixing.';
-      return o; })};
-  const rules = `This is a **formatting pass, not a content review**: I have already reviewed these cards.
-- Do NOT change what a card tests, its answer, its "why", its images or its tags. Do not delete, merge or split cards.
-- Fix only how the card is written:
-  1. **Code:** statements and snippets go in a code block (\`<pre><code class="language-java">…</code></pre>\`, or \`code(src, "java")\` with anki_helper.py), never as plain text and never squeezed into one inline \`<code>\`. Names of classes, methods, variables and types go in inline \`<code>\`.${ck().code_line_chars ? ` Keep every code-block line at most ${ck().code_line_chars} characters so it fits a phone: break long lines at natural points (after a comma or operator, one chained call per line, parameters on their own lines) and indent the continuation; never change what the code does.` : ''}
-  2. **Maths:** formulas go in LaTeX - inline \\( … \\), display \\[ … \\] for multi-line or long ones (\\\\ line breaks, aligned, cases) - never as plain text (x^2, a_1, sqrt(x), a bare \\frac) and never inside \`<code>\`.
-  3. **Self-contained:** the card must carry everything needed to answer it - the reader has no notes, slides or other cards. If the question depends on code, a definition, an equation or theorem it cites (e.g. "Eq. (3)", "Theorem 2") or a figure, put it on the front, cut down to what matters. Remove references to the notes, slides, lectures or other cards.
-  4. Comparisons as tables, long answers as bullets.
-- Each card's "feedback" says what the automatic checks found. They can be wrong: if a card is fine, leave it out.
-- Return ONLY the cards you changed, with their ids unchanged. Then list each changed card in one line: what changed.`;
-  const rb = idBlock('REVISE_CARDS', 'r', JSON.stringify(block, null, 1));
-  return (promptMode() === 'skill'
-    ? `Use the **anki** skill's revision workflow for a formatting pass on these Anki cards. Load them with \`Deck.load("${rb.id}")\` and give me **anki_revision.json** with only the cards you changed.\n\n${rules}`
-    : `Please do a formatting pass on these Anki cards. Output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block (JSON with "revision": true and a "cards" list; each card keeps its id, type and all its fields).\n\n${rules}`)
-    + checkerSection(promptMode()) + `\n\n${rb.text}`;
-}
-/** the checker-fix prompt: content fixes for exactly the problems the checks found (only the checks that are on) */
-function fixPrompt(cards){
-  const C = ck(), on = new Set(passOn('K', C));
-  const block = {format: FORMAT, deck: S.deck, tags: S.tags, existing_ids: S.cards.map(c => c.id), media: mediaForAI(cards),
-    cards: cards.map(c => { const o = cardForAI(c, false), iss = fixIssues(c);
-      o.feedback = iss.length ? 'Checker fix - the checks found: ' + iss.join(' ') : 'Checker fix - the checks no longer flag this card: leave it out unless something needs fixing.';
+    cards: cards.map(c => { const o = cardForAI(c, false), iss = issuesFor(c, onList).map(x => x.msg);
+      o.feedback = iss.length ? `${what} - the checks found: ` + iss.join(' ') : `${what} - the checks don't flag this card: check it against the rules and leave it out unless something needs fixing.`;
       return o; })};
   const how = [
-    (on.has('why') || on.has('why_min_words')) && `**No "why" / a short "why":** write the card's "why" as an extensive explanation in HTML (\`<p><b>Tests:</b> …</p><p><b>Why it matters:</b> …</p><p><b>Common mistake:</b> …</p><p><b>Connects to:</b> …</p>\`${promptMode() === 'skill' ? ', `why=rationale(...)` with anki_helper.py' : ''})${on.has('why_min_words') ? `, at least ${C.why_min_words} words` : ''}. Base it on what the card tests and the material.`,
+    has('code_as_text', 'code_language', 'code_line_chars') && `**Code:** statements and snippets go in a code block with their language (\`<pre><code class="language-java">…</code></pre>\`, or \`code(src, "java")\` with anki_helper.py), never as plain text and never squeezed into one inline \`<code>\`. Names of classes, methods, variables and types go in inline \`<code>\`.${on.has('code_line_chars') ? ` Keep every code-block line at most ${C.code_line_chars} characters so it fits a phone: break long lines at natural points (after a comma or operator, one chained call per line, parameters on their own lines) and indent the continuation; never change what the code does.` : ''}`,
+    has('math_as_text', 'math_in_code') && `**Maths:** formulas go in LaTeX - inline \\( … \\), display \\[ … \\] for multi-line or long ones (\\\\ line breaks, aligned, cases) - never as plain text (x^2, a_1, sqrt(x), a bare \\frac) and never inside \`<code>\`.`,
+    has('outside_refs', 'unshown_code', 'unshown_math') && `**Self-contained:** the card must carry everything needed to answer it - the reader has no notes, slides or other cards. If the question depends on code, a definition, an equation or theorem it cites (e.g. "Eq. (3)", "Theorem 2") or a figure, put it on the front, cut down to what matters. Remove references to the notes, slides, lectures or other cards.`,
+    has('why', 'why_min_words') && `**No "why" / a short "why":** write the card's "why" as an extensive explanation in HTML (\`<p><b>Tests:</b> …</p><p><b>Why it matters:</b> …</p><p><b>Common mistake:</b> …</p><p><b>Connects to:</b> …</p>\`${promptMode() === 'skill' ? ', `why=rationale(...)` with anki_helper.py' : ''})${on.has('why_min_words') ? `, at least ${C.why_min_words} words` : ''}. Base it on what the card tests and the material.`,
     on.has('front_max_chars') && `**Front too long:** cut the front's prose to at most ${C.front_max_chars} characters (code blocks, inline code and maths are not counted). Keep everything needed to answer it; drop padding and background, or move background into the "why".`,
     on.has('back_max_words') && `**Answer too long:** cut the answer to at most ${C.back_max_words} words (code is not counted): the answer first, then the shortest explanation that makes it stick. Move background into the "why", or split the card if it really tests several things.`,
     on.has('cloze_max_deletions') && `**Too many cloze numbers:** at most ${C.cloze_max_deletions} per note. Split the note into several cloze notes, or hide related items under one number.`,
     on.has('multi_question') && `**Several questions on one card:** split it into one card per question. Keep the original id for the first part; give every other part a new id that is not in "existing_ids", \`"after": "<original id>"\` (\`after="…"\` with anki_helper.py), and its own "why".`,
-    (on.has('ref_page') || on.has('ref_quote_min_chars')) && `**Source references:** give each reference ${[on.has('ref_page') && 'the page it is on', on.has('ref_quote_min_chars') && `a verbatim quote${on.has('ref_page') ? ' from that page' : ''} of at least ${C.ref_quote_min_chars} characters`].filter(Boolean).join(' and ')}. Take them only from the material: if you don't have it, leave the references as they are and say so.`
+    has('ref_page', 'ref_quote_min_chars') && `**Source references:** give each reference ${[on.has('ref_page') && 'the page it is on', on.has('ref_quote_min_chars') && `a verbatim quote${on.has('ref_page') ? ' from that page' : ''} of at least ${C.ref_quote_min_chars} characters`].filter(Boolean).join(' and ')}. Take them only from the material: if you don't have it, leave the references as they are and say so.`
   ].filter(Boolean);
-  const rules = `This is a **checker fix**: I have already reviewed these cards. Fix only the problems each card's "feedback" lists (found by the automatic checks).
+  const rulesTxt = fmtOnly ? `This is a **formatting pass, not a content review**: I have already reviewed these cards.
+- Do NOT change what a card tests, its answer, its "why", its images or its tags. Do not delete, merge or split cards.
+- Fix only how the card is written:
+${[...how, 'Comparisons as tables, long answers as bullets.'].map((x, i) => `  ${i + 1}. ${x}`).join('\n')}
+- Each card's "feedback" says what the automatic checks found. They can be wrong: if a card is fine, return it with the check in "skipped_checks" and your reason (see below) instead of changing it.
+- ${SKIP_RULE(promptMode() === 'skill')}
+- Return ONLY the cards you changed or skipped a check on, with their ids unchanged. Then list each changed card in one line: what changed (or which check you skipped and why).`
+  : `This is a **checker fix**: I have already reviewed these cards. Fix only the problems each card's "feedback" lists (found by the automatic checks).
 - Keep what each card tests, keep its answer correct and complete, and keep its images and tags. Never delete or merge cards.
 - How to fix each problem:
 ${how.map(x => '  - ' + x).join('\n')}
 - Keep the card-writing rules (descriptive back, HTML with the aa-* classes, self-contained cards).
-- The checks can be wrong: if a card is fine, leave it out.
-- Return ONLY the cards you changed and any new parts of split cards, with the ids of existing cards unchanged. Then list each changed card in one line: what changed.`;
-  const rb = idBlock('REVISE_CARDS', 'r', JSON.stringify(block, null, 1));
+- The checks can be wrong: if a check is wrong for a card, return the card with that check in "skipped_checks" and your reason instead of changing it.
+- ${SKIP_RULE(promptMode() === 'skill')}
+- Return ONLY the cards you changed or skipped a check on${on.has('multi_question') ? ', and any new parts of split cards' : ''}, with the ids of existing cards unchanged. Then list each changed card in one line: what changed (or which check you skipped and why).`;
+  const rb = idBlock('REVISE_CARDS', 'r', JSON.stringify(block, null, 1)), job = fmtOnly ? 'a formatting pass' : 'a checker fix';
   return (promptMode() === 'skill'
-    ? `Use the **anki** skill's revision workflow for a checker fix on these Anki cards. Load them with \`Deck.load("${rb.id}")\` and give me **anki_revision.json** with only the cards you changed or split off.\n\n${rules}`
-    : `Please do a checker fix on these Anki cards. Output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block (JSON with "revision": true and a "cards" list; each card keeps its id, type, all its fields, "why" and "refs").\n\n${rules}`)
+    ? `Use the **anki** skill's revision workflow for ${job} on these Anki cards. Load them with \`Deck.load("${rb.id}")\` and give me **anki_revision.json** with only the cards you changed${on.has('multi_question') ? ' or split off' : ''}.\n\n${rulesTxt}`
+    : `Please do ${job} on these Anki cards. Output the changed cards in a <<<ANKI_CARDS … ANKI_CARDS>>> block (JSON with "revision": true and a "cards" list; each card keeps its id, type, all its fields, "why", "refs" and "skipped_checks").\n\n${rulesTxt}`)
     + checkerSection(promptMode()) + `\n\n${rb.text}`;
 }
 
 $('#btnCopyRevision').onclick = () => { if (!$('#rvOut').value) $('#btnMakeRevision').click(); if ($('#rvOut').value) copyPrompt($('#rvOut').value); };
 async function applyRevisionResult(r, quiet){
-  const s = summarize(r); if (!quiet) $('#reviseResult').innerHTML = s.html;   // quiet: the formatting-pass queue shows it
+  const s = summarize(r); if (!quiet) $('#reviseResult').innerHTML = s.html;   // quiet: the checker-fix queue shows it
   await afterImport();
-  // a reply that only answers a formatting pass opens the Re-check view; one with ordinary revisions opens those
+  // a reply that only answers a checker fix opens the Re-check view; one with ordinary revisions opens those
   if (s.ok && s.recheck && !s.plain){
     S.filter = 'recheck'; $('#filter').value = 'recheck'; S.curId = S.cards.find(c => c.recheck).id;
-    toast(`Formatting pass applied - ${s.recheck || 'some'} approved card(s) to re-check`); renderFmtPass(); return;
+    toast(`Checker fix applied - ${s.recheck || 'some'} approved card(s) to re-check`); renderFmtPass(); return;
   }
   if (s.ok) renderFmtPass();
   if (s.ok){ S.filter = 'new'; $('#filter').value = 'new'; const first = S.cards.find(c => c.revised && c.status === 'new'); if (first) S.curId = first.id; toast('Revision applied - review the revised cards'); }
@@ -9198,7 +9330,7 @@ async function pollJobs(){
   if (BR.jobs.some(j => JOB_OPEN.includes(j.status))) pollJobsSoon(3000);
   else if (BR.jobs.some(j => j.status === 'done' && (!j.importedAt || BR.claimed.has(j.id)) && (BR.tries.get(j.id) || 0) < IMPORT_TRIES)) pollJobsSoon(BR.retryMs);
 }
-/** a Mac job that failed or was cancelled gives its prompt back: the batch item or formatting / checker-fix prompt it
+/** a Mac job that failed or was cancelled gives its prompt back: the batch item or checker-fix prompt it
     took is "to do" again, so "Run all on Mac" sends it again. Only while that job is still the one that took it (it.macJob,
     c.fmtJob): it happens once, and never undoes a copy the user made by hand since. */
 function requeueFailed(){
@@ -9238,7 +9370,7 @@ async function importJob(j, again = false){
       if (typeof renderBatch === 'function') renderBatch();
       toast(s.ok ? `🖥 ${j.title}: ${r.sums.reduce((a, x) => a + x.added, 0)} new card(s) imported - review them` : `🖥 ${j.title}: nothing imported`, 4500);
     } else if (j.kind === 'revision') await applyRevisionResult(await importFiles(files, 'merge', {revision: true}));
-    else await fqApplied(await importFiles(files, 'merge', {revision: true}), passOf(j.meta && j.meta.fmt));
+    else await fqApplied(await importFiles(files, 'merge', {revision: true}));
     j.importedAt = new Date().toISOString(); BR.claimed.delete(j.id);
   } catch (er) {
     // a network blip: the next poll tries again by itself, so only the last automatic try (or a manual one) says so
@@ -9341,23 +9473,12 @@ $('#runImageFix').onclick = async () => {
   onMacToast(await runOnMac({kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
 };
 $('#runFmt').onclick = async () => {
-  const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No formatting prompt is still to do');
+  const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No checker-fix prompt is still to do');
   let sent = 0;
   for (const it of todo){
-    const j = await runOnMac({kind: 'format', title: `Formatting ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: fmtPrompt(it.cards), meta: {fmt: it.id}});
-    if (!j) break;
-    it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
-  }
-  save(); renderFmtPass();
-  if (sent) toast(`🖥 ${sent} formatting prompt(s) sent to your Mac`, 4000);
-};
-$('#runFix').onclick = async () => {
-  const todo = fmtItems('K').filter(i => i.status === 'todo'); if (!todo.length) return toast('No checker-fix prompt is still to do');
-  let sent = 0;
-  for (const it of todo){
-    // a new session has none of the material, and the "why" and source references come from it
-    const atts = planAttachments(refSourceList(it.cards)), prompt = fixPrompt(it.cards);
-    const j = await runOnMac({kind: 'format', title: `Checker fix ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
+    // a new session has none of the material: content fixes (the "why", source references) come from it, formatting doesn't need it
+    const rules = itemRules(it.cards), atts = formattingOnly(rules) ? [] : planAttachments(refSourceList(it.cards)), prompt = fixPrompt(it.cards, rules);
+    const j = await runOnMac({kind: 'format', title: `${rulesName(rules)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
     if (!j) break;
     it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
   }

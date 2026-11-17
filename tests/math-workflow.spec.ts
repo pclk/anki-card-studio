@@ -21,7 +21,7 @@ test('math file import → formatting revision → saved re-check → Anki packa
  await page.locator('#importFile').setInputFiles({name:'anki_bundle.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({deck:pid,cards:[bad,clean]}))});
  await expect(page.locator('#importResult')).toContainText('2 new cards');
  await page.locator('#tabs button[data-tab=checker]').click();
- const old=await page.evaluate(()=>({...((window as any).eval('ck()'))}));
+ const old=await page.evaluate(()=>({...((window as any).eval('ck()'))})), oldRules=await page.evaluate(()=>(window as any).eval('SET.fixRules'));
  try {
   for(const k of ['outside_refs','unshown_code','code_as_text','code_language','unshown_math']) await page.locator('#ck_'+k).selectOption('off');
   for(const k of ['math_as_text','math_in_code']) await page.locator('#ck_'+k).selectOption('warn');
@@ -31,12 +31,13 @@ test('math file import → formatting revision → saved re-check → Anki packa
   await page.keyboard.press('d');
   await expect.poll(async()=> (await (await request.get('/api/project/'+pid)).json()).cards.find((c:any)=>c.id==='math-basic')?.status).toBe('ok');
   await page.locator('#tabs button[data-tab=revise]').click();
-  await page.locator('#fmtScope').selectOption('flag');
-  await page.locator('#fmtStatus').selectOption('any');
+  await page.evaluate(()=>(window as any).eval('SET.fixRules=[...FMT_KEYS];renderFmtPass()'));
+  await page.locator('#fixScope').selectOption('flag');
+  await page.locator('#fixStatus').selectOption('any');
   await page.locator('#fqBuild').click();
   await expect(page.locator('#fqList')).toContainText('math-basic');
   await expect(page.locator('#fqList')).not.toContainText('math-cloze');
-  const prompt=await page.evaluate(()=>(window as any).eval('fmtPrompt(fmtItems()[0].cards)'));
+  const prompt=await page.evaluate(()=>(window as any).eval('fixPrompt(fmtItems()[0].cards)'));
   expect(prompt).toContain('**Maths:**');expect(prompt).toContain('maths written as plain text');expect(prompt).toContain('maths inside code');
   const corrected={...bad,front:'Simplify \\(x^2\\).',back:'\\(\\frac{a}{b}\\)'};
   await page.locator('details:has(#fqPaste) summary').click();
@@ -63,7 +64,7 @@ test('math file import → formatting revision → saved re-check → Anki packa
   } finally {db.close();}
  } finally {
   const settingsSaved=page.waitForResponse(r=>r.url().endsWith('/api/settings') && r.request().method()==='PUT');
-  await page.evaluate(C=>{(window as any).eval('SET').checks=C;(window as any).eval('saveSettings')();},old);
+  await page.evaluate(([C,R])=>{(window as any).eval('SET').checks=C;(window as any).eval('SET').fixRules=R;(window as any).eval('saveSettings')();},[old,oldRules] as const);
   await settingsSaved;
  }
 });
