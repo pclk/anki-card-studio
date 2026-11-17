@@ -40,3 +40,11 @@ Inspected `sourceVisual`/`attachSourceVisual` in `16-source-picture.js` and sour
 
 Validation logs: `/tmp/complete-studio.log`, `/tmp/complete-unit.log` (231 passed), `/tmp/complete-types.log`, `/tmp/complete-build.log`, `/tmp/complete-python.log` (32 passed). Export regression passed separately after the full Node run. Live integrations remain unverified. The requested complete module/function inspection inventory is still outstanding; these changes do not constitute completion of that audit.
 Browser validation completed: 48 passed, 12 configured skips, zero failures (55.2 seconds), `/tmp/complete-browser.log`. No tests remain running. No commits or deployment were performed.
+
+## Final pass (resumed after the spend-cap interruption)
+
+`renameMedia` in `12-image-dialog.js` passed the new file name as a `String.replace` template, so a name containing `$&`, `$1` or `$$` was expanded instead of inserted literally. It now uses a replacer function, for current and previous card fields alike. `scripts/sweep-media-lifecycle.test.ts` covers this, and also gives visual-cache eviction the dedicated regression test noted as missing above: there is a cap of 64 entries, and URLs are revoked on eviction, replacement and clear.
+
+`lib/bridge.ts` was inspected for job state races (claim, queue, cancel, finish, revoke). Its writes go by id alone, but every non-GET request runs inside `handleApi`'s per-account advisory-lock transaction, so device and Studio transitions on one account are serialized. The `tidy` writes reached through GET are single guarded statements, and `deleteFile` takes the lock itself. No change was needed.
+
+Validation, run sequentially after regenerating studio HTML: npm test 234 passed, typecheck passed, production build passed, Python test:local 32 passed across six suites (in `/tmp/acs-astra-venv`), Playwright 48 passed with 12 configured skips. Live Neon/Postgres, object storage, OAuth and a real paired Mac remain unverified. No commits, push or deployment.
