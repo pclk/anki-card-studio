@@ -9,12 +9,22 @@ export function objectStore(forRead = false): ObjectStore | null {
   const names = ['AWS_ENDPOINT_URL_S3','AWS_REGION','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'];
   if (!names.some(n => process.env[n])) return null;
   if (!names.every(n => process.env[n])) throw new Error('Incomplete object storage configuration');
+  // one client per configuration: every chunk read and write asks for the store
+  const config = names.map(n => process.env[n]).join('\n');
+  if (remote?.config !== config) remote = { config, store: neonStore() };
+  return remote.store;
+}
+let remote: { config: string; store: ObjectStore } | null = null;
+function neonStore(): ObjectStore {
   const files = Promise.all([import('files-sdk'), import('files-sdk/neon')]).then(([{Files},{neon}]) => new Files({ adapter: neon({ bucket: 'uploads' }), timeout: 30_000, retries: 2 }));
-  return {
+  // a client that could not be made is not kept: the next request tries again
+  files.catch(() => { if (remote?.store === store) remote = null; });
+  const store: ObjectStore = {
     async put(key, bytes) { try { await (await files).upload(key, bytes, {contentType:'application/octet-stream'}); } catch { throw new Error('Object upload failed'); } },
     async delete(key) { try { await (await files).delete(key); } catch { throw new Error('Object deletion failed'); } },
     async get(key) { try { return Buffer.from(await (await (await files).download(key)).arrayBuffer()); } catch { throw new Error('Object download failed'); } },
   };
+  return store;
 }
 export const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 export function objectPrefix(owner: string, project: string, kind: string, name: string) {

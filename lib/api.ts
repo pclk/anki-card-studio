@@ -339,12 +339,13 @@ export async function handleApi(req: Request, parts: string[], user: User | null
   }
   try {
     return await transaction(owner, async () => {
-      const before = await us.usage(owner);
+      // an account without a storage limit (the usual case) needs no usage totals: they are 3 queries each, on every write
+      const row = await us.getUserRow(owner, true);
+      const before = row?.quota_mb != null ? await us.usage(owner) : null;
       const response = await handleApiInner(req, parts, user);
       if (!response.ok) throw response;
-      await us.trimHistory(owner);
-      const after = await us.usage(owner);
-      if (after.total > before.total) await us.checkQuota(owner, 0);
+      await us.trimHistory(owner, parts[0] === "admin" ? undefined : row);   // the admin may just have changed the limit
+      if (before && (await us.usage(owner)).total > before.total) await us.checkQuota(owner, 0);
       return response;
     });
   } catch (e) {
