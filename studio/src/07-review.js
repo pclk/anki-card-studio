@@ -586,7 +586,8 @@ function renderCurChecks(c){
 }
 $('#curChecks ul').addEventListener('click', e => {
   const b = e.target.closest('[data-unskip]'), c = curCard(); if (!b || !c || !c.skipped_checks) return;
-  delete c.skipped_checks[b.dataset.unskip]; if (!Object.keys(c.skipped_checks).length) delete c.skipped_checks;
+  const sk = {...c.skipped_checks}; delete sk[b.dataset.unskip];   // a new object: the previous version may share the old one
+  if (Object.keys(sk).length) c.skipped_checks = sk; else delete c.skipped_checks;
   save(); renderReviewSoft(); toast('The check applies to this card again');
 });
 function badgesHTML(c){

@@ -49,6 +49,9 @@ export function checkOptions(agent: string, raw: unknown): Record<string, string
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (v === "" || v === null || v === undefined || v === 0) continue;
     if (!OPTION_KEYS[agent].includes(k)) throw new HttpError(400, `${agent} has no option ${k}`);
+    // names are strings and limits numbers (or digits): String() would turn ["opus"] or true into a valid-looking name
+    const numeric = k === "maxBudgetUsd" || k === "maxMinutes";
+    if (numeric ? !(typeof v === "number" || (typeof v === "string" && v.trim() !== "")) : typeof v !== "string") throw new HttpError(400, `${k} must be a ${numeric ? "number" : "string"}`);
     const sv = String(v).trim(), nv = Number(v);
     if (k === "model" && !MODEL_RE.test(sv)) throw new HttpError(400, "not a model name");
     if (k === "fallbackModel" && !(sv.split(",").length <= 3 && sv.split(",").every((m) => MODEL_RE.test(m.trim())))) throw new HttpError(400, "not a model name");
@@ -65,6 +68,9 @@ const OPEN = ["uploading", "queued", "running"];
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const rid = (p: string) => p + randomBytes(10).toString("hex");
 const clip = (v: unknown, n: number) => String(v ?? "").slice(0, n);
+/** text Postgres takes: no NUL (a text value can't hold one) and no half of a surrogate pair (clipping can split an
+ *  emoji); either would make the whole post fail, and the bridge would send it again and again */
+export const pgText = (s: string) => s.replace(/\u0000/g, "").replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd");
 
 
 /* ------------------------------------------------------------------ device tokens */
@@ -293,13 +299,17 @@ export async function postEvents(user: User, id: string, events: unknown): Promi
   if (j.status !== "running") throw new HttpError(409, `the job is ${j.status}`);
   const list = (Array.isArray(events) ? events : []).slice(0, 200);
   let seq = j.events, sent = j.client_seq;
+  const rows: [number, string, string][] = [];
   for (const e of list) {
     if (seq >= 5000) break;   // a runaway log stops growing; the job still finishes
     const ev = e as { type?: unknown; text?: unknown; n?: unknown };
     // numbered by the bridge: one already stored is a retry, not a new line
     if (Number.isSafeInteger(ev.n)) { if ((ev.n as number) <= sent) continue; sent = ev.n as number; }
-    await db()("insert into acs_job_events (job, seq, type, text) values ($1, $2, $3, $4)", [id, ++seq, clip(ev.type, 20) || "text", clip(ev.text, 4000)]);
+    rows.push([++seq, pgText(clip(ev.type, 20)) || "text", pgText(clip(ev.text, 4000))]);
   }
+  // one statement for the whole post (it was one per line: up to 200 round trips while the account lock is held)
+  if (rows.length) await db()(`insert into acs_job_events (job, seq, type, text)
+    select $1, (e->>0)::integer, e->>1, e->>2 from json_array_elements($2::json) e`, [id, JSON.stringify(rows)]);
   await db()("update acs_jobs set events = $2, client_seq = $3, heartbeat_at = now() where id = $1", [id, seq, sent]);
   return { cancel: false };
 }
@@ -318,7 +328,7 @@ export async function finishJob(user: User, id: string, body: Record<string, unk
   if (j.status !== "running") throw new HttpError(409, `the job is ${j.status}`);
   const outputs = await st.listFiles(user.owner, id, "jobout");
   const ok = body.ok === true && (j.kind === "cards" ? outputs.includes("anki_bundle.json") : outputs.includes("anki_revision.json"));
-  const error = ok ? null : clip(body.error, 1000) || (body.ok === true ? `no ${j.kind === "cards" ? "anki_bundle.json" : "anki_revision.json"} was made` : "the run failed");
+  const error = ok ? null : pgText(clip(body.error, 1000)) || (body.ok === true ? `no ${j.kind === "cards" ? "anki_bundle.json" : "anki_revision.json"} was made` : "the run failed");
   await db()("update acs_jobs set status = $2, error = $3, outputs = $4, finished_at = now(), heartbeat_at = now() where id = $1",
     [id, ok ? "done" : "failed", error, JSON.stringify(outputs)]);
   return view(await getJob(user.owner, id));

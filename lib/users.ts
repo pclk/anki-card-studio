@@ -255,8 +255,8 @@ export async function applyRegistry(u: User, sessionStart: number | null, envAdm
 }
 
 /** Recovery copies have a separate bounded budget, so deletion frees active space. */
-export async function trimHistory(owner: string): Promise<void> {
-  const row = await getUserRow(owner, true);
+export async function trimHistory(owner: string, known?: UserRow | null): Promise<void> {
+  const row = known === undefined ? await getUserRow(owner, true) : known;
   const budget = (row?.quota_mb ?? 64) * 1024 * 1024;
   await db()(`delete from acs_history where ctid in (
     select tid from (select ctid as tid,

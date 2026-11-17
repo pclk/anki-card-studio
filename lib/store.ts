@@ -53,17 +53,23 @@ async function deletedIds(owner: string): Promise<Set<string>> {
   return new Set(r.map((x) => x.id));
 }
 
+/** the stored entries (deleted ones too, marked), in one query */
+async function indexRows(owner: string) {
+  return db()<{ id: string; entry: string; gone: boolean }>(
+    `select i.id, i.entry, exists (select 1 from acs_deleted d where d.owner = i.owner and d.id = i.id) as gone
+     from acs_index i where i.owner = $1 order by i.id`, [owner]);
+}
+const live = (rows: { entry: string; gone: boolean }[]): Entry[] => rows.filter((x) => !x.gone).map((x) => JSON.parse(x.entry));
+
 async function listIndex(owner: string): Promise<Entry[]> {
-  const gone = await deletedIds(owner);
-  const r = await db()<{ id: string; entry: string }>("select id, entry from acs_index where owner = $1 order by id", [owner]);
-  return r.filter((x) => !gone.has(x.id)).map((x) => JSON.parse(x.entry));
+  return live(await indexRows(owner));
 }
 
+/** null when the account never stored a list (every window polls this: one query) */
 export async function getIndex(owner: string): Promise<Entry[] | null> {
   await ensureSchema();
-  const list = await listIndex(owner);
-  const any = await db()("select 1 from acs_index where owner = $1 limit 1", [owner]);
-  return any.length ? list : null;
+  const rows = await indexRows(owner);
+  return rows.length ? live(rows) : null;
 }
 
 /** several windows / devices write this list: merge by id (newest entry wins), never resurrect deleted ones */
@@ -130,7 +136,7 @@ export async function putProject(owner: string, id: string, body: string, baseRe
   if (baseRev != null && baseRev !== '' && incomingRev <= Number(baseRev))
     throw new HttpError(400, "revision must increase");
   await ensureSchema();
-  if (!restore && (await deletedIds(owner)).has(id)) throw new HttpError(410, "project deleted; explicitly restore to save");
+  if (!restore && (await db()("select 1 from acs_deleted where owner = $1 and id = $2", [owner, id])).length) throw new HttpError(410, "project deleted; explicitly restore to save");
   if (restore) await db()("delete from acs_deleted where owner = $1 and id = $2", [owner, id]);
   const rev = revInfo(body).rev;
   // keep a copy of what is being replaced (at most one per 10 minutes, the last 30)

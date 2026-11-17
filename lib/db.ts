@@ -3,6 +3,7 @@
  * inside serverless functions). Writes use request-scoped WebSocket transactions. Tests swap in PGlite (Postgres compiled to WASM) through setDb().
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import WebSocket from "ws";
 import { Pool, neonConfig, neon } from "@neondatabase/serverless";
 
@@ -200,10 +201,21 @@ SCHEMA.push(
      text text not null,
      primary key (job, seq))`);
 
-export async function ensureSchema(): Promise<void> {
-  if (!ready) {
+/** which SCHEMA a database was last brought up to: kept as the comment on acs_projects */
+export const SCHEMA_FINGERPRINT = "acs-schema " + createHash("sha256").update(SCHEMA.join("\n")).digest("hex").slice(0, 32);
+
+/**
+ * A cold start asks once whether the database already has this exact SCHEMA (one statement that can't fail) and only
+ * runs the DDL when it doesn't: some of it (alter table, create or replace trigger) takes strong table locks, and each
+ * statement is a round trip. force (npm run db:migrate) runs it all anyway, e.g. to repair a database changed by hand.
+ */
+export async function ensureSchema(force = false): Promise<void> {
+  if (!ready || force) {
     ready = (async () => {
+      const [cur] = await db()<{ v: string | null }>("select obj_description(to_regclass('acs_projects'), 'pg_class') as v");
+      if (cur?.v === SCHEMA_FINGERPRINT && !force) return;
       for (const s of SCHEMA) await db()(s);
+      await db()(`comment on table acs_projects is '${SCHEMA_FINGERPRINT}'`);
     })().catch((e) => {
       ready = null;
       throw e;

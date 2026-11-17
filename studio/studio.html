@@ -1799,12 +1799,14 @@ export function agentOptions(agent, raw) {
   for (const [k, v] of Object.entries(o)) {
     if (v === '' || v === null || v === undefined || v === 0) continue;
     if (!OPTION_KEYS[agent]?.includes(k)) throw new Error(`${agent} has no option ${JSON.stringify(k)}`);
+    const numeric = k === 'maxBudgetUsd' || k === 'maxMinutes';
+    if (numeric ? !(typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) : typeof v !== 'string') throw new Error(`${k} must be a ${numeric ? 'number' : 'string'}`);
     if (k === 'model' && !MODEL_RE.test(String(v))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'fallbackModel' && !String(v).split(',').every((m) => MODEL_RE.test(m.trim()))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'effort' && !EFFORTS[agent].includes(String(v))) throw new Error(`${agent} effort must be one of ${EFFORTS[agent].join(', ')}`);
     if (k === 'maxBudgetUsd' && !(Number(v) > 0 && Number(v) <= 1000)) throw new Error('maxBudgetUsd must be between 0 and 1000');
     if (k === 'maxMinutes' && !(Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 1440)) throw new Error('maxMinutes must be 1-1440');
-    out[k] = typeof v === 'string' ? v.trim() : Number(v);
+    out[k] = numeric ? Number(v) : v.trim();
   }
   return out;
 }
@@ -1928,13 +1930,25 @@ export async function runJob(api, job, cfg, log = console.log) {
   fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
   const kept = cfg.keepJobs ? dir : undefined;
   if (!kept) runDir = dir;
-  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
-  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
+  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0, inflight = null;
+  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive.
+  // One post at a time: the server drops events numbered below the highest it has, so a later batch overtaking an
+  // earlier one (a slow network, the 1.5 s flusher meeting the final flush) would lose the earlier batch's lines.
   const send = async (force) => {
+    if (inflight && !force) return;
+    while (inflight) await inflight.catch(() => {});
     if (!pending.length && !force && Date.now() - lastSent < 30_000) return;
-    const list = pending; pending = []; lastSent = Date.now();
-    try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
-    catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+    // the server takes at most 200 events a post (the rest would be dropped): send them in batches
+    const list = pending.splice(0, 200); lastSent = Date.now();
+    const post = (async () => {
+      try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } return true; }
+      catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); return false; }
+    })();
+    inflight = post;
+    let ok;
+    try { ok = await post; } finally { if (inflight === post) inflight = null; }
+    // a final flush sends everything; the flusher sends the rest on its next tick
+    if (ok && force && pending.length) await send(true);
   };
   let revoked = null;
   try {
@@ -4910,7 +4924,19 @@ function normSkips(v){
 
 /* ---------------------------------------------------------------------- persistence (IndexedDB) */
 const DB_NAME = 'anki-card-studio';
-function idb(){ return new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+/* one connection for the page: opening one per read or write costs a round trip each time, and the connections were
+   never closed. It is given up when the browser closes it or another page needs a newer version of the database. */
+let idbConn = null;
+function idb(){
+  if (!idbConn){
+    const p = idbConn = new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => { const db = r.result, drop = () => { if (idbConn === p) idbConn = null; };
+        db.onclose = drop; db.onversionchange = () => { drop(); db.close(); }; res(db); };
+      r.onerror = () => rej(r.error); });
+    p.catch(() => { if (idbConn === p) idbConn = null; });
+  }
+  return idbConn;
+}
 async function idbPut(key, val){ try { const db = await idb(); await new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(val, key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); } catch (e) { console.warn('autosave failed', e); } }
 async function idbGet(key){ try { const db = await idb(); return await new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); } catch { return null; } }
 /** run fn(objectStore) inside one read-write transaction; resolves with fn's result once committed */
@@ -6655,13 +6681,14 @@ function applyBundle(d, mode, opts = {}){
           && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || [])
           && (!('skipped_checks' in n) || J(n.skipped_checks) === J(existing.skipped_checks || {}));
         if (same){ sum.fmtSame++; continue; }
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: ''};
+        // prev is a copy: the card's refs / skips may later change in place (Undo skip), and prev must keep the old ones
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: JSON.parse(J(existing.refs || [])), skipped_checks: {...(existing.skipped_checks || {})}, feedback: ''};
         existing.revised = true; existing.edited = false;
         sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
         // keep the review state and any feedback the user already wrote
         for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
       } else if (!isProject){
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: existing.feedback || ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: JSON.parse(J(existing.refs || [])), skipped_checks: {...(existing.skipped_checks || {})}, feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
       Object.assign(existing, n);
@@ -7406,7 +7433,8 @@ function renderCurChecks(c){
 }
 $('#curChecks ul').addEventListener('click', e => {
   const b = e.target.closest('[data-unskip]'), c = curCard(); if (!b || !c || !c.skipped_checks) return;
-  delete c.skipped_checks[b.dataset.unskip]; if (!Object.keys(c.skipped_checks).length) delete c.skipped_checks;
+  const sk = {...c.skipped_checks}; delete sk[b.dataset.unskip];   // a new object: the previous version may share the old one
+  if (Object.keys(sk).length) c.skipped_checks = sk; else delete c.skipped_checks;
   save(); renderReviewSoft(); toast('The check applies to this card again');
 });
 function badgesHTML(c){
@@ -9717,9 +9745,9 @@ function renderJobsList(){
 }
 async function refreshLogs(){
   for (const id of BR.open){
-    const log = BR.logs.get(id) || {after: 0, items: []};
-    try { const ev = await brCall('GET', `jobs/${id}/events?after=${log.after}`); log.items.push(...ev); if (ev.length) log.after = ev[ev.length - 1].seq; } catch {}
-    BR.logs.set(id, log);
+    let log = BR.logs.get(id); if (!log) BR.logs.set(id, log = {after: 0, items: []});
+    // two refreshes can overlap (the poll, a click on Log): only lines newer than the last one shown are added
+    try { const ev = (await brCall('GET', `jobs/${id}/events?after=${log.after}`)).filter(e => e.seq > log.after); log.items.push(...ev); if (ev.length) log.after = ev[ev.length - 1].seq; } catch {}
   }
 }
 async function openJobs(){ $('#jobsDlg').showModal(); renderJobsList(); await pollJobs(); }
