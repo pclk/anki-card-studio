@@ -1,6 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
-// Settings → Prompts → "Show the 📋 Copy buttons". Off by default: once a Mac is paired, ▶ Run on Mac takes Copy's place
-// (Copy, its "As a file" box, the queue rows' 📋, and the N shortcut). Without a Mac, Copy always shows.
+// Prompt Copy defaults to hidden, including without a Mac. Manual transfer reveals it and persists the preference.
 const headers={origin:'http://127.0.0.1:3098'};
 const COPY=['#btnCopyPrompt'], BATCH=['#btnCopyNext','#batchOut .optPromptFile','#qList [data-q=copy]'];
 
@@ -31,15 +30,23 @@ const setShowCopy=async(page:Page,on:boolean)=>{
  await page.locator('#setClose').click();
 };
 
-test('Copy buttons: shown without a Mac; hidden by default once one is paired; Settings shows them again',async({page,request},info)=>{
+test('Copy buttons: hidden by default with or without a Mac; Manual transfer and Settings reveal them',async({page,request},info)=>{
  test.skip(info.project.name!=='desktop','one browser is enough');
  const pid=await open(page,request,'cpy');
  let dev:{id:string}|null=null;
  try {
-  // no Mac yet: Copy is the only way to send a prompt, so it shows whatever the setting says
+  // No Mac: Manual transfer is the visible fallback and saves the reveal preference.
   expect(await page.evaluate(()=>(window as any).eval('SET.showCopy'))).toBe(false);
-  for (const q of COPY) await expect(page.locator(q)).toBeVisible();
+  for (const q of COPY) await expect(page.locator(q)).toBeHidden();
   await expect(page.locator('#runPrompt')).toBeHidden();
+  await page.locator('#singleOut .manualTransfer').click();
+  for (const q of COPY) await expect(page.locator(q)).toBeVisible();
+  await expect.poll(()=>page.evaluate(()=>fetch('/api/settings',{cache:'no-store'}).then(r=>r.json()).then(j=>j.showCopy))).toBe(true);
+  await page.reload();
+  await page.waitForFunction('Store.on && Store.hosted && curProject && !sync.dirty');
+  await page.locator('#tabs button[data-tab=prompt]').click();
+  for (const q of COPY) await expect(page.locator(q)).toBeVisible();
+  await setShowCopy(page,false);
 
   // a Mac is paired: Copy goes, ▶ Run on Mac is the main button
   dev=await (await request.post('/api/devices',{headers,data:{name:'copy test'}})).json();
@@ -91,7 +98,7 @@ test('Copy buttons: shown without a Mac; hidden by default once one is paired; S
  }
 });
 
-test('settings saved before the option existed hide Copy too (once a Mac is paired)',async({page,request},info)=>{
+test('settings saved before the option existed hide Copy too',async({page,request},info)=>{
  test.skip(info.project.name!=='desktop','one browser is enough');
  // an older Studio's settings: no showCopy at all (the user's real settings are put back afterwards)
  const before=await (await request.get('/api/settings',{headers})).text();
