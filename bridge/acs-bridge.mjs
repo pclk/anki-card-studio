@@ -160,12 +160,14 @@ export function agentOptions(agent, raw) {
   for (const [k, v] of Object.entries(o)) {
     if (v === '' || v === null || v === undefined || v === 0) continue;
     if (!OPTION_KEYS[agent]?.includes(k)) throw new Error(`${agent} has no option ${JSON.stringify(k)}`);
+    const numeric = k === 'maxBudgetUsd' || k === 'maxMinutes';
+    if (numeric ? !(typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) : typeof v !== 'string') throw new Error(`${k} must be a ${numeric ? 'number' : 'string'}`);
     if (k === 'model' && !MODEL_RE.test(String(v))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'fallbackModel' && !String(v).split(',').every((m) => MODEL_RE.test(m.trim()))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'effort' && !EFFORTS[agent].includes(String(v))) throw new Error(`${agent} effort must be one of ${EFFORTS[agent].join(', ')}`);
     if (k === 'maxBudgetUsd' && !(Number(v) > 0 && Number(v) <= 1000)) throw new Error('maxBudgetUsd must be between 0 and 1000');
     if (k === 'maxMinutes' && !(Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 1440)) throw new Error('maxMinutes must be 1-1440');
-    out[k] = typeof v === 'string' ? v.trim() : Number(v);
+    out[k] = numeric ? Number(v) : v.trim();
   }
   return out;
 }
@@ -289,13 +291,21 @@ export async function runJob(api, job, cfg, log = console.log) {
   fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
   const kept = cfg.keepJobs ? dir : undefined;
   if (!kept) runDir = dir;
-  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
-  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
+  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0, inflight = null;
+  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive.
+  // One post at a time: the server drops events numbered below the highest it has, so a later batch overtaking an
+  // earlier one (a slow network, the 1.5 s flusher meeting the final flush) would lose the earlier batch's lines.
   const send = async (force) => {
+    if (inflight && !force) return;
+    while (inflight) await inflight.catch(() => {});
     if (!pending.length && !force && Date.now() - lastSent < 30_000) return;
     const list = pending; pending = []; lastSent = Date.now();
-    try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
-    catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+    const post = (async () => {
+      try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
+      catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+    })();
+    inflight = post;
+    try { await post; } finally { if (inflight === post) inflight = null; }
   };
   let revoked = null;
   try {
