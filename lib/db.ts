@@ -190,6 +190,8 @@ SCHEMA.push(
   `create index if not exists acs_jobs_owner on acs_jobs (owner, status, created)`,
   // the highest event number (n) the bridge sent: a retried post whose first answer was lost isn't logged twice
   "alter table acs_jobs add column if not exists client_seq integer not null default 0",
+  // what the job asks the agent for (model, effort, limits), checked against OPTION_RULES in lib/bridge.ts
+  "alter table acs_jobs add column if not exists options text not null default '{}'",
   `create table if not exists acs_job_events (
      job text not null,
      seq integer not null,

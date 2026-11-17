@@ -37,6 +37,28 @@ export const JOB_KINDS = new Set(["cards", "revision", "format"]);
 /** what a bridge may upload as a job's result */
 export const OUT_RE = /^(?:anki_bundle\.json|anki_revision\.json|anki_explanations\.md|reply\.md)$/;
 const JOB_ID_RE = /^j[a-z0-9]{12,40}$/;
+/* what a job may ask its agent for (the bridge checks the same again before they become flags: agentOptions in
+   bridge/acs-bridge.mjs). Empty values mean "the CLI's own default". */
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,79}$/;
+export const EFFORTS: Record<string, string[]> = { claude: ["low", "medium", "high", "xhigh", "max"], codex: ["minimal", "low", "medium", "high", "xhigh", "max"] };
+const OPTION_KEYS: Record<string, string[]> = { claude: ["model", "effort", "fallbackModel", "maxBudgetUsd", "maxMinutes"], codex: ["model", "effort", "maxMinutes"] };
+export function checkOptions(agent: string, raw: unknown): Record<string, string | number> {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new HttpError(400, "options must be an object");
+  const out: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v === "" || v === null || v === undefined || v === 0) continue;
+    if (!OPTION_KEYS[agent].includes(k)) throw new HttpError(400, `${agent} has no option ${k}`);
+    const sv = String(v).trim(), nv = Number(v);
+    if (k === "model" && !MODEL_RE.test(sv)) throw new HttpError(400, "not a model name");
+    if (k === "fallbackModel" && !(sv.split(",").length <= 3 && sv.split(",").every((m) => MODEL_RE.test(m.trim())))) throw new HttpError(400, "not a model name");
+    if (k === "effort" && !EFFORTS[agent].includes(sv)) throw new HttpError(400, `${agent} effort is one of ${EFFORTS[agent].join(", ")}`);
+    if (k === "maxBudgetUsd" && !(nv > 0 && nv <= 1000)) throw new HttpError(400, "maxBudgetUsd is 0-1000");
+    if (k === "maxMinutes" && !(Number.isInteger(nv) && nv >= 1 && nv <= 1440)) throw new HttpError(400, "maxMinutes is 1-1440");
+    out[k] = k === "maxBudgetUsd" || k === "maxMinutes" ? nv : sv;
+  }
+  return out;
+}
 const DEVICE_ID_RE = /^d[a-z0-9]{12,40}$/;
 const OPEN = ["uploading", "queued", "running"];
 
@@ -102,12 +124,12 @@ export async function deviceUser(authorization: string | null): Promise<User | n
 
 /* ------------------------------------------------------------------ jobs */
 type JobRow = { id: string; owner: string; project: string; kind: string; agent: string; title: string; status: string; files: string; meta: string;
-  device: string | null; created: string; claimed_at: string | null; heartbeat_at: string | null; finished_at: string | null; imported_at: string | null;
+  options: string; device: string | null; created: string; claimed_at: string | null; heartbeat_at: string | null; finished_at: string | null; imported_at: string | null;
   error: string | null; outputs: string; events: number; client_seq: number };
 type FileDecl = { name: string; size: number };
 const safeJson = (s: string) => { try { return JSON.parse(s); } catch { return null; } };
 const view = (j: JobRow) => ({ id: j.id, project: j.project, kind: j.kind, agent: j.agent, title: j.title, status: j.status,
-  files: safeJson(j.files) || [], meta: safeJson(j.meta) || {}, device: j.device, created: j.created, claimedAt: j.claimed_at,
+  files: safeJson(j.files) || [], meta: safeJson(j.meta) || {}, options: safeJson(j.options) || {}, device: j.device, created: j.created, claimedAt: j.claimed_at,
   heartbeatAt: j.heartbeat_at, finishedAt: j.finished_at, importedAt: j.imported_at, error: j.error, outputs: safeJson(j.outputs) || [], events: j.events });
 
 export function checkJobId(id: string): string { if (!JOB_ID_RE.test(id)) throw new HttpError(400, "bad job id"); return id; }
@@ -164,12 +186,13 @@ export async function createJob(owner: string, body: Record<string, unknown>) {
   if (!decl.some((f) => f.name === "anki_prompt.txt")) throw new HttpError(400, "a job needs anki_prompt.txt");
   const meta = JSON.stringify(body.meta && typeof body.meta === "object" ? body.meta : {});
   if (meta.length > 4000) throw new HttpError(400, "job details too long");
+  const options = JSON.stringify(checkOptions(agent, body.options));
   await tidy(owner);
   const [n] = await db()<{ n: string }>(`select count(*) as n from acs_jobs where owner = $1 and status in ('uploading','queued','running')`, [owner]);
   if (Number(n.n) >= MAX_OPEN_JOBS) throw new HttpError(429, `at most ${MAX_OPEN_JOBS} jobs waiting or running - cancel some first`);
   const id = rid("j");
-  await db()(`insert into acs_jobs (id, owner, project, kind, agent, title, status, files, meta) values ($1,$2,$3,$4,$5,$6,'uploading',$7,$8)`,
-    [id, owner, project, kind, agent, clip(body.title, 200) || kind, JSON.stringify(decl), meta]);
+  await db()(`insert into acs_jobs (id, owner, project, kind, agent, title, status, files, meta, options) values ($1,$2,$3,$4,$5,$6,'uploading',$7,$8,$9)`,
+    [id, owner, project, kind, agent, clip(body.title, 200) || kind, JSON.stringify(decl), meta, options]);
   return view(await getJob(owner, id));
 }
 

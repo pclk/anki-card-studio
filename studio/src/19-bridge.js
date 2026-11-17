@@ -26,6 +26,25 @@ function renderBridgeButtons(){
   if (typeof renderBatch === 'function' && $('#batchOut') && !$('#batchOut').hidden) renderBatch();
 }
 const agentName = a => a === 'codex' ? 'Codex' : 'Claude Code';
+const BR_MODELS = {claude: ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], codex: ['gpt-6-astra']};
+const brOpts = agent => cleanBridgeOpts(agent, (SET.bridgeOpts || {})[agent]);
+const brOptsText = (o, agent) => [o.model, o.effort && o.effort + ' effort', o.maxMinutes && `≤ ${o.maxMinutes} min`, o.maxBudgetUsd && `≤ $${o.maxBudgetUsd}`].filter(Boolean).join(' · ');
+function renderBridgeOpts(){
+  const agent = SET.bridgeAgent || 'claude', o = (SET.bridgeOpts || {})[agent] || {};
+  $('#brModels').innerHTML = BR_MODELS[agent].map(m => `<option value="${esc(m)}">`).join('');
+  $('#brOpts').innerHTML = BR_OPTS.filter(d => d.agents.includes(agent)).map(d => `<label class="f">${esc(d.label)}${d.kind === 'effort'
+      ? `<select data-bro="${d.key}"><option value="">Default</option>${BR_EFFORTS[agent].map(v => `<option ${o[d.key] === v ? 'selected' : ''}>${v}</option>`).join('')}</select>`
+      : `<input data-bro="${d.key}" ${d.kind === 'num' ? `type="number" min="0" max="${d.max}" step="${d.step}"` : 'type="text" list="brModels" spellcheck="false" autocomplete="off"'} value="${esc(o[d.key] ?? '')}" placeholder="${d.kind === 'num' ? 'no limit' : 'default'}">`}${d.hint ? `<span class="hint">${esc(d.hint)}</span>` : ''}</label>`).join('');
+}
+$('#brOpts').addEventListener('change', e => {
+  const el = e.target.closest('[data-bro]'); if (!el) return;
+  const agent = SET.bridgeAgent || 'claude', d = BR_OPTS.find(x => x.key === el.dataset.bro), v = el.value.trim();
+  if (!brOptOk(agent, d, v)){ el.classList.add('bad'); return toast(`${d.label}: ${d.kind === 'model' ? 'letters, digits and . _ : / @ [ ] - only' : `up to ${d.max}`}`); }
+  el.classList.remove('bad');
+  const cur = {...((SET.bridgeOpts || {})[agent] || {})};
+  if (v === '' || (d.kind === 'num' && +v === 0)) delete cur[d.key]; else cur[d.key] = d.kind === 'num' ? +v : v;
+  SET.bridgeOpts = {claude: {}, codex: {}, ...(SET.bridgeOpts || {}), [agent]: cur}; saveSettings();
+});
 
 /* ---- Settings → Mac bridge: devices (a token is shown once), which agent, the script */
 function renderBridgeSettings(){
@@ -33,6 +52,7 @@ function renderBridgeSettings(){
   sec.hidden = !Store.hosted;
   if (!Store.hosted) return;
   $('#brAgent').value = SET.bridgeAgent || 'claude';
+  if (!$('#brOpts').contains(document.activeElement)) renderBridgeOpts();
   const list = BR.devices || [];
   $('#brDevices').innerHTML = list.length ? list.map(d => `<div class="dev"><span>🖥</span><div class="dm"><b>${esc(d.name)}</b> <span class="muted small">· token …${esc(d.hint)}</span>
       <div class="small muted">added ${esc(ago(d.created))} · last seen ${esc(ago(d.lastSeen))}${d.info && d.info.agents ? ` · runs ${esc(d.info.agents.map(agentName).join(' + ') || 'nothing yet')}` : ''}</div></div>
@@ -51,18 +71,24 @@ $('#brAdd').onclick = async () => {
     const d = await brCall('POST', 'devices', {name: $('#brName').value.trim()});
     $('#brName').value = '';
     const box = $('#brNew'); box.hidden = false;
-    box.innerHTML = `<b>Device "${esc(d.name)}" added. Copy its token now: it is shown only this once.</b>
-      <div class="row" style="gap:6px"><input type="text" readonly id="brTok" value="${esc(d.token)}" style="flex:1;font-family:ui-monospace,monospace;font-size:12px"><button class="btn sm primary" id="brTokCopy">📋 Copy</button></div>
-      <ol class="small" style="margin:0;padding-left:18px">
-        <li>Download <b>acs-bridge.mjs</b> (button below) - it needs Node 20+ and <code>claude</code> and/or <code>codex</code> installed.</li>
-        <li>In Terminal: <code>node ~/Downloads/acs-bridge.mjs pair ${esc(location.origin)}</code> and paste the token.</li>
-        <li>Then keep it running: <code>node ~/Downloads/acs-bridge.mjs</code></li></ol>
-      <span class="small muted">Anyone with the token can pick up your jobs - keep it to yourself, and remove the device here if it leaks.</span>`;
+    const cmd = brSetupCommand();
+    box.innerHTML = `<b>Device "${esc(d.name)}" added. Set up the Mac now: its token is shown only this once.</b>
+      <ol class="small stack" style="margin:0;padding-left:18px;gap:6px">
+        <li>Download <b>acs-bridge.mjs</b> (⬇ below) to Downloads. It needs Node 20+ and <code>claude</code> and/or <code>codex</code>.</li>
+        <li>Copy this command and paste it into Terminal - <b>don't press Enter yet</b>:
+          <code class="br-cmd" id="brCmd">${esc(cmd)}</code>
+          <button class="btn sm" id="brCmdCopy" style="margin-top:4px">📋 Copy command</button></li>
+        <li>Copy the device token, then press <b>Enter</b> in Terminal. It pairs, and keeps the bridge running in the background (it starts at login too).
+          <div class="row" style="gap:6px;margin-top:4px"><input type="text" readonly id="brTok" value="${esc(d.token)}" style="flex:1;font-family:ui-monospace,monospace;font-size:12px"><button class="btn sm primary" id="brTokCopy">📋 Copy token</button></div></li></ol>
+      <span class="small muted">The command reads the token from the clipboard (<code>pbpaste</code>), so it never lands in your shell history. If the browser saved the script under another name, change the path. Anyone with the token can pick up your jobs - keep it to yourself, and remove the device here if it leaks.</span>`;
+    $('#brCmdCopy').onclick = () => copyText(cmd);
     $('#brTokCopy').onclick = () => copyText(d.token);
   } catch (er) { toast(er.message); }
   loadDevices();
 };
-$('#brAgent').onchange = e => { SET.bridgeAgent = e.target.value; saveSettings(); };
+$('#brAgent').onchange = e => { SET.bridgeAgent = e.target.value; saveSettings(); renderBridgeOpts(); };
+/** pair (the token comes from the clipboard) and install as a background LaunchAgent, in one line to paste */
+const brSetupCommand = () => `pbpaste | node ~/Downloads/acs-bridge.mjs setup --server ${location.origin} && node ~/Downloads/acs-bridge.mjs install`;
 $('#brScript').onclick = () => download(new Blob([$('#bridgeSrc').textContent.replace(/^\n/, '')], {type: 'text/javascript'}), 'acs-bridge.mjs');
 $('#brJobsOpen').onclick = () => { $('#setDlg').close(); openJobs(); };
 
@@ -81,7 +107,8 @@ async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
   }
   let job = null;
   try {
-    job = await brCall('POST', 'jobs', {project: curProject, kind, agent: SET.bridgeAgent || 'claude', title: String(title).slice(0, 200), meta,
+    const agent = SET.bridgeAgent || 'claude';
+    job = await brCall('POST', 'jobs', {project: curProject, kind, agent, options: brOpts(agent), title: String(title).slice(0, 200), meta,
       files: files.map(f => ({name: f.name, size: f.blob.size}))});
     for (const f of files) await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream');
     const queued = await brCall('POST', `jobs/${job.id}/queue`);
@@ -178,7 +205,7 @@ function renderJobsList(){
     const log = BR.logs.get(j.id), shown = BR.open.has(j.id);
     return `<div class="job" data-job="${esc(j.id)}"><div class="jt"><b title="${esc(j.title)}">${esc(j.title)}</b>
       <span class="pill ${j.status === 'done' ? 'ok' : j.status === 'failed' ? 'bad' : j.status === 'running' ? 'warn' : ''}">${JOB_LABEL[j.status] || j.status}</span>
-      <span class="small muted">${esc(agentName(j.agent))} · ${esc(ago(j.created))}${j.importedAt ? ' · imported' : ''}</span>
+      <span class="small muted">${esc(agentName(j.agent))}${j.options && Object.keys(j.options).length ? ` (${esc(brOptsText(j.options, j.agent))})` : ''} · ${esc(ago(j.created))}${j.importedAt ? ' · imported' : ''}</span>
       <button class="btn sm" data-ja="log">${shown ? 'Hide log' : 'Log'}</button>
       ${JOB_OPEN.includes(j.status) ? '<button class="btn sm bad" data-ja="cancel">Cancel</button>' : ''}
       ${j.status === 'done' ? `<button class="btn sm" data-ja="import" title="Import its result again">Import</button>` : ''}

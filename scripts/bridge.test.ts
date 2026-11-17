@@ -424,3 +424,142 @@ test("outputs the agent turned into links to files elsewhere on the Mac are neve
     assert.equal(Number(row.n), 1);
   } finally { setMode("ok"); }
 });
+
+/* ------------------------------------------------------------------ agent options, setup from the clipboard, the background service */
+/** run the bridge script as the user would (async: the test server runs in this process) */
+async function runScript(args: string[], env: Record<string, string>, input = "") {
+  const { spawn } = await import("node:child_process");
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>((res) => {
+    const c = spawn(process.execPath, ["bridge/acs-bridge.mjs", ...args], { env: { ...process.env, ACS_BRIDGE_TOKEN: "", ACS_BRIDGE_SERVER: "", ...env } });
+    let stdout = "", stderr = "";
+    c.stdout.on("data", (d) => { stdout += d; }); c.stderr.on("data", (d) => { stderr += d; });
+    c.on("close", (status) => res({ status, stdout, stderr }));
+    c.stdin.end(input);
+  });
+}
+
+test("a job's model, effort and limits reach the agent as checked flags; the Mac's own time limit wins", async () => {
+  const d = await addDevice("alice", "options");
+  const files = { "anki_prompt.txt": "Make cards.", "SKILL.md": "# skill" };
+  const j = (await call("alice", "POST", "jobs", { project: "p-opt", kind: "cards", agent: "claude", title: "Opts", files: Object.entries(files).map(([name, t]) => ({ name, size: t.length })),
+    options: { model: "opus", effort: "high", fallbackModel: "sonnet", maxBudgetUsd: 2.5, maxMinutes: 30, ignoredEmpty: "" } })).json;
+  assert.deepEqual(j.options, { model: "opus", effort: "high", fallbackModel: "sonnet", maxBudgetUsd: 2.5, maxMinutes: 30 });
+  for (const [name, t] of Object.entries(files)) await call("alice", "PUT", `jobs/${j.id}/in/${encodeURIComponent(name)}`, undefined, Buffer.from(t));
+  await call("alice", "POST", `jobs/${j.id}/queue`);
+  setMode("ok");
+  const r = await bridge.serve({ ...cfg(), maxMinutes: 2, server: base, token: d.token }, { once: true, log: () => {} });
+  assert.equal(r?.ok, true, JSON.stringify(r));
+  const argv: string[] = JSON.parse(readFileSync(join(HOME, "argv.json"), "utf8")).argv;
+  const after = (f: string) => argv[argv.indexOf(f) + 1];
+  assert.equal(after("--model"), "opus"); assert.equal(after("--effort"), "high");
+  assert.equal(after("--fallback-model"), "sonnet"); assert.equal(after("--max-budget-usd"), "2.5");
+  assert.equal(argv[1], bridge.INSTRUCTION);
+  const ev = (await call("alice", "GET", `jobs/${j.id}/events?after=0`)).json;
+  assert.equal(ev[1].text, "Started with claude (model opus, effort high, fallback sonnet, max $ 2.5, limit min 2)");   // capped by the Mac's 2
+});
+
+test("the server refuses options that aren't for that agent or aren't well formed", async () => {
+  const files = [{ name: "anki_prompt.txt", size: 1 }];
+  const post = (agent: string, options: unknown) => call("alice", "POST", "jobs", { project: "p-opt", kind: "cards", agent, title: "x", files, options });
+  for (const [agent, options] of [["claude", { model: "--dangerously-skip-permissions" }], ["claude", { model: "opus; rm -rf ~" }], ["claude", { effort: "ultra" }],
+    ["codex", { effort: "xxl" }], ["codex", { fallbackModel: "sonnet" }], ["codex", { maxBudgetUsd: 1 }], ["claude", { maxBudgetUsd: 5000 }],
+    ["claude", { maxMinutes: 1.5 }], ["claude", { temperature: 1 }], ["claude", ["opus"]], ["claude", { fallbackModel: "a,b,c,d" }]] as [string, unknown][]) {
+    const r = await post(agent, options);
+    assert.equal(r.status, 400, `${agent} ${JSON.stringify(options)}: ${r.text}`);
+  }
+  const ok = await post("codex", { model: "gpt-6-astra", effort: "minimal", maxMinutes: 10 });
+  assert.equal(ok.status, 200, ok.text);
+  assert.deepEqual(ok.json.options, { model: "gpt-6-astra", effort: "minimal", maxMinutes: 10 });
+  await call("alice", "DELETE", `jobs/${ok.json.id}`);
+});
+
+test("the bridge checks the options again itself: a job asking for anything else fails before the agent starts", async () => {
+  assert.throws(() => bridge.agentOptions("claude", { model: "--permission-mode=bypassPermissions" }), /not a model name/);
+  assert.throws(() => bridge.agentOptions("codex", { effort: 'high" sandbox_mode="danger-full-access' }), /effort must be one of/);
+  assert.throws(() => bridge.agentOptions("codex", { fallbackModel: "x" }), /no option/);
+  assert.deepEqual(bridge.agentOptions("claude", null), {});
+  // Codex: -m and -c before the fixed instruction, which stays last
+  const args = bridge.agentArgs("codex", cfg(), "/tmp/job", bridge.agentOptions("codex", { model: "gpt-6-astra", effort: "xhigh" }));
+  assert.deepEqual(args.slice(-5), ["-m", "gpt-6-astra", "-c", 'model_reasoning_effort="xhigh"', bridge.INSTRUCTION]);
+  // a server that let a bad option through: the job fails with the reason and the agent never runs
+  const fakeApi = { events: async () => ({}), download: async () => Buffer.from("x"), upload: async () => {}, finish: async (_id: string, ok: boolean, error: string) => ({ job: { status: ok ? "done" : "failed", error } }) };
+  writeFileSync(join(HOME, "argv.json"), "{}");
+  const r = await bridge.runJob(fakeApi as never, { id: "jbadoptions00000", agent: "claude", files: [{ name: "anki_prompt.txt" }], options: { model: "-x" } } as never, cfg(), () => {});
+  assert.equal(r.ok, false); assert.match(String(r.error), /not a model name/);
+  assert.equal(readFileSync(join(HOME, "argv.json"), "utf8"), "{}");
+});
+
+test("the Studio, the server and the bridge allow the same efforts", async () => {
+  const lib = await import("../lib/bridge");
+  assert.deepEqual(lib.EFFORTS, bridge.EFFORTS);
+  const studio = readFileSync("studio/src/11-settings.js", "utf8");
+  const m = /const BR_EFFORTS = (\{[^\n]*\});/.exec(studio)!;
+  assert.deepEqual(JSON.parse(m[1].replace(/(\w+):/g, '"$1":').replace(/'/g, '"')), bridge.EFFORTS);
+});
+
+test("setup reads the token from a pipe (pbpaste | …) and refuses a clipboard that holds something else", async () => {
+  const d = await addDevice("alice", "clipboard");
+  const home = mkdtempSync(join(tmpdir(), "acs-setup-"));
+  const r = await runScript(["setup", "--server", base], { ACS_BRIDGE_HOME: home }, d.token);   // pbpaste adds no newline
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Paired with .* as alice/); assert.match(r.stdout, /install/);
+  assert.equal(JSON.parse(readFileSync(join(home, "config.json"), "utf8")).token, d.token);
+  const bad = await runScript(["setup", "--server", base], { ACS_BRIDGE_HOME: mkdtempSync(join(tmpdir(), "acs-setup-")) }, "some other text\n");
+  assert.equal(bad.status, 1); assert.match(bad.stderr, /isn't a device token/);
+  const none = await runScript(["setup"], { ACS_BRIDGE_HOME: home }, d.token);
+  assert.equal(none.status, 1); assert.match(none.stderr, /which Studio\?/);
+});
+
+test("install runs an installed copy as a LaunchAgent (keeps PATH, restarts after errors); uninstall stops it", async () => {
+  const d = await addDevice("alice", "service");
+  const home = mkdtempSync(join(tmpdir(), "acs-svc-")), agents = mkdtempSync(join(tmpdir(), "acs-la-")), calls = join(home, "launchctl.log");
+  const fake = join(home, "launchctl.mjs");
+  writeFileSync(fake, `#!/usr/bin/env node
+import fs from 'node:fs';
+fs.appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n');
+if (process.argv[2] === 'print') { if (fs.existsSync(${JSON.stringify(join(agents, "dev.ankicardstudio.bridge.plist"))})) console.log('state = running\\n\\tpid = 4242'); else process.exit(113); }
+`);
+  chmodSync(fake, 0o755);
+  const env = { ACS_BRIDGE_HOME: home, ACS_BRIDGE_LAUNCHD_DIR: agents, ACS_BRIDGE_LAUNCHCTL: fake, ACS_BRIDGE_CLAUDE: FAKE };
+  const notYet = await runScript(["install"], env);
+  assert.equal(notYet.status, 1); assert.match(notYet.stderr, /not paired yet/);
+  assert.equal((await runScript(["setup", "--server", base], env, d.token)).status, 0);
+  const r = await runScript(["install"], env);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /runs in the background/);
+  // a copy that stays put, and a plist launchd accepts
+  const copy = join(home, "acs-bridge.mjs");
+  assert.equal(readFileSync(copy, "utf8"), readFileSync("bridge/acs-bridge.mjs", "utf8"));
+  const plistFile = join(agents, "dev.ankicardstudio.bridge.plist"), xml = readFileSync(plistFile, "utf8");
+  const { spawnSync } = await import("node:child_process");
+  if (process.platform === "darwin") assert.equal(spawnSync("plutil", ["-lint", plistFile]).status, 0, xml);
+  assert.ok(xml.includes(`<string>${process.execPath}</string><string>${copy}</string><string>run</string>`), xml);
+  assert.ok(xml.includes(`<key>PATH</key><string>${process.env.PATH!.replace(/&/g, "&amp;")}</string>`));
+  assert.ok(xml.includes("<key>ACS_BRIDGE_SERVICE</key><string>1</string>"));
+  assert.ok(xml.includes("<key>SuccessfulExit</key><false/>") && xml.includes("<key>RunAtLoad</key><true/>"));
+  assert.ok(xml.includes(`<key>StandardOutPath</key><string>${join(home, "bridge.log")}</string>`));
+  assert.ok(!xml.includes(d.token), "the token stays in config.json");
+  const uid = process.getuid!();
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), [`bootout gui/${uid}/dev.ankicardstudio.bridge`, `bootstrap gui/${uid} ${plistFile}`]);
+  assert.match((await runScript(["status"], env)).stdout, /Background: running \(pid 4242\)/);
+  // uninstall: stopped, no longer at login; the pairing is kept
+  const u = await runScript(["uninstall"], env);
+  assert.equal(u.status, 0); assert.ok(!existsSync(plistFile));
+  assert.match(readFileSync(calls, "utf8").trim().split("\n").at(-1)!, /^bootout gui\/\d+\/dev\.ankicardstudio\.bridge$/);
+  assert.ok(existsSync(join(home, "config.json")));
+  assert.match((await runScript(["status"], env)).stdout, /Background: not installed/);
+});
+
+test("in the background a removed device ends the bridge cleanly (no restart loop); other failures exit with an error", async () => {
+  const d = await addDevice("alice", "gone");
+  const home = mkdtempSync(join(tmpdir(), "acs-gone-"));
+  const env = { ACS_BRIDGE_HOME: home, ACS_BRIDGE_CLAUDE: FAKE };
+  assert.equal((await runScript(["setup", "--server", base], env, d.token)).status, 0);
+  await call("alice", "DELETE", `devices/${d.id}`);
+  const svc = await runScript(["run", "--once"], { ...env, ACS_BRIDGE_SERVICE: "1" });
+  assert.equal(svc.status, 0, svc.stderr); assert.match(svc.stderr, /refused the device token[\s\S]*not restarting/);
+  const tty = await runScript(["run", "--once"], env);
+  assert.equal(tty.status, 1);
+  const unpaired = await runScript(["run"], { ACS_BRIDGE_HOME: mkdtempSync(join(tmpdir(), "acs-none-")), ACS_BRIDGE_SERVICE: "1" });
+  assert.equal(unpaired.status, 0); assert.match(unpaired.stderr, /not paired yet/);
+});

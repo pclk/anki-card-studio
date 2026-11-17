@@ -1,6 +1,10 @@
 // Types for acs-bridge.mjs (a plain Node script with no build step), so the TypeScript tests can import it.
 export const VERSION: string;
 export const INSTRUCTION: string;
+export const LABEL: string;
+export const LOG: string;
+export const EFFORTS: { claude: string[]; codex: string[] };
+export type AgentOptions = { model?: string; effort?: string; fallbackModel?: string; maxBudgetUsd?: number; maxMinutes?: number };
 export type BridgeConfig = { server?: string; token?: string; agents: string[]; claudeTools: string[]; maxMinutes: number; keepJobs: boolean };
 export type BridgeEvent = { type: string; text: string; final?: boolean };
 export type RunResult = { ok: boolean; cancelled?: boolean; status?: string; error?: string; dir?: string };
@@ -9,7 +13,12 @@ export function checkServer(s: string): string;
 export function client(server: string, token: string): unknown;
 export function agentCommand(agent: string): string;
 export function installedAgents(cfg: BridgeConfig): string[];
-export function agentArgs(agent: string, cfg: BridgeConfig, dir: string): string[];
+export function agentOptions(agent: string, raw: unknown): AgentOptions;
+export function agentArgs(agent: string, cfg: BridgeConfig, dir: string, opts?: AgentOptions): string[];
+export function plist(script: string, env: Record<string, string>): string;
+export function plistPath(): string;
+export function install(): void;
+export function uninstall(): void;
 export function toEvents(agent: string, line: string): BridgeEvent[];
 export function runJob(api: unknown, job: unknown, cfg: BridgeConfig, log?: (s: string) => void): Promise<RunResult>;
 export function serve(cfg: BridgeConfig, opts?: { once?: boolean; log?: (s: string) => void }): Promise<RunResult | null>;

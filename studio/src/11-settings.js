@@ -1,10 +1,30 @@
 /* ====================================================================== SETTINGS + KEYS */
+/* the Mac bridge: what each agent runs with (Settings → Mac bridge). The server and the bridge check the same rules
+   (checkOptions in lib/bridge.ts, agentOptions in bridge/acs-bridge.mjs); defined here because settings load first */
+const BR_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@\[\]-]{0,79}$/;
+const BR_EFFORTS = {claude: ['low', 'medium', 'high', 'xhigh', 'max'], codex: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']};
+const BR_OPTS = [
+  {key: 'model', label: 'Model', kind: 'model', hint: "empty = the CLI's default", agents: ['claude', 'codex']},
+  {key: 'effort', label: 'Thinking effort', kind: 'effort', agents: ['claude', 'codex']},
+  {key: 'fallbackModel', label: 'Fallback model', kind: 'model', hint: 'used when the model is overloaded', agents: ['claude']},
+  {key: 'maxBudgetUsd', label: 'Max spend per run (USD)', kind: 'num', step: '0.5', max: 1000, hint: 'only when Claude Code uses an API key', agents: ['claude']},
+  {key: 'maxMinutes', label: 'Time limit per run (min)', kind: 'num', step: '1', max: 1440, hint: "empty = the bridge's limit (60); never more than it", agents: ['claude', 'codex']}
+];
+const brOptOk = (agent, d, v) => v === '' || v === undefined || v === null || v === 0 || (d.kind === 'model' ? String(v).split(d.key === 'fallbackModel' ? ',' : '\u0000').every(m => BR_MODEL_RE.test(m.trim()))
+  : d.kind === 'effort' ? BR_EFFORTS[agent].includes(v) : +v > 0 && +v <= d.max && (d.key !== 'maxMinutes' || Number.isInteger(+v)));
+/** saved settings: only well-formed values (anything else falls back to the CLI's default) */
+function cleanBridgeOpts(agent, o){
+  const out = {}; if (!o || typeof o !== 'object') return out;
+  for (const d of BR_OPTS) if (d.agents.includes(agent) && o[d.key] !== undefined && o[d.key] !== '' && brOptOk(agent, d, o[d.key])) out[d.key] = d.kind === 'num' ? +o[d.key] : String(o[d.key]).trim();
+  return out;
+}
 const DEFAULT_SETTINGS = {
   version: 2,
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
   showAnalytics: true,                             // the Analytics tab (Settings → Tabs)
   promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
+  bridgeOpts: {claude: {}, codex: {}},              // what each agent runs with there: model, effort, limits (empty = the CLI's default)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
   fixRules: [...FMT_KEYS],                         // the rules a checker fix sends (Revise → Checker fixes)
   fixPresets: [],                                  // your own rule presets there: [{name, rules}]
@@ -31,6 +51,7 @@ function mergeSettings(j){
   if (j && j.showAnalytics === false) out.showAnalytics = false;
   if (j && j.promptFile === true) out.promptFile = true;
   if (j && ['claude', 'codex'].includes(j.bridgeAgent)) out.bridgeAgent = j.bridgeAgent;
+  if (j && j.bridgeOpts && typeof j.bridgeOpts === 'object') for (const a of ['claude', 'codex']) out.bridgeOpts[a] = cleanBridgeOpts(a, j.bridgeOpts[a]);
   if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
     const v = j.checks[d.key]; if (v === undefined) continue;
     if (d.kind === 'level'){ if (['error', 'warn', 'off'].includes(v)) out.checks[d.key] = v; }
