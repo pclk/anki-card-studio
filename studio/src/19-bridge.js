@@ -7,7 +7,22 @@ const BR = {devices: null, jobs: [], timer: null, logs: new Map(), open: new Set
 /** a result that couldn't be fetched is tried again by itself this many times (then from Jobs → Import) */
 const IMPORT_TRIES = 3;
 const JOB_OPEN = ['uploading', 'queued', 'running'];
-function bridgeReady(){ return !!(Store.hosted && BR.devices && BR.devices.length); }
+// A heartbeat is evidence of recent contact, not a promise that a job starts immediately.
+const BR_RECENT_MS = 2 * 60 * 1000;
+function bridgeReadiness(now = Date.now()){
+  const agent = SET.bridgeAgent || 'claude', name = agentName(agent), devices = BR.devices || [];
+  if (!Store.hosted) return {state: 'local', canRun: false, text: 'Run on Mac is available in the hosted Studio.'};
+  if (!devices.length) return {state: 'unpaired', canRun: false, text: 'No Mac paired. Set up a device in Settings → Mac bridge.'};
+  const known = d => Array.isArray(d.info?.agents);
+  const compatible = devices.filter(d => known(d) && d.info.agents.includes(agent));
+  const unknown = devices.filter(d => !known(d));
+  if (!compatible.length && !unknown.length) return {state: 'unsupported', canRun: false, text: `No paired Mac reports ${name} support. Select another agent or install and sign in to ${name} on your Mac, then restart the bridge.`};
+  if (compatible.some(d => { const seen = Date.parse(d.lastSeen); return Number.isFinite(seen) && now - seen >= 0 && now - seen <= BR_RECENT_MS; }))
+    return {state: 'recent', canRun: true, text: `${name} · Mac seen recently. Jobs queue until a compatible Mac picks them up.`};
+  if (!compatible.length) return {state: 'paired', canRun: true, text: `Mac paired; ${name} support has not been reported yet. You can queue a job while setup finishes.`};
+  return {state: 'stale', canRun: true, text: `${name} · compatible Mac has not been seen recently. You can still queue; open your Mac and check that the bridge is running.`};
+}
+function bridgeReady(){ return bridgeReadiness().canRun; }
 /** the JSON answer of a bridge request, or an Error carrying the server's message */
 async function brCall(method, path, body){
   const r = await fetch(`${Store.base}/api/${path}`, {method, cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body), headers: body === undefined ? {} : {'Content-Type': 'application/json'}});
@@ -21,9 +36,21 @@ async function loadDevices(){
   renderBridgeButtons(); renderBridgeSettings();
 }
 function renderBridgeButtons(){
-  const on = bridgeReady();
-  $$('.brRun').forEach(b => { b.hidden = !on; });
-  applyCopyButtons();   // the Copy buttons hide only while a Mac is paired
+  const ready = bridgeReadiness();
+  $$('.brRun').forEach(b => {
+    b.hidden = !Store.hosted || !(BR.devices || []).length;
+    b.disabled = !!b._brSubmitting || !ready.canRun;
+    b.title = ready.text;
+    let note = b._brReadinessNote;
+    if (!note || !note.isConnected){
+      note = document.createElement('span'); note.setAttribute('data-br-readiness', '');
+      note.className = 'small muted'; note.setAttribute('role', 'status'); b.after(note);
+      b._brReadinessNote = note;
+    }
+    note.hidden = !Store.hosted;
+    note.textContent = ready.text;
+  });
+  applyCopyButtons();   // preserve the manual-transfer setting's bridgeReady() integration
   if (typeof renderBatch === 'function' && $('#batchOut') && !$('#batchOut').hidden) renderBatch();
 }
 const agentName = a => a === 'codex' ? 'Codex' : 'Claude Code';
@@ -55,6 +82,9 @@ function renderBridgeSettings(){
   $('#brAgent').value = SET.bridgeAgent || 'claude';
   if (!$('#brOpts').contains(document.activeElement)) renderBridgeOpts();
   const list = BR.devices || [];
+  let status = $('#brReadiness');
+  if (!status){ status = document.createElement('div'); status.id = 'brReadiness'; status.className = 'small'; status.setAttribute('role', 'status'); $('#brDevices').before(status); }
+  status.textContent = bridgeReadiness().text + ' Troubleshooting: check the selected CLI is installed and signed in, then restart the bridge. Use the setup command below to pair a new Mac.';
   $('#brDevices').innerHTML = list.length ? list.map(d => `<div class="dev"><span>🖥</span><div class="dm"><b>${esc(d.name)}</b> <span class="muted small">· token …${esc(d.hint)}</span>
       <div class="small muted">added ${esc(ago(d.created))} · last seen ${esc(ago(d.lastSeen))}${d.info && d.info.agents ? ` · runs ${esc(d.info.agents.map(agentName).join(' + ') || 'nothing yet')}` : ''}</div></div>
       <button class="btn sm bad" data-rm="${esc(d.id)}" title="Remove: its token stops working at once">Remove</button></div>`).join('')
@@ -87,7 +117,7 @@ $('#brAdd').onclick = async () => {
   } catch (er) { toast(er.message); }
   loadDevices();
 };
-$('#brAgent').onchange = e => { SET.bridgeAgent = e.target.value; saveSettings(); renderBridgeOpts(); };
+$('#brAgent').onchange = e => { SET.bridgeAgent = e.target.value; saveSettings(); renderBridgeOpts(); renderBridgeButtons(); renderBridgeSettings(); };
 /** pair (the token comes from the clipboard) and install as a background LaunchAgent, in one line to paste */
 const brSetupCommand = () => `pbpaste | node ~/Downloads/acs-bridge.mjs setup --server ${location.origin} && node ~/Downloads/acs-bridge.mjs install`;
 $('#brScript').onclick = () => download(new Blob([$('#bridgeSrc').textContent.replace(/^\n/, '')], {type: 'text/javascript'}), 'acs-bridge.mjs');
@@ -99,7 +129,42 @@ async function blobSha256(blob){
   try { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map(x => x.toString(16).padStart(2, '0')).join(''); }
   catch { return undefined; }
 }
-async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
+// Keep in sync with lib/bridge.ts MAX_JOB_FILES. Five slots are the prompt and support files.
+const BR_MAX_FILES = 24;
+const BR_MAX_CHUNKS = 4096; // lib/store.ts writeChunkInner
+function validateBridgeSizes(files){
+  const chunk = Store.CHUNK || 3 * 1024 * 1024;
+  for (const f of files) if (Math.ceil(f.blob.size / chunk) > BR_MAX_CHUNKS)
+    throw new Error(`${f.name} exceeds the upload limit of ${brBytes(chunk * BR_MAX_CHUNKS)} per file. Select fewer PDF pages or split the source file.`);
+}
+const brBytes = n => n == null ? 'size pending' : `${n.toLocaleString()} bytes`;
+function bridgeManifest(title, files, kind, origin){
+  const box = document.createElement('details');
+  box.className = 'small'; box.open = true;
+  const anchor = origin || $(kind === 'revision' ? '#runRevision' : kind === 'format' ? '#runFmt' : '#runPrompt');
+  (anchor || $('#brPill')).insertAdjacentElement('afterend', box);
+  let phase = 'Preparing files';
+  const render = () => {
+    box.innerHTML = `<summary>${esc(title || 'Mac job')} · ${esc(phase)} · ${files.length}/${BR_MAX_FILES} files · ${esc(brBytes(files.reduce((n, f) => n + (f.blob?.size || 0), 0)))}${files.some(f => !f.blob) ? ' prepared so far' : ' total'}</summary>
+      <div role="status" aria-live="polite">${esc(phase)}</div>
+      <progress max="${files.length}" value="${files.filter(f => f.state === 'Uploaded').length}" aria-label="Files uploaded"></progress>
+      <div>5 support files · ${files.length - 5}/19 source attachments</div>
+      <ul>${files.map(f => `<li><b>${esc(f.name)}</b>${f.source ? ` · ${esc(f.source)}` : ''} · ${esc(brBytes(f.blob?.size))} · ${esc(f.state)}</li>`).join('')}</ul>`;
+  };
+  render();
+  return (text) => { if (text) phase = text; render(); };
+}
+function validateBridgeFiles(files){
+  if (files.length > BR_MAX_FILES) throw new Error(`${files.length} files exceeds the ${BR_MAX_FILES}-file limit (5 support files + at most 19 attachments). Split the prompt into smaller batches or select fewer sources.`);
+  const names = new Set();
+  for (const f of files){
+    if (!FILE_NAME_RE.test(f.name) || f.name.includes('..')) throw new Error(`Invalid attachment name: ${f.name}. Rename the source and try again.`);
+    const key = f.name.toLowerCase();
+    if (names.has(key)) throw new Error(`Duplicate attachment name: ${f.name}. Rename one source and try again.`);
+    names.add(key);
+  }
+}
+async function runOnMac({kind, title, prompt, atts = [], meta = {}, origin}){
   if (!bridgeReady()) return toast('Add a device in Settings → Mac bridge first'), null;
   if (!prompt) return toast('Nothing to run'), null;
   const files = [{name: 'anki_prompt.txt', blob: new Blob([prompt], {type: 'text/plain'})},
@@ -107,24 +172,45 @@ async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
     {name: 'anki_helper.py', blob: new Blob([helperSource()], {type: 'text/x-python'})},
     {name: 'extract.py', blob: new Blob([$('#extractSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})},
     {name: 'make_prompts.py', blob: new Blob([$('#promptsSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})}];
-  for (const a of atts){
-    if (files.some(f => f.name === a.name)) continue;
-    try { files.push({name: a.name, blob: await attachmentBlob(a)}); } catch (er) { toast(`${a.name}: ${er.message}`, 5000); return null; }
-  }
+  files.forEach(f => { f.state = 'Ready'; });
+  for (const a of atts) files.push({name: a.name, attachment: a, source: `${a.src?.name || a.name} · ${a.pages?.length ? `pages ${fmtPages(a.pages)}${a.cut ? ' (PDF excerpt)' : ' (whole file sent)'}` : 'all pages'}`, state: 'Waiting to prepare'});
+  const update = bridgeManifest(title, files, kind, origin);
   let job = null;
   try {
+    validateBridgeFiles(files);
+    let preparationFailed = false;
+    for (const f of files.filter(f => f.attachment)){
+      f.state = f.attachment.cut ? 'Preparing PDF excerpt' : 'Loading original'; update();
+      try {
+        f.blob = await attachmentBlob(f.attachment);
+        if (!f.blob) throw new Error('Original file missing. Add it again on Sources.');
+        f.state = 'Ready';
+      } catch (er) { f.state = `Preparation failed: ${er.message}. Check Sources and add the original file again if missing.`; preparationFailed = true; }
+      update();
+    }
+    if (preparationFailed) throw new Error('Some attachments could not be prepared. Check the file list, fix the sources, then run again.');
+    validateBridgeSizes(files);
+    update('Checking file hashes');
     const agent = SET.bridgeAgent || 'claude';
     // each file's sha256: the bridge keeps files by content, so the skill and the same slides are downloaded once
     job = await brCall('POST', 'jobs', {project: curProject, kind, agent, options: brOpts(agent), title: String(title).slice(0, 200), meta,
       files: await Promise.all(files.map(async f => ({name: f.name, size: f.blob.size, sha256: await blobSha256(f.blob)})))});
-    for (const f of files) await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream');
+    for (const f of files){
+      f.state = 'Uploading'; update(`Uploading ${files.indexOf(f) + 1}/${files.length}: ${f.name}`);
+      try { await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream'); }
+      catch (er) { f.state = `Upload failed: ${er.message}`; throw er; }
+      f.state = 'Uploaded'; update();
+    }
+    update('All files uploaded · queueing on Mac');
     const queued = await brCall('POST', `jobs/${job.id}/queue`);
     BR.jobs = [queued, ...BR.jobs.filter(j => j.id !== queued.id)];
+    update('Queued on Mac');
     renderJobs(); pollJobsSoon(500);
     return queued;
   } catch (er) {
     // a half-sent job would wait "sending" for nothing: remove it (the server also gives up on it after an hour)
     if (job) await brCall('DELETE', `jobs/${job.id}`).catch(() => {});
+    update(`Could not send: ${er.message} Fix the issue and run again.`);
     toast('Could not send it to your Mac: ' + er.message, 5000); return null;
   }
 }
@@ -252,7 +338,7 @@ const onMacToast = (j, what) => j && toast(`🖥 ${what} sent to your Mac - it i
 $('#runPrompt').onclick = async () => {
   buildPrompt();
   const p = scopedPrompt(readPrompt()), atts = useStoredSources(p) ? planAttachments(singleSourceList()) : [];
-  onMacToast(await runOnMac({kind: 'cards', title: p.pDeck || S.deck || 'Cards', prompt: await fullSinglePrompt(), atts}), 'The prompt');
+  onMacToast(await runOnMac({origin: $('#runPrompt'), kind: 'cards', title: p.pDeck || S.deck || 'Cards', prompt: await fullSinglePrompt(), atts}), 'The prompt');
 };
 $('#runQueue').onclick = async () => {
   if (!S.batch) return;
@@ -262,7 +348,7 @@ $('#runQueue').onclick = async () => {
   if (!confirm(`Send ${todo.length} prompt(s) to your Mac? They run one after another (each uses your ${agentName(SET.bridgeAgent)} plan).`)) return;
   let sent = 0;
   for (const it of todo){
-    const j = await runOnMac({kind: 'cards', title: it.title || it.id, prompt: await itemPromptFull(it, S.batch.items.indexOf(it), n), atts: itemAttachments(it), meta: {batchItem: it.id}});
+    const j = await runOnMac({origin: $('#runQueue'), kind: 'cards', title: it.title || it.id, prompt: await itemPromptFull(it, S.batch.items.indexOf(it), n), atts: itemAttachments(it), meta: {batchItem: it.id}});
     if (!j) break;
     it.status = 'copied'; it.copiedAt = Date.now(); it.macJob = j.id; sent++;
   }
@@ -281,11 +367,11 @@ $('#runRevision').onclick = async () => {
   const prompt = $('#rvOut').value; if (!prompt) return;
   // a new session has none of the material: send the pages the cards come from
   const atts = planAttachments(refSourceList(S.cards.filter(c => c.status === 'change')));
-  onMacToast(await runOnMac({kind: 'revision', title: 'Revision', prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts}), 'The revision');
+  onMacToast(await runOnMac({origin: $('#runRevision'), kind: 'revision', title: 'Revision', prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts}), 'The revision');
 };
 $('#runImageFix').onclick = async () => {
   const prompt = await imageFixPrompt(); if (!prompt) return;
-  onMacToast(await runOnMac({kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
+  onMacToast(await runOnMac({origin: $('#runImageFix'), kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
 };
 $('#runFmt').onclick = async () => {
   const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No checker-fix prompt is still to do');
@@ -293,12 +379,22 @@ $('#runFmt').onclick = async () => {
   for (const it of todo){
     // a new session has none of the material: content fixes (the "why", source references) come from it, formatting doesn't need it
     const rules = itemRules(it.cards), atts = formattingOnly(rules) ? [] : planAttachments(refSourceList(it.cards)), prompt = fixPrompt(it.cards, rules);
-    const j = await runOnMac({kind: 'format', title: `${rulesName(rules)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
+    const j = await runOnMac({origin: $('#runFmt'), kind: 'format', title: `${rulesName(rules)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
     if (!j) break;
     it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
   }
   save(); renderFmtPass();
   if (sent) toast(`🖥 ${sent} checker-fix prompt(s) sent to your Mac`, 4000);
 };
+// Lock before prompt preparation too, so repeated clicks cannot reserve the same batch twice.
+for (const id of ['runPrompt', 'runQueue', 'runRevision', 'runImageFix', 'runFmt']){
+  const button = $('#' + id), submit = button.onclick;
+  button.onclick = async () => {
+    if (button._brSubmitting) return;
+    button._brSubmitting = true; button.disabled = true;
+    try { return await submit(); }
+    finally { button._brSubmitting = false; button.disabled = !bridgeReady(); }
+  };
+}
 // start: once the storage is known (Store.hosted), and again whenever a project opens
 setTimeout(function startBridge(){ if (Store.status === 'detecting' || (Store.on && !curProject)) return setTimeout(startBridge, 500); loadDevices(); pollJobs(); }, 300);

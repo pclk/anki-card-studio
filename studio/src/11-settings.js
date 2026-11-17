@@ -79,15 +79,19 @@ function applyTabs(){
   if (b){ b.hidden = !on; if (!on && b.classList.contains('active')) showTab('review'); }
   let i = 0; $$('#tabs button').forEach(x => { if (!x.hidden){ const n = x.querySelector('.n'); if (n) n.textContent = ++i; } });
 }
-/** the prompts' 📋 Copy buttons (and their "As a file" boxes) are hidden unless Settings → Prompts shows them - but only
-    while a Mac is paired: without one, Copy is the only way to send a prompt. Hidden = display:none, so they leave the
-    layout and the tab order; their N shortcuts check copyHidden() too. ▶ Run on Mac becomes the main button then. */
-function copyHidden(){ try { return !SET.showCopy && bridgeReady(); } catch { return false; } }   // bridgeReady: 19-bridge.js
+/** Prompt transfer controls follow the saved preference, including before bridge setup.
+    Manual transfer reveals them everywhere and persists the choice for the next visit. */
+function copyHidden(){ return !SET.showCopy; }
+function revealManualTransfer(){ SET.showCopy = true; saveSettings(); }
 function applyCopyButtons(){
   const off = copyHidden();
   document.body.classList.toggle('hide-copy', off);
   $$('.brRun').forEach(b => b.classList.toggle('primary', off));
+  $$('.manualTransfer').forEach(b => { b.hidden = !off; });
 }
+document.addEventListener('click', e => {
+  if (e.target.closest('.manualTransfer')) revealManualTransfer();
+});
 function renderKeyHints(){
   try { applyTabs(); } catch {}
   applyCopyButtons();
