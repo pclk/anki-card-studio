@@ -28,6 +28,7 @@
 }
 *{box-sizing:border-box}
 [hidden]{display:none !important}
+body.hide-copy .copyBtn{display:none !important}
 html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{margin:0;line-height:1.25}
@@ -479,6 +480,11 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <label class="check small"><input type="checkbox" id="setAna"> Show the <b>Analytics</b> tab (deck makeup and checker results)</label>
     </div>
     <div class="stack" style="gap:8px">
+      <b>Prompts</b>
+      <label class="check small"><input type="checkbox" id="setCopy"> Show the <b>📋 Copy</b> buttons next to prompts, to paste them into a chat yourself</label>
+      <span class="small muted">Off: <b>▶ Run on Mac</b> takes their place. Without a paired Mac they are always shown, since Copy is then the only way to send a prompt.</span>
+    </div>
+    <div class="stack" style="gap:8px">
       <b>Swiping (touch screens)</b>
       <span class="small muted">On a phone, swipe the card right to approve and left to exclude.</span>
       <label class="f">How far to swipe: <b id="swDistV"></b> of the card's width<input type="range" id="swDist" min="8" max="60" step="1"></label>
@@ -640,8 +646,8 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
         <button class="btn" id="btnCopyScript" title="Copy anki_helper.py to clipboard">📋 Copy script</button>
         <button class="btn" id="btnDlScript">⬇ anki_helper.py</button>
         <button class="btn" id="btnDlSkill2" hidden>⬇ anki skill (.zip)</button>
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn" id="btnSrcFiles" hidden title="Download the source files again">⬇ Source files</button><button class="btn brRun" id="runPrompt" hidden title="Run this prompt on your Mac (Claude Code / Codex) and import the cards when it is done">▶ Run on Mac</button><button class="btn primary" id="btnCopyPrompt">📋 Copy prompt</button></div>
-      <div class="small" id="pAttachInfo"></div>
+        <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn copyBtn" id="btnSrcFiles" hidden title="Download the source files again">⬇ Source files</button><button class="btn brRun" id="runPrompt" hidden title="Run this prompt on your Mac (Claude Code / Codex) and import the cards when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="btnCopyPrompt">📋 Copy prompt</button></div>
+      <div class="small copyBtn" id="pAttachInfo"></div>
       <textarea id="pOut" readonly style="min-height:520px;flex:1"></textarea>
       <ol class="steps small muted" id="pSteps">
         <li>Open a new Claude chat. Attach your material and <b>anki_helper.py</b>, then paste the prompt.</li>
@@ -670,7 +676,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
         <div class="row" style="margin-top:4px"><span class="spacer"></span><button class="btn sm" id="btnQPaste">Load queue</button></div></details>
       <div id="qPanel" class="stack" hidden>
         <div class="row">
-          <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runQueue" hidden title="Run every prompt that is still to do on your Mac, one after another; each result is imported by itself">▶ Run all on Mac</button><button class="btn primary" id="btnCopyNext">📋 Copy next prompt <span class="kbd">N</span></button>
+          <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runQueue" hidden title="Run every prompt that is still to do on your Mac, one after another; each result is imported by itself">▶ Run all on Mac</button><button class="btn primary copyBtn" id="btnCopyNext">📋 Copy next prompt <span class="kbd">N</span></button>
           <span class="small" id="qNextLabel"></span><span class="spacer"></span>
           <button class="btn sm" id="btnQReset" title="Mark every prompt as not copied">↺ Reset</button>
           <button class="btn sm" id="btnQClear" title="Remove the queue">✕ Clear</button>
@@ -818,7 +824,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     <div class="row"><h2 style="margin:0">Broken images</h2><span class="spacer"></span><span id="biStats" class="small muted"></span></div>
     <p class="small muted" style="margin:0">Images you marked broken in Review → 🖼 Images. Claude redoes each one (new filename, same card otherwise) and replies with <b>anki_revision.json</b>: drop it under <i>2 · Apply Claude's revision</i> below. The changed cards go back to <i>Unreviewed</i>, and their new images wait for review.</p>
     <div id="biList" class="stack" style="gap:6px;max-height:40vh;overflow-y:auto"></div>
-    <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary" id="biCopy">📋 Copy</button></div>
+    <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="biCopy">📋 Copy</button></div>
     <textarea id="biOut" readonly rows="6" placeholder="The image-fix prompt appears here"></textarea>
   </div>
   <div class="panel stack" id="fixPanel" style="margin-bottom:14px">
@@ -835,7 +841,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     </div>
     <div id="fqPanel" class="stack" hidden>
       <div class="row">
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
+        <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary copyBtn" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
         <span class="small" id="fqNextLabel"></span><span class="spacer"></span>
         <button class="btn sm" id="fqReset" title="Mark every prompt as not copied (answered ones stay ticked)">↺ Reset</button>
         <button class="btn sm" id="fqClear" title="Remove the queue">✕ Clear</button>
@@ -859,7 +865,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <label class="check"><input type="checkbox" id="rvMore"> Also ask for new cards to fill gaps</label>
       <div class="row"><span class="spacer"></span><button class="btn primary" id="btnMakeRevision">Build revision prompt</button></div>
       <textarea id="rvOut" readonly rows="14" placeholder="The revision prompt appears here"></textarea>
-      <div class="row"><span class="small muted">Send it in the <b>same Claude chat</b> if possible (it still has your material).</span><span class="spacer"></span><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runRevision" hidden title="Run the revision on your Mac and apply it when it is done">▶ Run on Mac</button><button class="btn primary" id="btnCopyRevision">📋 Copy</button></div>
+      <div class="row"><span class="small muted">Send it in the <b>same Claude chat</b> if possible (it still has your material).</span><span class="spacer"></span><label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runRevision" hidden title="Run the revision on your Mac and apply it when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="btnCopyRevision">📋 Copy</button></div>
     </div>
     <div class="panel stack">
       <h2>2 · Apply Claude's revision</h2>
@@ -1650,8 +1656,12 @@ if __name__ == "__main__":
  * Safety
  * - The device token is kept in ~/.acs-bridge/config.json, readable only by you. Remove the device in the Studio to
  *   cut it off at once. It is sent only over https (or to this Mac itself), and only to the server you paired with.
- * - Each job runs in its own new folder (~/.acs-bridge/jobs/<id>). The prompt and files from the Studio are written
- *   there as files; they are never put on a command line. The agent gets a fixed instruction from this script.
+ * - Each run gets its own new folder (~/.acs-bridge/jobs/<id>-<random>), removed when the run ends - done, failed or
+ *   cancelled (keepJobs keeps them). The prompt and files from the Studio are written there as files; they are never
+ *   put on a command line or into the agent's messages. The agent gets a fixed instruction from this script and reads
+ *   the files with its own tools. Big blocks of the prompt (material, cards) go to files of their own (anki_blocks/).
+ * - Files the Studio declares with a sha256 are kept in ~/.acs-bridge/cache, so the skill and a lecture's slides
+ *   are downloaded once, not for every job (checked against the hash each time; old entries are pruned).
  * - Claude Code runs with --permission-mode dontAsk and only the tools in `claudeTools` (anything else is refused,
  *   nothing waits for an answer), and without your MCP servers (--strict-mcp-config). Codex runs in its
  *   workspace-write sandbox. The agent still runs code (the skill is Python), so only pair devices with a Studio
@@ -1665,14 +1675,14 @@ if __name__ == "__main__":
  * (instead of ~/Library/LaunchAgents), ACS_BRIDGE_LAUNCHCTL (instead of launchctl).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '2';
+export const VERSION = '3';
 const HOME = process.env.ACS_BRIDGE_HOME || path.join(os.homedir(), '.acs-bridge');
 const CONFIG = path.join(HOME, 'config.json');
 const CHUNK = 3 * 1024 * 1024;
@@ -1681,18 +1691,22 @@ const TOKEN_RE = /^acsd_[A-Za-z0-9_-]{43}$/;
 export const LABEL = 'dev.ankicardstudio.bridge';
 export const LOG = path.join(HOME, 'bridge.log');
 const SERVICE = process.env.ACS_BRIDGE_SERVICE === '1';   // started by launchd (install)
+const JOBS = path.join(HOME, 'jobs'), CACHE = path.join(HOME, 'cache');
+const CACHE_DAYS = 7, CACHE_MAX = 1024 ** 3;          // cached files unused for a week go, and the cache stays under 1 GB
+/** a block bigger than this leaves the prompt for a file of its own (smaller ones are handier inline) */
+export const BLOCK_INLINE_MAX = 16_000;
 const SKILL_FILES = { 'SKILL.md': '', 'anki_helper.py': 'scripts', 'extract.py': 'scripts', 'make_prompts.py': 'scripts' };
 const DEFAULTS = {
   agents: ['claude', 'codex'],               // which agents this Mac runs (only the ones that are installed)
   claudeTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'],
   maxMinutes: 60,                            // a run that takes longer is stopped (a job can ask for less, never more)
-  keepJobs: false,                           // keep a job's folder after it succeeded (failed ones are always kept)
+  keepJobs: false,                           // keep each job's folder after it ends (to look at what the agent did)
 };
 /** what the agent is told. Fixed here on purpose: nothing from the server ends up in an argument */
 export const INSTRUCTION = `You are running unattended for Anki Card Studio, in a folder made for this one job.
 Your task is in ./anki_prompt.txt: read it and follow it exactly.
 - The anki skill, in the exact version the Studio uses, is in ./anki-skill/SKILL.md; its scripts are in ./anki-skill/scripts (in Python: import sys; sys.path.insert(0, "anki-skill/scripts"); from anki_helper import *).
-- The files the prompt mentions as attached are in this folder. Read blocks of the prompt by their id with the helper (it finds anki_prompt.txt here); never retype them.
+- The files the prompt mentions as attached are in this folder: open them with your tools. Read blocks of the prompt by their id with the helper (it finds them in anki_prompt.txt and ./anki_blocks); never retype them.
 - Outputs go to ./anki_out (ANKI_OUT_DIR is set): the result must be ./anki_out/anki_bundle.json for new cards, or ./anki_out/anki_revision.json for a revision, as the prompt asks.
 - Nobody can answer questions while you work: make sensible choices and mention them in your final reply.
 - Work only inside this folder.`;
@@ -1828,7 +1842,11 @@ export function toEvents(agent, line) {
 
 /* ------------------------------------------------------------------ one job */
 let running = null;   // stops the agent that is running now
-const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+/** names this script uses in the job folder itself: a job's file may not take one (in any case: macOS folders ignore it) */
+const RESERVED = new Set(['agents.md', 'anki_out', 'anki-skill', 'anki_blocks']);
+const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && !RESERVED.has(n.toLowerCase()) && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+const SHA_RE = /^[0-9a-f]{64}$/;
+const sha256 = (b) => createHash('sha256').update(b).digest('hex');
 
 /** a regular file's bytes, or null for anything else (missing, a folder, a link) */
 function readOwnFile(p) {
@@ -1837,12 +1855,71 @@ function readOwnFile(p) {
   try { return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null; } finally { fs.closeSync(fd); }
 }
 
+/* big blocks by reference: the Studio puts a prompt's material and cards in <<<SOURCE id=s-… / <<<REVISE_CARDS id=r-…
+   blocks. A big one goes to anki_blocks/<id>.txt and the prompt keeps one line saying where it is. The helper finds a
+   block by its id in any text file of the job folder (find_block), so load_source(id) / Deck.load(id) work the same,
+   and the agent reads a short prompt instead of all the material at once. */
+const BLOCK_RE = /<<<(SOURCE|REVISE_CARDS) id=([a-z]-[0-9a-f]{8})[^\n]*\n[\s\S]*?\n?\1>>>/g;
+/** {prompt, blocks: [{id, text}]}: the prompt with every block longer than `max` characters replaced by a pointer */
+export function splitBlocks(text, max = BLOCK_INLINE_MAX) {
+  const blocks = [];
+  const prompt = text.replace(BLOCK_RE, (m, tag, id) => {
+    if (m.length <= max) return m;
+    if (!blocks.some((b) => b.id === id)) blocks.push({ id, text: m });   // the id comes from the content: same id, same block
+    return `[${tag} block ${id} (${m.length} characters) is in anki_blocks/${id}.txt, not in this prompt. ${tag === 'SOURCE' ? `load_source("${id}")` : `Deck.load("${id}")`} reads it from there; open the file yourself only for the parts you need.]`;
+  });
+  return { prompt, blocks };
+}
+
+/** a declared file's bytes: from this Mac's cache when it holds exactly that content (sha256), else downloaded and cached */
+async function fetchInput(api, id, f) {
+  const want = typeof f.sha256 === 'string' && SHA_RE.test(f.sha256) ? f.sha256 : null, cached = want && path.join(CACHE, want);
+  if (cached) {
+    const bytes = readOwnFile(cached);
+    if (bytes && sha256(bytes) === want) { try { const now = new Date(); fs.utimesSync(cached, now, now); } catch {} return { bytes, hit: true }; }
+  }
+  const bytes = await api.download(id, f.name);
+  // only what really has that hash is kept, written to a new name first so a half-written file is never used
+  if (cached && sha256(bytes) === want) try {
+    fs.mkdirSync(CACHE, { recursive: true, mode: 0o700 });
+    const tmp = `${cached}.${randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(tmp, cached);
+  } catch {}
+  return { bytes, hit: false };
+}
+/** the cache keeps what was used in the last CACHE_DAYS, newest first, up to CACHE_MAX bytes */
+export function pruneCache(now = Date.now()) {
+  let names; try { names = fs.readdirSync(CACHE); } catch { return; }
+  const list = names.map((n) => ({ n, p: path.join(CACHE, n), st: fs.lstatSync(path.join(CACHE, n), { throwIfNoEntry: false }) })).filter((e) => e.st);
+  let total = 0;
+  for (const e of list.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)) {
+    if (e.n.endsWith('.tmp') && now - e.st.mtimeMs < 3600_000) continue;   // another bridge may be writing it now
+    if (!SHA_RE.test(e.n) || !e.st.isFile() || now - e.st.mtimeMs > CACHE_DAYS * 86_400_000 || (total += e.st.size) > CACHE_MAX)
+      fs.rmSync(e.p, { recursive: true, force: true });
+  }
+}
+/** folders of runs that never ended here (the bridge was stopped, the Mac shut down): removed once no run can still be
+    using them, i.e. older than the longest run allowed. Also the folders of failed jobs older versions kept. */
+export function sweepJobs(cfg, now = Date.now()) {
+  if (cfg.keepJobs) return;
+  let names; try { names = fs.readdirSync(JOBS); } catch { return; }
+  for (const n of names) {
+    if (!/^j[a-z0-9]{12,40}(?:-[A-Za-z0-9]{6})?$/.test(n)) continue;
+    const p = path.join(JOBS, n), st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (st?.isDirectory() && now - st.mtimeMs > (cfg.maxMinutes + 15) * 60_000) fs.rmSync(p, { recursive: true, force: true });
+  }
+}
+
 export async function runJob(api, job, cfg, log = console.log) {
   if (typeof job.id !== 'string' || !/^j[a-z0-9]{12,40}$/.test(job.id)) throw new Error('invalid job id');
-  const dir = path.join(HOME, 'jobs', job.id);
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(path.join(dir, 'anki_out'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(JOBS, { recursive: true, mode: 0o700 });
+  // a new folder for every run, even of the same job (a claim whose answer was lost is handed out again), so two runs
+  // never share one; it is removed however the run ends
+  const dir = fs.mkdtempSync(path.join(JOBS, job.id + '-'));
+  fs.mkdirSync(path.join(dir, 'anki_out'), { mode: 0o700 });
   fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
+  const kept = cfg.keepJobs ? dir : undefined;
   let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
   // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
   const send = async (force) => {
@@ -1856,18 +1933,27 @@ export async function runJob(api, job, cfg, log = console.log) {
     // say so first: a slow download must not look like a bridge that went quiet
     pending.push({ type: 'log', text: `Picked up on ${os.hostname()} - fetching ${job.files.length} file(s)` });
     await send(true);
+    let hits = 0;
     for (const f of job.files) {
       await send(false);
       if (cancelled) return { ok: false, cancelled: true };
       if (!safeName(f.name)) throw new Error(`refusing the file name ${JSON.stringify(f.name)}`);
-      const bytes = await api.download(job.id, f.name), sub = SKILL_FILES[f.name];
+      const { bytes, hit } = await fetchInput(api, job.id, f), sub = SKILL_FILES[f.name];
+      hits += hit;
       fs.writeFileSync(sub === undefined ? path.join(dir, f.name) : path.join(dir, 'anki-skill', sub, f.name), bytes, { mode: 0o600 });
     }
-    if (!fs.existsSync(path.join(dir, 'anki_prompt.txt'))) throw new Error('the job has no anki_prompt.txt');
+    const promptPath = path.join(dir, 'anki_prompt.txt'), raw = readOwnFile(promptPath);
+    if (!raw) throw new Error('the job has no anki_prompt.txt');
+    const { prompt, blocks } = splitBlocks(raw.toString('utf8'));
+    if (blocks.length) {
+      fs.mkdirSync(path.join(dir, 'anki_blocks'), { mode: 0o700 });
+      for (const b of blocks) fs.writeFileSync(path.join(dir, 'anki_blocks', b.id + '.txt'), b.text, { mode: 0o600 });
+      fs.writeFileSync(promptPath, prompt, { mode: 0o600 });
+    }
     const opts = agentOptions(job.agent, job.options), minutes = Math.min(opts.maxMinutes || cfg.maxMinutes, cfg.maxMinutes);
     // Codex reads AGENTS.md; Claude gets the same through its instruction
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), INSTRUCTION + '\n');
-    pending.push({ type: 'log', text: `Started with ${job.agent}${Object.keys(opts).length ? ` (${describe({ ...opts, ...(opts.maxMinutes ? { maxMinutes: minutes } : {}) })})` : ''}` });
+    pending.push({ type: 'log', text: `Started with ${job.agent}${Object.keys(opts).length ? ` (${describe({ ...opts, ...(opts.maxMinutes ? { maxMinutes: minutes } : {}) })})` : ''}${hits ? ` - ${hits} of ${job.files.length} file(s) were already on this Mac` : ''}` });
     await send(true);
     if (cancelled) return { ok: false, cancelled: true };
     // its own process group, so stopping it also stops whatever it started (python, shells…)
@@ -1904,13 +1990,14 @@ export async function runJob(api, job, cfg, log = console.log) {
       if (bytes) await api.upload(job.id, name, bytes, name.endsWith('.json') ? 'application/json' : 'text/markdown');
     }
     const r = await api.finish(job.id, code === 0, code === 0 ? '' : `${job.agent} exited with code ${code}${errTail.trim() ? ': ' + errTail.trim().slice(-300) : ''}`);
-    const ok = r.job?.status === 'done';
-    if (ok && !cfg.keepJobs) fs.rmSync(dir, { recursive: true, force: true });
-    return { ok, status: r.job?.status, error: r.job?.error, dir };
+    return { ok: r.job?.status === 'done', status: r.job?.status, error: r.job?.error, dir: kept };
   } catch (e) {
     if (e.fatal) throw e;
     await api.finish(job.id, false, String(e.message || e)).catch(() => {});
-    return { ok: false, error: String(e.message || e), dir };
+    return { ok: false, error: String(e.message || e), dir: kept };
+  } finally {
+    running = null;
+    if (!kept) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -1919,6 +2006,7 @@ export async function serve(cfg, { once = false, log = console.log } = {}) {
   if (!cfg.server || !cfg.token) throw Object.assign(new Error('not paired yet - run: pbpaste | node acs-bridge.mjs setup --server https://<your studio>'), { fatal: true });
   const api = client(cfg.server, cfg.token), agents = installedAgents(cfg);
   if (!agents.length) throw new Error('neither claude nor codex is on your PATH');
+  sweepJobs(cfg); pruneCache();
   // offline at start (the Mac just woke up, no Wi-Fi yet): keep trying instead of giving up
   let me;
   for (let tries = 0; ; tries++) {
@@ -1934,6 +2022,7 @@ export async function serve(cfg, { once = false, log = console.log } = {}) {
     if (job) {
       log(`▶ ${job.title} (${job.kind}, ${job.agent})`);
       const r = await runJob(api, job, cfg, log);
+      pruneCache();
       log(r.ok ? `✓ done - the Studio imports it` : `✗ ${r.cancelled ? 'cancelled' : r.error || 'failed'}${r.dir && !r.ok ? ` (files kept in ${r.dir})` : ''}`);
       if (once) return r;
       continue;
@@ -6469,7 +6558,7 @@ function renderBatch(){
     <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'imported'}[it.status]}</span>
       <button class="btn sm" data-q="view" data-id="${esc(it.id)}" title="Open the full prompt in a new tab">👁</button>
       ${itemAttachments(it).length ? `<button class="btn sm" data-q="files" data-id="${esc(it.id)}" title="Download this prompt's files again: ${esc(attachNames(itemAttachments(it)))}">⬇</button>` : ''}
-      <button class="btn sm" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
+      <button class="btn sm copyBtn" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
       <button class="btn sm" data-q="done" data-id="${esc(it.id)}" title="Toggle imported">✓</button></div></div>`).join('');
   if (typeof renderBatchJobs === 'function') renderBatchJobs();   // "Mac: running" on prompts sent to the bridge
   const cur = $('#qList .qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
@@ -6487,7 +6576,7 @@ $('#btnQueueFromSubs').onclick = () => {
 };
 document.addEventListener('keydown', e => {
   if (!$('#tab-prompt').classList.contains('active') || $('#batchOut').hidden || $('#qPanel').hidden) return;
-  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey || copyHidden()) return;
   if (e.key.toLowerCase() === 'n'){ e.preventDefault(); $('#btnCopyNext').click(); }
 });
 
@@ -7881,6 +7970,7 @@ const DEFAULT_SETTINGS = {
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
   showAnalytics: true,                             // the Analytics tab (Settings → Tabs)
   promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
+  showCopy: false,                                 // the 📋 Copy buttons next to prompts (Settings → Prompts); ▶ Run on Mac replaces them
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   bridgeOpts: {claude: {}, codex: {}},              // what each agent runs with there: model, effort, limits (empty = the CLI's default)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
@@ -7908,6 +7998,7 @@ function mergeSettings(j){
   if (j && j.keys && !(j.version >= 2) && J(j.keys.approve) === J(['q']) && J(j.keys.exclude) === J(['d'])){ out.keys.approve = ['d']; out.keys.exclude = ['q']; }
   if (j && j.showAnalytics === false) out.showAnalytics = false;
   if (j && j.promptFile === true) out.promptFile = true;
+  if (j && j.showCopy === true) out.showCopy = true;   // on only when chosen: settings saved before it existed hide them too
   if (j && ['claude', 'codex'].includes(j.bridgeAgent)) out.bridgeAgent = j.bridgeAgent;
   if (j && j.bridgeOpts && typeof j.bridgeOpts === 'object') for (const a of ['claude', 'codex']) out.bridgeOpts[a] = cleanBridgeOpts(a, j.bridgeOpts[a]);
   if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
@@ -7935,8 +8026,18 @@ function applyTabs(){
   if (b){ b.hidden = !on; if (!on && b.classList.contains('active')) showTab('review'); }
   let i = 0; $$('#tabs button').forEach(x => { if (!x.hidden){ const n = x.querySelector('.n'); if (n) n.textContent = ++i; } });
 }
+/** the prompts' 📋 Copy buttons (and their "As a file" boxes) are hidden unless Settings → Prompts shows them - but only
+    while a Mac is paired: without one, Copy is the only way to send a prompt. Hidden = display:none, so they leave the
+    layout and the tab order; their N shortcuts check copyHidden() too. ▶ Run on Mac becomes the main button then. */
+function copyHidden(){ try { return !SET.showCopy && bridgeReady(); } catch { return false; } }   // bridgeReady: 19-bridge.js
+function applyCopyButtons(){
+  const off = copyHidden();
+  document.body.classList.toggle('hide-copy', off);
+  $$('.brRun').forEach(b => b.classList.toggle('primary', off));
+}
 function renderKeyHints(){
   try { applyTabs(); } catch {}
+  applyCopyButtons();
   if ($('#ckGrid') && typeof renderCheckSettings === 'function') try { renderCheckSettings(); } catch {}   // the checker settings change with the rest of the settings
   $$('.optPromptFile').forEach(cb => { cb.checked = !!SET.promptFile; });
   $$('.kbd[data-k]').forEach(el => { const ks = SET.keys[el.dataset.k] || []; el.textContent = ks.length ? keyName(ks[0]) : '–'; el.title = ks.map(keyName).join(' / '); });
@@ -8028,12 +8129,14 @@ function renderSwipeSettings(){
   $('#swAng').value = SET.swipe.angle; $('#swAngV').textContent = SET.swipe.angle + '°';
   $('#swFx').checked = SET.swipe.effects;
   $('#setAna').checked = SET.showAnalytics !== false;
+  $('#setCopy').checked = !!SET.showCopy;
 }
 $('#swDist').oninput = e => { SET.swipe.dist = +e.target.value; renderSwipeSettings(); };
 $('#swAng').oninput = e => { SET.swipe.angle = +e.target.value; renderSwipeSettings(); };
 ['#swDist', '#swAng'].forEach(q => $(q).onchange = () => saveSettings());
 $('#swFx').onchange = e => { SET.swipe.effects = e.target.checked; saveSettings(); };
 $('#setAna').onchange = e => { SET.showAnalytics = e.target.checked; saveSettings(); applyTabs(); };
+$('#setCopy').onchange = e => { SET.showCopy = e.target.checked; saveSettings(); };   // saveSettings → renderKeyHints → applyCopyButtons
 function renderSettings(){
   renderSwipeSettings();
   $('#keyGrid').innerHTML = Object.keys(DEFAULT_SETTINGS.keys).map(a => `<span>${esc(KEY_LABELS[a])}</span>
@@ -8594,7 +8697,7 @@ function renderFmtPass(){
       <div class="sub">${it.cards.length} cards · ${ok} approved${rc ? ` · ${rc} to re-check` : ''}${Object.keys(tally).length ? ' · ' + Object.entries(tally).map(([k, v]) => `${FMT_LABEL[k]} ${v}`).join(', ') : ''}</div></div>
       <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'answered'}[it.status]}</span>
         <button class="btn sm" data-fq="view" data-id="${it.id}" title="Open the full prompt in a new tab">👁</button>
-        <button class="btn sm" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
+        <button class="btn sm copyBtn" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
         <button class="btn sm" data-fq="done" data-id="${it.id}" title="Toggle answered">✓</button></div></div>`; }).join('');
   const cur = $('#fqList').querySelector('.qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
 }
@@ -8648,7 +8751,7 @@ if ($('#fqList')){
 document.addEventListener('keydown', e => {
   if (!$('#tab-revise').classList.contains('active') || e.key.toLowerCase() !== 'n') return;
   if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
-  if ($('#fqPanel').hidden || !fmtNext()) return;
+  if ($('#fqPanel').hidden || !fmtNext() || copyHidden()) return;
   e.preventDefault(); $('#fqNext').click();
 });
 const mediaForAI = cards => [...new Set(cards.flatMap(cardImages))].filter(n => S.media[n]).map(n => { const m = S.media[n]; const e = {filename: n, origin: m.origin}; for (const k of ['url','hint','caption','credit']) if (m[k]) e[k] = m[k]; return e; });
@@ -9307,7 +9410,7 @@ function safeFileName(name, fallback = 'source'){
    always accepted by the server and never shared: a PDF whose own name isn't goes as a whole-file excerpt, so its page
    map still names the original file. */
 function planAttachments(list){
-  const used = new Set(['anki_prompt.txt', 'skill.md', 'anki_helper.py', 'extract.py', 'make_prompts.py']);
+  const used = new Set(['anki_prompt.txt', 'skill.md', 'anki_helper.py', 'extract.py', 'make_prompts.py', 'agents.md', 'anki_out', 'anki-skill', 'anki_blocks']);   // the bridge's own names too
   const unique = n => {
     const ext = (/\.[^.]+$/.exec(n) || [''])[0], stem = n.slice(0, n.length - ext.length);
     let out = n;
@@ -9403,6 +9506,7 @@ async function loadDevices(){
 function renderBridgeButtons(){
   const on = bridgeReady();
   $$('.brRun').forEach(b => { b.hidden = !on; });
+  applyCopyButtons();   // the Copy buttons hide only while a Mac is paired
   if (typeof renderBatch === 'function' && $('#batchOut') && !$('#batchOut').hidden) renderBatch();
 }
 const agentName = a => a === 'codex' ? 'Codex' : 'Claude Code';
@@ -9473,6 +9577,11 @@ $('#brScript').onclick = () => download(new Blob([$('#bridgeSrc').textContent.re
 $('#brJobsOpen').onclick = () => { $('#setDlg').close(); openJobs(); };
 
 /* ---- making a job: the prompt, its attachments and this Studio's own copy of the skill, as files */
+/** hex SHA-256 of a blob, or undefined where the browser has no crypto.subtle (plain http): the bridge then just downloads it */
+async function blobSha256(blob){
+  try { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map(x => x.toString(16).padStart(2, '0')).join(''); }
+  catch { return undefined; }
+}
 async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
   if (!bridgeReady()) return toast('Add a device in Settings → Mac bridge first'), null;
   if (!prompt) return toast('Nothing to run'), null;
@@ -9488,8 +9597,9 @@ async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
   let job = null;
   try {
     const agent = SET.bridgeAgent || 'claude';
+    // each file's sha256: the bridge keeps files by content, so the skill and the same slides are downloaded once
     job = await brCall('POST', 'jobs', {project: curProject, kind, agent, options: brOpts(agent), title: String(title).slice(0, 200), meta,
-      files: files.map(f => ({name: f.name, size: f.blob.size}))});
+      files: await Promise.all(files.map(async f => ({name: f.name, size: f.blob.size, sha256: await blobSha256(f.blob)})))});
     for (const f of files) await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream');
     const queued = await brCall('POST', `jobs/${job.id}/queue`);
     BR.jobs = [queued, ...BR.jobs.filter(j => j.id !== queued.id)];

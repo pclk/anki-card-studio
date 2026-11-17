@@ -233,7 +233,7 @@ function renderBatch(){
     <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'imported'}[it.status]}</span>
       <button class="btn sm" data-q="view" data-id="${esc(it.id)}" title="Open the full prompt in a new tab">👁</button>
       ${itemAttachments(it).length ? `<button class="btn sm" data-q="files" data-id="${esc(it.id)}" title="Download this prompt's files again: ${esc(attachNames(itemAttachments(it)))}">⬇</button>` : ''}
-      <button class="btn sm" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
+      <button class="btn sm copyBtn" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
       <button class="btn sm" data-q="done" data-id="${esc(it.id)}" title="Toggle imported">✓</button></div></div>`).join('');
   if (typeof renderBatchJobs === 'function') renderBatchJobs();   // "Mac: running" on prompts sent to the bridge
   const cur = $('#qList .qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
@@ -251,7 +251,7 @@ $('#btnQueueFromSubs').onclick = () => {
 };
 document.addEventListener('keydown', e => {
   if (!$('#tab-prompt').classList.contains('active') || $('#batchOut').hidden || $('#qPanel').hidden) return;
-  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey || copyHidden()) return;
   if (e.key.toLowerCase() === 'n'){ e.preventDefault(); $('#btnCopyNext').click(); }
 });
 
