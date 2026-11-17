@@ -183,7 +183,7 @@ test("the bridge runs a job end to end: files in a fresh folder, fixed flags, ev
   assert.ok(!log.argv.some((a: string) => a.includes("classes") || a.includes("blueprint")));   // …never the prompt
   for (const f of ["--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--strict-mcp-config", "--allowedTools"]) assert.ok(log.argv.includes(f), f);
   assert.ok(!log.argv.includes("--dangerously-skip-permissions") && !log.argv.includes("bypassPermissions"));
-  assert.match(log.cwd, new RegExp(`^${join(HOME, "jobs", id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-[A-Za-z0-9]{6}$`));   // a new folder per run
+  assert.match(log.cwd, new RegExp(`^${join(HOME, "jobs", id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-${process.pid}-[A-Za-z0-9]{6}$`));   // a new folder per run, named by its bridge
   assert.equal(log.out, join(log.cwd, "anki_out"));
   assert.deepEqual(log.files, ["AGENTS.md", "L01_p3-5.pdf", "anki-skill", "anki_out", "anki_prompt.txt"]);
   assert.deepEqual(log.skill, ["anki_helper.py"]);

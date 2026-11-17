@@ -1656,8 +1656,8 @@ if __name__ == "__main__":
  * Safety
  * - The device token is kept in ~/.acs-bridge/config.json, readable only by you. Remove the device in the Studio to
  *   cut it off at once. It is sent only over https (or to this Mac itself), and only to the server you paired with.
- * - Each run gets its own new folder (~/.acs-bridge/jobs/<id>-<random>), removed when the run ends - done, failed or
- *   cancelled (keepJobs keeps them). The prompt and files from the Studio are written there as files; they are never
+ * - Each run gets its own new folder (~/.acs-bridge/jobs/<id>-<pid>-<random>), removed when the run ends - done, failed,
+ *   cancelled or the bridge stopped (keepJobs keeps them). The prompt and files from the Studio are written there as files; they are never
  *   put on a command line or into the agent's messages. The agent gets a fixed instruction from this script and reads
  *   the files with its own tools. Big blocks of the prompt (material, cards) go to files of their own (anki_blocks/).
  * - Files the Studio declares with a sha256 are kept in ~/.acs-bridge/cache, so the skill and a lecture's slides
@@ -1842,6 +1842,7 @@ export function toEvents(agent, line) {
 
 /* ------------------------------------------------------------------ one job */
 let running = null;   // stops the agent that is running now
+let runDir = null;    // the folder of the run now, removed on Ctrl+C / stop too (unless keepJobs)
 /** names this script uses in the job folder itself: a job's file may not take one (in any case: macOS folders ignore it) */
 const RESERVED = new Set(['agents.md', 'anki_out', 'anki-skill', 'anki_blocks']);
 const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && !RESERVED.has(n.toLowerCase()) && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
@@ -1899,15 +1900,21 @@ export function pruneCache(now = Date.now()) {
       fs.rmSync(e.p, { recursive: true, force: true });
   }
 }
-/** folders of runs that never ended here (the bridge was stopped, the Mac shut down): removed once no run can still be
-    using them, i.e. older than the longest run allowed. Also the folders of failed jobs older versions kept. */
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+/** folders of runs that never ended here (the bridge was killed, the Mac shut down). A run's folder names the bridge
+    that owns it (jobs/<id>-<pid>-<random>): gone at once when that process is gone, else only after the longest run
+    any bridge allows (another bridge on this Mac may have a longer limit). Folders without an owner (older versions,
+    which also kept failed jobs) go after this bridge's own limit. */
 export function sweepJobs(cfg, now = Date.now()) {
   if (cfg.keepJobs) return;
   let names; try { names = fs.readdirSync(JOBS); } catch { return; }
   for (const n of names) {
-    if (!/^j[a-z0-9]{12,40}(?:-[A-Za-z0-9]{6})?$/.test(n)) continue;
+    const m = /^j[a-z0-9]{12,40}(?:-(\d{1,10})-[A-Za-z0-9]{6}|-[A-Za-z0-9]{6})?$/.exec(n); if (!m) continue;
     const p = path.join(JOBS, n), st = fs.lstatSync(p, { throwIfNoEntry: false });
-    if (st?.isDirectory() && now - st.mtimeMs > (cfg.maxMinutes + 15) * 60_000) fs.rmSync(p, { recursive: true, force: true });
+    if (!st?.isDirectory()) continue;
+    const pid = m[1] && Number(m[1]), age = now - st.mtimeMs;
+    const stale = pid ? pid !== process.pid && (!alive(pid) || age > (1440 + 15) * 60_000) : age > (cfg.maxMinutes + 15) * 60_000;
+    if (stale) fs.rmSync(p, { recursive: true, force: true });
   }
 }
 
@@ -1916,10 +1923,11 @@ export async function runJob(api, job, cfg, log = console.log) {
   fs.mkdirSync(JOBS, { recursive: true, mode: 0o700 });
   // a new folder for every run, even of the same job (a claim whose answer was lost is handed out again), so two runs
   // never share one; it is removed however the run ends
-  const dir = fs.mkdtempSync(path.join(JOBS, job.id + '-'));
+  const dir = fs.mkdtempSync(path.join(JOBS, `${job.id}-${process.pid}-`));
   fs.mkdirSync(path.join(dir, 'anki_out'), { mode: 0o700 });
   fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
   const kept = cfg.keepJobs ? dir : undefined;
+  if (!kept) runDir = dir;
   let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
   // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
   const send = async (force) => {
@@ -1996,7 +2004,7 @@ export async function runJob(api, job, cfg, log = console.log) {
     await api.finish(job.id, false, String(e.message || e)).catch(() => {});
     return { ok: false, error: String(e.message || e), dir: kept };
   } finally {
-    running = null;
+    running = null; if (runDir === dir) runDir = null;
     if (!kept) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -2126,7 +2134,8 @@ function status() {
 
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 if (isMain) {
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); process.exit(130); });
+  // stopping the bridge stops the agent and removes the run's folder (process.exit skips runJob's finally)
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); if (runDir) try { fs.rmSync(runDir, { recursive: true, force: true }); } catch {} process.exit(130); });
   const [cmd, ...rest] = process.argv.slice(2), flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
   // in the background: a time on every line, and a log that doesn't grow forever
   const stamp = (m) => console.log(`${new Date().toISOString().slice(0, 19).replace('T', ' ')} ${m}`);

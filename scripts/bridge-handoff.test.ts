@@ -71,7 +71,7 @@ test("each run gets a new private folder under jobs/, removed after a successful
   const r = await bridge.runJob(fakeApi(files), { id, agent: "claude", files: decl(files) }, cfg(), () => {});
   assert.equal(r.ok, true, JSON.stringify(r));
   const log = agentLog();
-  assert.match(log.cwd, new RegExp(`/jobs/${id}-[A-Za-z0-9]{6}$`));
+  assert.match(log.cwd, new RegExp(`/jobs/${id}-${process.pid}-[A-Za-z0-9]{6}$`));
   assert.deepEqual(log.files, ["AGENTS.md", "L01.pdf", "anki-skill", "anki_out", "anki_prompt.txt"]);
   assert.equal(log.pdf, "%PDF-1");
   assert.equal(existsSync(log.cwd), false);
@@ -169,6 +169,21 @@ test("folders a stopped bridge left behind are swept once no run can still use t
   assert.ok(left.includes("jsweep00000003-Zz99Yy"), "a recent one may still be running");
   assert.ok(left.includes("not-a-job") && left.includes("mode"));
   for (const d of ["jsweep00000003-Zz99Yy", "not-a-job", "mode"]) rmSync(join(jobs, d), { recursive: true, force: true });
+});
+
+test("a folder owned by a running bridge is never swept by another one with a shorter limit; a dead owner's goes at once", () => {
+  const jobs = join(HOME, "jobs"); mkdirSync(jobs, { recursive: true });
+  const dead = spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" }).stdout.trim();
+  const mine = `jowner00000001-${process.pid}-Ab12Cd`, live = `jowner00000002-${process.ppid}-Ab12Cd`, gone = `jowner00000003-${dead}-Ab12Cd`;
+  const old = Date.now() / 1000 - 3 * 3600;
+  for (const d of [mine, live, gone]) { mkdirSync(join(jobs, d)); utimesSync(join(jobs, d), old, old); }
+  bridge.sweepJobs(cfg({ maxMinutes: 1 }));
+  const left = readdirSync(jobs);
+  assert.ok(left.includes(mine), "never this bridge's own"); assert.ok(left.includes(live), "another live bridge's run may still be going");
+  assert.ok(!left.includes(gone), "its bridge is gone: nothing can use it");
+  bridge.sweepJobs(cfg(), Date.now() + 25 * 3600_000);   // past the longest run any bridge allows
+  assert.ok(!readdirSync(jobs).includes(live));
+  for (const d of readdirSync(jobs)) rmSync(join(jobs, d), { recursive: true, force: true });
 });
 
 /* ------------------------------------------------------------------ what the agent gets */
