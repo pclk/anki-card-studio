@@ -8701,14 +8701,20 @@ function fmtItems(){
 const fmtNext = () => fmtItems().find(i => i.status === 'todo');
 function fmtFinish(c){ c.fmtDone = c.fmt; delete c.fmt; delete c.fmtSt; delete c.fmtJob; }
 const ruleSetting = (k, C) => typeof C[k] === 'number' ? C[k] + ' ' + (CHECK_DEFS.find(d => d.key === k) || {}).unit : k === 'why_min_words' ? C.why : C[k];
+/** Counts follow the queue filters, but always require an actual failure, even in “all cards” mode. */
+function fixRuleCount(key){
+  if (!rulesOn([key]).length) return 0;
+  const errorsOnly = $('#fixScope').value === 'err';
+  return fmtCandidates([key]).filter(c => issuesFor(c, [key]).some(x => !errorsOnly || x.level === 'E')).length;
+}
 function renderRulePicker(picked, C){
   $('#fxPresets').innerHTML = fixPresets().map((p, i) => `<button class="btn sm ${sameRules(p.rules, picked) ? 'on' : ''}" data-preset="${i}" title="${esc(p.rules.map(k => FMT_LABEL[k]).join(', '))}">${esc(p.name)}${p.own ? `<span class="fx-rm" data-rm-preset="${i}" title="Delete this preset">✕</span>` : ''}</button>`).join('')
     + `<button class="btn sm" id="fxSave" title="Save the rules ticked below as a preset of your own" ${picked.length ? '' : 'disabled'}>＋ Save as preset</button>`;
   let g = '', h = '';
   for (const k of FIX_RULES){
-    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length;
+    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length, count = fixRuleCount(k);
     if (d.group !== g){ h += `${g ? '</div>' : ''}<div class="fx-g"><h4>${esc(d.group)}</h4>`; g = d.group; }
-    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''}> <span>${esc(FMT_LABEL[k])} <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
+    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''} ${count ? '' : 'disabled'}> <span>${esc(FMT_LABEL[k])} <b>${count} ${count === 1 ? 'card' : 'cards'}</b> <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
   }
   $('#fxRules').innerHTML = h + '</div>';
 }
