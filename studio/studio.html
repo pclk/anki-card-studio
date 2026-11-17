@@ -1932,13 +1932,17 @@ export async function runJob(api, job, cfg, log = console.log) {
     if (inflight && !force) return;
     while (inflight) await inflight.catch(() => {});
     if (!pending.length && !force && Date.now() - lastSent < 30_000) return;
-    const list = pending; pending = []; lastSent = Date.now();
+    // the server takes at most 200 events a post (the rest would be dropped): send them in batches
+    const list = pending.splice(0, 200); lastSent = Date.now();
     const post = (async () => {
-      try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
-      catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+      try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } return true; }
+      catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); return false; }
     })();
     inflight = post;
-    try { await post; } finally { if (inflight === post) inflight = null; }
+    let ok;
+    try { ok = await post; } finally { if (inflight === post) inflight = null; }
+    // a final flush sends everything; the flusher sends the rest on its next tick
+    if (ok && force && pending.length) await send(true);
   };
   let revoked = null;
   try {

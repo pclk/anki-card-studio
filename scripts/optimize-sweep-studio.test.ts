@@ -125,3 +125,30 @@ let i = 0; const t = setInterval(() => { say({type:'assistant', message:{content
   assert.equal(most, 1, "two posts were out at once");
   for (let i = 1; i <= 40; i++) assert.ok(stored.includes("line " + i), `line ${i} was lost`);
 });
+
+test("bridge: a burst of more than 200 lines goes up in posts of at most 200, and none is lost (found by the Sol review)", async () => {
+  const HOME = realpathSync(mkdtempSync(join(tmpdir(), "acs-sweep-burst-")));
+  process.env.ACS_BRIDGE_HOME = HOME;
+  const fake = join(HOME, "burst.mjs");
+  writeFileSync(fake, `#!/usr/bin/env node
+for (let i = 1; i <= 450; i++) console.log(JSON.stringify({type:'assistant', message:{content:[{type:'text', text:'line ' + i}]}}));
+console.log(JSON.stringify({type:'result', result:'ok'}));
+`);
+  chmodSync(fake, 0o755);
+  process.env.ACS_BRIDGE_CLAUDE = fake;
+  const bridge = await import("../bridge/acs-bridge.mjs");
+  const stored = new Set<string>(), sizes: number[] = [];
+  let n = 0;
+  const api = {
+    // like the server: a post keeps only its first 200 events
+    async events(_id: string, list: any[]) { for (const e of list) if (e.n == null) e.n = ++n; sizes.push(list.length); for (const e of list.slice(0, 200)) stored.add(e.text); return { cancel: false }; },
+    async download() { return Buffer.from("make cards"); },
+    async upload() {},
+    async finish() { return { job: { status: "done" } }; },
+  };
+  const job = { id: "j" + "b".repeat(20), title: "t", kind: "cards", agent: "claude", files: [{ name: "anki_prompt.txt" }], options: {} };
+  const r = await bridge.runJob(api, job, { ...bridge.loadConfig(), agents: ["claude"] }, () => {});
+  assert.equal(r.ok, true);
+  assert.ok(Math.max(...sizes) <= 200, `a post of ${Math.max(...sizes)} events`);
+  for (let i = 1; i <= 450; i++) assert.ok(stored.has("line " + i), `line ${i} was lost`);
+});
