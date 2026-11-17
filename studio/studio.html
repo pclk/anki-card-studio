@@ -28,6 +28,7 @@
 }
 *{box-sizing:border-box}
 [hidden]{display:none !important}
+body.hide-copy .copyBtn{display:none !important}
 html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{margin:0;line-height:1.25}
@@ -479,6 +480,11 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <label class="check small"><input type="checkbox" id="setAna"> Show the <b>Analytics</b> tab (deck makeup and checker results)</label>
     </div>
     <div class="stack" style="gap:8px">
+      <b>Prompts</b>
+      <label class="check small"><input type="checkbox" id="setCopy"> Show the <b>📋 Copy</b> buttons next to prompts, to paste them into a chat yourself</label>
+      <span class="small muted">Off: <b>▶ Run on Mac</b> takes their place. Without a paired Mac they are always shown, since Copy is then the only way to send a prompt.</span>
+    </div>
+    <div class="stack" style="gap:8px">
       <b>Swiping (touch screens)</b>
       <span class="small muted">On a phone, swipe the card right to approve and left to exclude.</span>
       <label class="f">How far to swipe: <b id="swDistV"></b> of the card's width<input type="range" id="swDist" min="8" max="60" step="1"></label>
@@ -640,8 +646,8 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
         <button class="btn" id="btnCopyScript" title="Copy anki_helper.py to clipboard">📋 Copy script</button>
         <button class="btn" id="btnDlScript">⬇ anki_helper.py</button>
         <button class="btn" id="btnDlSkill2" hidden>⬇ anki skill (.zip)</button>
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn" id="btnSrcFiles" hidden title="Download the source files again">⬇ Source files</button><button class="btn brRun" id="runPrompt" hidden title="Run this prompt on your Mac (Claude Code / Codex) and import the cards when it is done">▶ Run on Mac</button><button class="btn primary" id="btnCopyPrompt">📋 Copy prompt</button></div>
-      <div class="small" id="pAttachInfo"></div>
+        <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn copyBtn" id="btnSrcFiles" hidden title="Download the source files again">⬇ Source files</button><button class="btn brRun" id="runPrompt" hidden title="Run this prompt on your Mac (Claude Code / Codex) and import the cards when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="btnCopyPrompt">📋 Copy prompt</button></div>
+      <div class="small copyBtn" id="pAttachInfo"></div>
       <textarea id="pOut" readonly style="min-height:520px;flex:1"></textarea>
       <ol class="steps small muted" id="pSteps">
         <li>Open a new Claude chat. Attach your material and <b>anki_helper.py</b>, then paste the prompt.</li>
@@ -670,7 +676,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
         <div class="row" style="margin-top:4px"><span class="spacer"></span><button class="btn sm" id="btnQPaste">Load queue</button></div></details>
       <div id="qPanel" class="stack" hidden>
         <div class="row">
-          <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runQueue" hidden title="Run every prompt that is still to do on your Mac, one after another; each result is imported by itself">▶ Run all on Mac</button><button class="btn primary" id="btnCopyNext">📋 Copy next prompt <span class="kbd">N</span></button>
+          <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runQueue" hidden title="Run every prompt that is still to do on your Mac, one after another; each result is imported by itself">▶ Run all on Mac</button><button class="btn primary copyBtn" id="btnCopyNext">📋 Copy next prompt <span class="kbd">N</span></button>
           <span class="small" id="qNextLabel"></span><span class="spacer"></span>
           <button class="btn sm" id="btnQReset" title="Mark every prompt as not copied">↺ Reset</button>
           <button class="btn sm" id="btnQClear" title="Remove the queue">✕ Clear</button>
@@ -818,7 +824,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     <div class="row"><h2 style="margin:0">Broken images</h2><span class="spacer"></span><span id="biStats" class="small muted"></span></div>
     <p class="small muted" style="margin:0">Images you marked broken in Review → 🖼 Images. Claude redoes each one (new filename, same card otherwise) and replies with <b>anki_revision.json</b>: drop it under <i>2 · Apply Claude's revision</i> below. The changed cards go back to <i>Unreviewed</i>, and their new images wait for review.</p>
     <div id="biList" class="stack" style="gap:6px;max-height:40vh;overflow-y:auto"></div>
-    <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary" id="biCopy">📋 Copy</button></div>
+    <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="biCopy">📋 Copy</button></div>
     <textarea id="biOut" readonly rows="6" placeholder="The image-fix prompt appears here"></textarea>
   </div>
   <div class="panel stack" id="fixPanel" style="margin-bottom:14px">
@@ -835,7 +841,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     </div>
     <div id="fqPanel" class="stack" hidden>
       <div class="row">
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
+        <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary copyBtn" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
         <span class="small" id="fqNextLabel"></span><span class="spacer"></span>
         <button class="btn sm" id="fqReset" title="Mark every prompt as not copied (answered ones stay ticked)">↺ Reset</button>
         <button class="btn sm" id="fqClear" title="Remove the queue">✕ Clear</button>
@@ -859,7 +865,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <label class="check"><input type="checkbox" id="rvMore"> Also ask for new cards to fill gaps</label>
       <div class="row"><span class="spacer"></span><button class="btn primary" id="btnMakeRevision">Build revision prompt</button></div>
       <textarea id="rvOut" readonly rows="14" placeholder="The revision prompt appears here"></textarea>
-      <div class="row"><span class="small muted">Send it in the <b>same Claude chat</b> if possible (it still has your material).</span><span class="spacer"></span><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runRevision" hidden title="Run the revision on your Mac and apply it when it is done">▶ Run on Mac</button><button class="btn primary" id="btnCopyRevision">📋 Copy</button></div>
+      <div class="row"><span class="small muted">Send it in the <b>same Claude chat</b> if possible (it still has your material).</span><span class="spacer"></span><label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runRevision" hidden title="Run the revision on your Mac and apply it when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="btnCopyRevision">📋 Copy</button></div>
     </div>
     <div class="panel stack">
       <h2>2 · Apply Claude's revision</h2>
