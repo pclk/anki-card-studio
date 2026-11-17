@@ -64,13 +64,14 @@ function applyBundle(d, mode, opts = {}){
           && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || [])
           && (!('skipped_checks' in n) || J(n.skipped_checks) === J(existing.skipped_checks || {}));
         if (same){ sum.fmtSame++; continue; }
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: ''};
+        // prev is a copy: the card's refs / skips may later change in place (Undo skip), and prev must keep the old ones
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: JSON.parse(J(existing.refs || [])), skipped_checks: {...(existing.skipped_checks || {})}, feedback: ''};
         existing.revised = true; existing.edited = false;
         sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
         // keep the review state and any feedback the user already wrote
         for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
       } else if (!isProject){
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: existing.feedback || ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: JSON.parse(J(existing.refs || [])), skipped_checks: {...(existing.skipped_checks || {})}, feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
       Object.assign(existing, n);

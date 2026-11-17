@@ -225,9 +225,9 @@ function renderJobsList(){
 }
 async function refreshLogs(){
   for (const id of BR.open){
-    const log = BR.logs.get(id) || {after: 0, items: []};
-    try { const ev = await brCall('GET', `jobs/${id}/events?after=${log.after}`); log.items.push(...ev); if (ev.length) log.after = ev[ev.length - 1].seq; } catch {}
-    BR.logs.set(id, log);
+    let log = BR.logs.get(id); if (!log) BR.logs.set(id, log = {after: 0, items: []});
+    // two refreshes can overlap (the poll, a click on Log): only lines newer than the last one shown are added
+    try { const ev = (await brCall('GET', `jobs/${id}/events?after=${log.after}`)).filter(e => e.seq > log.after); log.items.push(...ev); if (ev.length) log.after = ev[ev.length - 1].seq; } catch {}
   }
 }
 async function openJobs(){ $('#jobsDlg').showModal(); renderJobsList(); await pollJobs(); }
