@@ -1,0 +1,11 @@
+[
+  {"name": "exactly the phone width passes", "card": {"type": "basic", "front": "Q", "back": "<pre><code class=\"language-java\">public ColoredCircle(Circle\n    c) {}</code></pre>"}, "longest": 27, "flag": false},
+  {"name": "one character over fails", "card": {"type": "basic", "front": "<pre><code class=\"language-java\">public ColoredCircle(Circle c,</code></pre>", "back": "A"}, "longest": 30, "flag": true},
+  {"name": "entities count as one character", "card": {"type": "basic", "front": "Q", "back": "<pre><code class=\"language-java\">if (a &lt; b &amp;&amp; c &gt; d) x++;</code></pre>"}, "longest": 24, "flag": false},
+  {"name": "highlight spans are not counted", "card": {"type": "basic", "front": "Q", "back": "<pre><code class=\"language-java\"><span class=\"hljs-keyword\">public</span> <span class=\"hljs-keyword\">static</span> <span class=\"hljs-keyword\">void</span> main()</code></pre>"}, "longest": 25, "flag": false},
+  {"name": "a tab counts to the next 8 columns", "card": {"type": "basic", "front": "Q", "back": "<pre><code class=\"language-python\">if x:\n\t\treturn compute(x, y)</code></pre>"}, "longest": 36, "flag": true},
+  {"name": "trailing spaces are ignored", "card": {"type": "basic", "front": "Q", "back": "<pre><code class=\"language-java\">int x = 5;                          </code></pre>"}, "longest": 10, "flag": false},
+  {"name": "inline code is not checked", "card": {"type": "basic", "front": "What does <code>System.out.println(String.valueOf(x))</code> print?", "back": "x"}, "longest": 0, "flag": false},
+  {"name": "long prose is not checked", "card": {"type": "basic", "front": "Explain why a subclass constructor must call the superclass constructor first.", "back": "Because the superclass part of the object must be initialised before the subclass uses it."}, "longest": 0, "flag": false},
+  {"name": "cloze text and extra are checked", "card": {"type": "cloze", "text": "{{c1::Override}} it.", "extra": "<pre><code class=\"language-java\">@Override public String toString() {</code></pre>"}, "longest": 36, "flag": true}
+]

@@ -92,32 +92,38 @@ Give me **anki_bundle.json** (I'll import it into Anki Card Studio) and reply wi
 }
 /** single prompt in a sub-project targets that sub-deck */
 function scopedPrompt(p){ const n = scopeNode(); return n ? {...p, pDeck: nodeDeckOf(n)} : p; }
-const SOURCE_NOTE = (p, label) => `- There are **no attachments**: all the material is in "Source material" below, extracted from my files${label ? ` (${label})` : ''}. Markers like [L01.pdf p.12] give the file and page of the text that follows - use them for each card's Source${p.pRefs ? ' and refs (copy the quote verbatim from the text)' : ''}.
-- You cannot crop figures from my files. Where a figure would help (see [figure] markers), add a "material" placeholder naming the exact file and page; generated diagrams and Wikimedia photos are fine.`;
+const SOURCE_NOTE = (p, label, sb) => `- There are **no attachments of my files**: all the material is in "Source material" below, extracted from my files${label ? ` (${label})` : ''}. Markers like [L01.pdf p.12] give the file and page of the text that follows - use them for each card's Source${p.pRefs ? ' and refs (copy the quote verbatim from the text)' : ''}.
+- You cannot crop figures from my files. Where a figure would help (see [figure] markers), add a "material" placeholder naming the exact file and page; generated diagrams and Wikimedia photos are fine.${sb ? `
+- With code execution: \`deck.load_source("${sb.id}")\` reads the Source material from this prompt saved as a file (an attachment, the working folder or Downloads), so never retype it. If no file has it, skip load_source (validate() then cannot check quotes) and say so in your summary.` : ''}`;
 const useStoredSources = p => p.pInclSrc && scopeSources().length > 0;
 async function fullSinglePrompt(){
   const p = scopedPrompt(readPrompt());
   if (!useStoredSources(p)) return p.pMode === 'skill' ? buildSkillPrompt(p) : fullPrompt(p);
+  const list = singleSourceList(), atts = planAttachments(list);
+  if (atts.length){   // the original files go with the prompt (Copy downloads them); only file-less sources go as text
+    const base = p.pMode === 'skill' ? buildSkillPrompt(p) : fullPrompt(p);
+    return `${base}\n\n${await materialSection(atts, list.filter(x => !hasFile(x.src)))}`;
+  }
   const p2 = {...p, pImgMat: false};
   const base = p.pMode === 'skill' ? buildSkillPrompt(p2) : fullPrompt(p2);
-  const text = await sourceBlock(scopeSources().map(src => ({src, pages: null})));
+  const sb = idBlock('SOURCE', 's', await sourceBlock(list));
   return `${base}
 
 ## About the material
-${SOURCE_NOTE(p)}
+${SOURCE_NOTE(p, '', sb)}
 
 ## Source material
-<<<SOURCE
-${text}
-SOURCE>>>`;
+${sb.text}`;
 }
 function buildPrompt(){
   const p0 = readPrompt(); if (J(p0) !== J(S.prompt || {})){ S.prompt = p0; save(); }   // only a real change is saved
   updateModeUI(p0.pMode);
   const p = scopedPrompt(p0), srcs = scopeSources(), withSrc = useStoredSources(p);
   $('#pSrcInfo').textContent = srcs.length ? `(${srcs.length} source(s), ~${fmtK(tokEst(srcs.reduce((a, x) => a + x.chars, 0)))} tokens)` : '(none in this scope)';
-  let t = p.pMode === 'skill' ? buildSkillPrompt(withSrc ? {...p, pImgMat: false} : p) : fullPrompt(withSrc ? {...p, pImgMat: false} : p);
-  if (withSrc) t += `
+  const atts = withSrc ? planAttachments(singleSourceList()) : [], noFiles = withSrc && !atts.length;
+  let t = p.pMode === 'skill' ? buildSkillPrompt(noFiles ? {...p, pImgMat: false} : p) : fullPrompt(noFiles ? {...p, pImgMat: false} : p);
+  if (atts.length) t += `\n\n## The material: attached files\n… which files are attached (${attachNames(atts)}) and how their pages map is added when you press Copy …`;
+  else if (withSrc) t += `
 
 ## About the material
 ${SOURCE_NOTE(p)}
@@ -128,6 +134,7 @@ ${SOURCE_NOTE(p)}
 SOURCE>>>`;
   $('#pOut').value = t;
   if (typeof renderBatch === 'function') renderBatch();
+  if (typeof renderAttachInfo === 'function') renderAttachInfo();
   return t;
 }
 function fullPrompt(p){
@@ -180,7 +187,7 @@ ${load}
 1. Read my material first (list_uploads(), pdf_info(path), pdf_text(path, page), pdf_figures(path)). Plan the cards before writing them.
 2. Create the deck: \`deck = Deck(${JSON.stringify(p.pDeck || 'AI Generated Deck')}${p.pTags ? ', tags=' + JSON.stringify(p.pTags.split(/\s+/).filter(Boolean)) : ''})\`
 3. Make images with the helper (each call RETURNS the filename to use - extensions can change) and add cards with deck.add_basic(...) / deck.add_cloze(...), using the HTML helpers answer(), box(kind, html), img(name, caption), bullets(), table(). Give every card an extensive why=rationale(tests=…, matters=…, mistake=…, connects=…): 1-3 specific sentences per part (~60-150 words): what exactly it tests and what a full answer must show; why it matters (where it comes up - later topics, labs, exams, practice - and what goes wrong without it); the misconception it guards against; prerequisites and related cards. No generic filler.
-   Call \`deck.load_source(path_or_text)\` with the material your refs point into, so quotes get checked.
+   Call \`deck.load_source(...)\` with the material your refs point into, so quotes get checked: the file paths (no argument = every uploaded PDF), or the id of a <<<SOURCE block - never retype a block into code.
 4. Run \`deck.validate()\`: fix every ERROR and look at every warn. Repeat until clean.
 5. **Look at every image - not optional.** Run \`deck.contact_sheet()\` (and \`deck.preview_png()\` for the cards), then OPEN each PNG it prints with your image-viewing tool and check every image: elements overlapping or covering each other, anything cut off, unreadable text, wrong content. Redraw and look again until they are clean. validate() also reports overlaps it can measure and stays red until every new image has been on a contact sheet - but only your own look catches everything.
 6. ${p.pOrder ? '\`deck.set_order(deck.suggest_order())\`, then \`deck.check_order()\`. ' : ''}Run \`deck.save()\`: it writes **anki_bundle.json** (cards + all images) - make sure I get it as a downloadable file.
@@ -211,7 +218,7 @@ ${imgLines.join('\n') || '- (images disabled - text only)'}
 6. **Accuracy first.** Only state what the material supports or what is well-established; flag uncertainty in Extra. No duplicate cards. If the material contains an error, teach the correct value, add a "warning" box naming what the source printed, never cloze the wrong value, and list it under issues in your final reply.
 7. **Formatting.** Fields are HTML. Allowed tags: b strong i em u s sub sup br hr p div span ul ol li table thead tbody tr th td pre code img figure figcaption mark small h3 h4 a blockquote kbd. Escape text: write &lt; &gt; &amp; (never a raw < or &).
    - **Never set colours or backgrounds** (no style="background:…" / "color:…"): cards are shown in light AND night mode, and a white/light background makes the text unreadable at night. The note type already styles everything.
-   - **Code:** \`<pre><code class="language-java">…escaped code…</code></pre>\` (my app highlights it and bakes the colours in) - no styling of your own. Inline code: <code>…</code>.
+   - **Code:** \`<pre><code class="language-java">…escaped code…</code></pre>\` (my app highlights it and bakes the colours in) - no styling of your own. Inline code: <code>…</code>.${ck().code_line_chars ? ` Keep every line of a code block at most ${ck().code_line_chars} characters - the width of my phone screen: break long lines (after a comma or operator, one chained call per line) and indent the continuation.` : ''}
    - **Maths:** LaTeX inside \\( … \\) (inline) or \\[ … \\] (display) - Anki renders it with MathJax. ($…$ / $$…$$ also work: the Studio converts them on import.) A cloze can go inside a formula, e.g. \\(x = {{c1::\\frac{1}{2} }}\\) - put a space between LaTeX's own closing braces so they never form }} before the cloze's end.
    - Styled blocks:
    - \`<div class="aa-answer">…</div>\` the one-line direct answer at the top of Back
@@ -241,7 +248,13 @@ Unexpected and unresolvable issues: {issues - only what you could not resolve, o
 }
 $('#tab-prompt').addEventListener('input', debounce(buildPrompt, 150));
 $('#tab-prompt').addEventListener('change', buildPrompt);
-$('#btnCopyPrompt').onclick = () => { buildPrompt(); copyLater(fullSinglePrompt(), 'Prompt copied' + (useStoredSources(scopedPrompt(readPrompt())) ? ' (with source text)' : '')); };
+$('#btnCopyPrompt').onclick = async () => {
+  buildPrompt();
+  const withSrc = useStoredSources(scopedPrompt(readPrompt())), atts = withSrc ? planAttachments(singleSourceList()) : [];
+  await copyPrompt(fullSinglePrompt(), 'Prompt copied' + (withSrc && !atts.length ? ' (with source text)' : ''));
+  // the second half of the prompt: its files, to attach in the same message
+  if (atts.length && await downloadAttachments(atts)) toast(`Prompt copied + ${atts.length} file(s) downloaded - attach ${attachNames(atts)} and paste the prompt`, 5000);
+};
 $('#btnCopyScript').onclick = () => copyText(helperSource());
 $('#btnDlScript').onclick = () => download(new Blob([helperSource()], {type: 'text/x-python'}), 'anki_helper.py');
 async function downloadSkill(){

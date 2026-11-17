@@ -154,6 +154,50 @@ for (const table of ['acs_chunks','acs_upload_chunks']) SCHEMA.push(
  `create or replace trigger acs_object_retirement before delete or update of object_key on ${table}
  for each row execute function acs_queue_object()`);
 
+// the Mac bridge (lib/bridge.ts): device tokens, jobs and their progress
+SCHEMA.push(
+
+  `create table if not exists acs_devices (
+     id text primary key,
+     owner text not null,
+     name text not null,
+     token_hash text not null unique,
+     hint text not null,
+     created timestamptz not null default now(),
+     last_seen timestamptz,
+     last_info text,
+     revoked_at timestamptz)`,
+  `create index if not exists acs_devices_owner on acs_devices (owner)`,
+  `create table if not exists acs_jobs (
+     id text primary key,
+     owner text not null,
+     project text not null,
+     kind text not null,
+     agent text not null,
+     title text not null,
+     status text not null,
+     files text not null default '[]',
+     meta text not null default '{}',
+     device text,
+     created timestamptz not null default now(),
+     claimed_at timestamptz,
+     heartbeat_at timestamptz,
+     finished_at timestamptz,
+     imported_at timestamptz,
+     error text,
+     outputs text not null default '[]',
+     events integer not null default 0)`,
+  `create index if not exists acs_jobs_owner on acs_jobs (owner, status, created)`,
+  // the highest event number (n) the bridge sent: a retried post whose first answer was lost isn't logged twice
+  "alter table acs_jobs add column if not exists client_seq integer not null default 0",
+  `create table if not exists acs_job_events (
+     job text not null,
+     seq integer not null,
+     at timestamptz not null default now(),
+     type text not null,
+     text text not null,
+     primary key (job, seq))`);
+
 export async function ensureSchema(): Promise<void> {
   if (!ready) {
     ready = (async () => {

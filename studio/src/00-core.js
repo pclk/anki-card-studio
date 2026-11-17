@@ -132,6 +132,22 @@ async function copyText(text){
   catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
   toast('Copied to clipboard');
 }
+/* ---- big blocks by reference: a prompt's material or cards sit in a block with an id taken from its content
+   (<<<SOURCE id=s-1a2b3c4d … SOURCE>>>). With the prompt saved as a file, the helper reads a block by its id
+   (load_source("s-…"), Deck.load("r-…")), so Claude never has to retype it into code. */
+const blockId = (prefix, body) => prefix + '-' + sha1hex(body).slice(0, 8);
+function idBlock(tag, prefix, body){ const id = blockId(prefix, body); return {id, text: `<<<${tag} id=${id}\n${body}\n${tag}>>>`}; }
+const PROMPT_FILE_MSG = 'Follow the instructions in the attached anki_prompt file. Read its blocks from the file by their id - never retype them.';
+/** copy a prompt; with "As a file" on, save the whole prompt as a file to attach and copy a one-line message instead */
+async function copyPrompt(t, msg){
+  let asFile = false; try { asFile = !!SET.promptFile; } catch {}
+  if (!asFile) return typeof t === 'string' ? copyText(t) : copyLater(t, msg);
+  await copyText(PROMPT_FILE_MSG);   // first, while the click still counts as a user action
+  const text = await t, id = (/<<<(?:SOURCE|REVISE_CARDS) id=(\S+)/.exec(text) || [])[1] || blockId('p', text);
+  download(new Blob([text], {type: 'text/plain;charset=utf-8'}), `anki_prompt_${id}.txt`);
+  toast(`Saved anki_prompt_${id}.txt - attach it and paste the copied message`, 4500);
+  return text;
+}
 function b64ToBlob(b64, mime){ const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new Blob([u], {type: mime}); }
 function blobToB64(blob){ return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); }); }
 function sha1hex(str){
@@ -189,9 +205,10 @@ function mediaURL(name){
   return urlCache.get(name);
 }
 function dropURL(name){ if (urlCache.has(name)){ URL.revokeObjectURL(urlCache.get(name)); urlCache.delete(name); } }
-function setMediaBlob(name, blob, extra = {}){
+function setMediaBlob(name, blob, extra = {}, fresh = true){
   dropURL(name);
-  S.media[name] = Object.assign(S.media[name] || {origin:'upload'}, extra, {blob, error:null});
+  const m = S.media[name] = Object.assign(S.media[name] || {origin:'upload'}, extra, {blob, error:null});
+  if (fresh){ delete m.rv; delete m.rvNote; }   // new picture: its image review (approved / broken) starts again
 }
 const cardById = id => S.cards.find(c => c.id === id);
 const curCard = () => cardById(S.curId);
@@ -275,6 +292,8 @@ function mergeIndexLists(cur, mine){
   for (const e of mine || []){ const o = by.get(e.id); if (!o || (e.updated || 0) >= (o.updated || 0)) by.set(e.id, {...(o || {}), ...e}); }
   return [...by.values()];
 }
+/** every key that starts with `prefix` */
+async function idbKeys(prefix){ try { const db = await idb(); return await new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').getAllKeys(IDBKeyRange.bound(prefix, prefix + '\uffff')); r.onsuccess = () => res(r.result.map(String)); r.onerror = () => rej(r.error); }); } catch { return []; } }
 async function idbDel(key){ try { const db = await idb(); await new Promise(res => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').delete(key); tx.oncomplete = res; tx.onerror = res; }); } catch {} }
 function snapshot(){
   const media = {}; for (const [k, m] of Object.entries(S.media)) media[k] = {...m};
@@ -284,11 +303,12 @@ function snapshot(){
 
 /* ---------------------------------------------------------------------- STORAGE: data folder via acs.py, else this browser */
 const Store = {
-  base: null, dataDir: '', status: 'browser',            // 'server' | 'browser' | 'blocked'
+  base: null, dataDir: '', status: 'browser',            // 'server' | 'browser' | 'blocked' | 'offline' (the online version, no connection)
   hosted: false, user: null,                             // hosted = the online service (account storage), not acs.py
   CHUNK: 3 * 1024 * 1024,                                // hosted requests stay under the 4.5 MB limit
   uploaded: new WeakSet(),
   get on(){ return this.status === 'server'; },
+  get offline(){ return this.status === 'offline'; },
   defaultBase(){ let c = ''; try { c = (localStorage.getItem('acs-server') || '').trim().replace(/\/$/, ''); } catch {} return c || 'http://127.0.0.1:8765'; },
   async detect(){
     const ping = async b => { const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 1200);
@@ -297,10 +317,12 @@ const Store = {
         if (r.ok){ const j = await r.json(); if (j && j.ok) return j; } } catch {} finally { clearTimeout(t); } return null; };
     const cands = [...new Set([/^https?:$/.test(location.protocol) ? location.origin : null, this.defaultBase()].filter(Boolean))];
     for (const b of cands){ const j = await ping(b); if (j){ this.base = b; this.dataDir = j.dataDir; this.status = 'server'; this.hosted = !!j.hosted; this.user = j.user || null;
-      try { if (this.hosted) localStorage.setItem('acs-hosted', location.origin); } catch {} return; } }
-    // the online version, opened without a connection: don't fall back to browser-only storage (edits would never reach the account)
+      try { if (this.hosted){ localStorage.setItem('acs-hosted', location.origin); localStorage.setItem('acs-user', JSON.stringify(this.user)); } } catch {} return; } }
+    // the online version, opened without a connection: don't fall back to browser-only storage (edits would never reach the
+    // account). It works from the copies kept in this browser instead, and saves edits here until the connection is back.
     let wasHosted = false; try { wasHosted = localStorage.getItem('acs-hosted') === location.origin; } catch {}
-    if (wasHosted){ this.status = 'offline'; return; }
+    if (wasHosted){ this.status = 'offline'; this.hosted = true; this.base = location.origin;
+      try { this.user = JSON.parse(localStorage.getItem('acs-user') || 'null'); } catch {} return; }
     // is a server running that refuses this page (an .html opened from disk)?
     try { const ctl = new AbortController(); setTimeout(() => ctl.abort(), 1200); await fetch(this.defaultBase() + '/api/ping', {mode: 'no-cors', signal: ctl.signal}); this.status = 'blocked'; }
     catch { this.status = 'browser'; }
@@ -330,29 +352,72 @@ const Store = {
   async getJSON(path){ const r = await this.req('GET', path); return r.status === 404 ? null : r.json(); },
   async putJSON(path, obj){ await this.req('PUT', path, JSON.stringify(obj), 'application/json'); },
   pPath(id, ...rest){ return ['project', id, ...rest].map(x => this.enc(x)).join('/'); },
-  async getIndex(){ return this.on ? this.getJSON('projects') : idbGet('projects'); },
+  /* ---- the online version's copies in this browser, per account: the project list, each project's last version
+     from the account, and edits not yet in the account
+     ("pending": the edited state, the account's version it started from (the base of the 3-way merge when it goes up),
+     and new images). A failed save keeps one, so closing the tab or losing the connection loses nothing. */
+  offKey(k){ return 'off:' + ((this.user && this.user.login) || '') + ':' + k; },
+  /** keep `st` for the account; `prev` = what this window kept (or loaded) last. Another tab of this browser may have
+      kept its own edits of the project since: they are merged in (3-way over `prev`). -> {json, merged} */
+  async keepPending(id, st, baseRev, base, prev){
+    const key = this.offKey('pending:' + id), old = await idbGet(key);
+    let out = plain(st), merged = null;
+    if (old && old.json && prev){ const theirs = old.json; if (theirs !== JSON.stringify(prev)){ out = merge3(prev, out, JSON.parse(theirs)).merged; merged = out; } }
+    // the older account version is the safer merge base (a newer one would hide changes made since the older one)
+    if (old && old.base && (old.baseRev || 0) < (baseRev || 0)){ baseRev = old.baseRev; base = JSON.parse(old.base); }
+    const blobs = {};
+    for (const [n, m] of Object.entries(st.media || {})) if (m.blob && !this.uploaded.has(m.blob)) blobs[n] = m.blob;
+    // images added in an earlier offline save (this tab's or another's) are still to be uploaded
+    if (old && old.blobs) for (const [n, b] of Object.entries(old.blobs)) if (!blobs[n] && out.media && out.media[n]) blobs[n] = b;
+    const json = JSON.stringify(out);
+    await idbPut(key, {baseRev: baseRev || 0, base: JSON.stringify(base || null), json, blobs, savedAt: Date.now()});
+    return {json, merged, blobs};
+  },
+  getPending(id){ return idbGet(this.offKey('pending:' + id)); },
+  /** drop the kept edits - only if they are still `json` (another tab may have kept newer ones meanwhile) */
+  dropPending(id, json){ const key = this.offKey('pending:' + id);
+    return idbTx(os => new Promise(res => { const g = os.get(key); g.onsuccess = () => { if (g.result && (json == null || g.result.json === json)) os.delete(key); res(); }; g.onerror = () => res(); })).catch(() => {}); },
+  async pendingIds(){ const pre = this.offKey('pending:'); return (await idbKeys(pre)).map(k => k.slice(pre.length)); },
+  needsNet(){ return new Error('needs a connection - you are offline'); },
+  async getIndex(){
+    if (this.offline) return idbGet(this.offKey('projects'));
+    if (!this.on) return idbGet('projects');
+    const list = await this.getJSON('projects');
+    if (this.hosted && Array.isArray(list)) idbPut(this.offKey('projects'), list);
+    return list;
+  },
   /** returns the merged list (other windows may have added / deleted projects) */
   async putIndex(list){
-    if (this.on){ const r = await this.req('PUT', 'projects', JSON.stringify(list), 'application/json'); return r.json(); }
+    if (this.offline){ const m = mergeIndexLists(await idbGet(this.offKey('projects')), list); await idbPut(this.offKey('projects'), m); return m; }
+    if (this.on){ const r = await this.req('PUT', 'projects', JSON.stringify(list), 'application/json'); const m = await r.json();
+      if (this.hosted && Array.isArray(m)) idbPut(this.offKey('projects'), m); return m; }
     return idbTx(os => new Promise(res => { const g1 = os.get('projects'), g2 = os.get('deletedProjects'); let cur, gone;
       g1.onsuccess = () => { cur = g1.result || []; if (gone) done2(); }; g2.onsuccess = () => { gone = new Set(g2.result || []); if (cur) done2(); };
       const done2 = () => { const m = mergeIndexLists(cur, list).filter(e => !gone.has(e.id)); os.put(m, 'projects'); res(m); }; }));
   },
   async getRev(id){
+    if (this.offline) return null;
     if (this.on){ const r = await this.req('GET', this.pPath(id, 'rev')); if (r.status === 404) return null; return (await r.json()).rev || 0; }
     const st = await idbGet('project:' + id); return st ? (st.rev || 0) : null;
   },
   async getProject(id, known){
+    if (this.offline){
+      // the last version seen from the account (edits made since are applied on top: see resumePending)
+      const c = await idbGet(this.offKey('project:' + id)); if (!c) return null;
+      const st = typeof c.json === 'string' ? JSON.parse(c.json) : JSON.parse(JSON.stringify(c));
+      for (const [n, m] of Object.entries(st.media || {})){ delete m.remote; if (known && known[n] && known[n].blob) m.blob = known[n].blob; else m.remote = true; }
+      return st;
+    }
     if (!this.on) return idbGet('project:' + id);
     let st = null, files = null;
     if (this.hosted){
       // a copy kept in this browser is used when the account still has the same revision (one tiny request)
-      const [cached, rev, list] = await Promise.all([idbGet('cache:project:' + id), this.getRev(id).catch(() => null), this.getJSON(this.pPath(id, 'media')).catch(() => null)]);
+      const [cached, rev, list] = await Promise.all([idbGet(this.offKey('project:' + id)), this.getRev(id).catch(() => null), this.getJSON(this.pPath(id, 'media')).catch(() => null)]);
       files = Array.isArray(list) ? new Set(list) : null;
       // kept as {rev, json}: storing one string is far cheaper than cloning the whole card graph into IndexedDB
       if (cached && rev != null && (cached.rev || 0) === rev) st = typeof cached.json === 'string' ? JSON.parse(cached.json) : JSON.parse(JSON.stringify(cached));
     }
-    if (!st){ st = await this.getJSON(this.pPath(id)); if (!st) return null; if (this.hosted) idbPut('cache:project:' + id, {rev: st.rev || 0, json: JSON.stringify(st)}); }
+    if (!st){ st = await this.getJSON(this.pPath(id)); if (!st) return null; if (this.hosted) idbPut(this.offKey('project:' + id), {rev: st.rev || 0, json: JSON.stringify(st)}); }
     for (const [n, m] of Object.entries(st.media || {})){
       delete m.remote;
       if (known && known[n] && known[n].blob){ m.blob = known[n].blob; continue; }
@@ -365,6 +430,7 @@ const Store = {
   /** save unless someone else saved since `baseRev` -> {ok} | {conflict, rev} */
   /** restore = an explicit import: a project deleted earlier may come back */
   async putProject(id, st, baseRev, onProgress, restore){
+    if (this.offline) return {offline: true};
     if (!this.on) return idbTx(os => new Promise(res => { const g = os.get('project:' + id);
       if (restore){ const d = os.get('deletedProjects'); d.onsuccess = () => os.put((d.result || []).filter(x => x !== id), 'deletedProjects'); }
       g.onsuccess = () => { const cur = g.result; if (baseRev != null && cur && (cur.rev || 0) !== baseRev) return res({conflict: true, rev: cur.rev || 0}); os.put(st, 'project:' + id); res({ok: true}); }; }));
@@ -392,31 +458,35 @@ const Store = {
     if (await accountRefused(r)) throw new Error(accountStatus() === 'readonly' ? 'this account is read-only (set by the admin)' : 'this account has been disabled');
     if (r.status === 413){ const j = await r.json().catch(() => ({})); throw new Error(j.error || 'storage limit reached'); }
     if (!r.ok) throw new Error(`save: HTTP ${r.status}`);
-    if (this.hosted) idbPut('cache:project:' + id, {rev: meta.rev || 0, json});
+    if (this.hosted) idbPut(this.offKey('project:' + id), {rev: meta.rev || 0, json});
     return {ok: true, json};
   },
   async delProject(id){
+    if (this.offline) throw this.needsNet();
     if (this.on) return this.req('DELETE', this.pPath(id));
     await idbTx(os => new Promise(res => { const g = os.get('deletedProjects'); g.onsuccess = () => { os.put([...new Set([...(g.result || []), id])], 'deletedProjects'); os.delete('project:' + id); res(); }; }));
   },
   /* sources: extracted pages as <sid>.json, original file as <sid>.<ext> */
   async putSource(pid, sid, data, blob){
+    if (this.offline) throw this.needsNet();
     if (!this.on) return idbPut(`src:${pid}:${sid}`, {...data, blob: blob || null});
     await this.putBlob(this.pPath(pid, 'sources', sid + '.json'), new Blob([JSON.stringify(data)], {type: 'application/json'}));
     if (blob) await this.putBlob(this.pPath(pid, 'sources', sid + '.' + (data.ext || 'bin')), blob);
   },
-  async getSource(pid, sid){ if (!this.on){ const d = await idbGet(`src:${pid}:${sid}`); if (d){ const {blob, ...rest} = d; return rest; } return null; }
+  async getSource(pid, sid){ if (this.offline) throw this.needsNet(); if (!this.on){ const d = await idbGet(`src:${pid}:${sid}`); if (d){ const {blob, ...rest} = d; return rest; } return null; }
     const b = await this.getBlob(this.pPath(pid, 'sources', sid + '.json')); return b ? JSON.parse(await b.text()) : null; },
   async getSourceBlob(pid, sid, ext){
+    if (this.offline) throw this.needsNet();
     if (!this.on){ const d = await idbGet(`src:${pid}:${sid}`); return d && d.blob; }
     return this.getBlob(this.pPath(pid, 'sources', sid + '.' + (ext || 'bin')));
   },
   async delSource(pid, sid, ext){
+    if (this.offline) throw this.needsNet();
     if (!this.on) return idbDel(`src:${pid}:${sid}`);
     await this.req('DELETE', this.pPath(pid, 'sources', sid + '.json')); if (ext) await this.req('DELETE', this.pPath(pid, 'sources', sid + '.' + ext));
   },
   async getSettings(){ return this.on ? this.getJSON('settings') : null; },
-  async putSettings(o){ if (this.on) await this.putJSON('settings', o); },
+  async putSettings(o){ if (this.offline){ try { localStorage.setItem(this.offKey('settings-pending'), '1'); } catch {} return; } if (this.on) await this.putJSON('settings', o); },
   async openFolder(sub){ if (this.on && !this.hosted) await this.req('POST', 'open' + (sub ? '?path=' + this.enc(sub) : '')); }
 };
 /** the hosted service's sign-in expired: send the user to sign in (now, on first load; else via a banner, so unsaved work stays) */
@@ -450,9 +520,10 @@ async function migrateBrowserProjects(ask){
 }
 function renderStorage(){
   const el = $('#storageInfo'); if (!el) return;
-  if (Store.hosted) el.innerHTML = `<span class="small">☁️ Saving to your account${Store.user && Store.user.login ? ` (<b>@${esc(Store.user.login)}</b>)` : ''}. Open this address on any device to pick up where you left off.</span>
+  if (Store.offline) el.innerHTML = `<span class="small">📡 <b>Offline.</b> Your changes are kept on this device${Store.user && Store.user.login ? ` (<b>@${esc(Store.user.login)}</b>)` : ''} and go to your account by themselves when you're back online. Sources, the Mac bridge and settings that live in the account need a connection.</span>`;
+  else if (Store.hosted) el.innerHTML = `<span class="small">☁️ Saving to your account${Store.user && Store.user.login ? ` (<b>@${esc(Store.user.login)}</b>)` : ''}. Open this address on any device to pick up where you left off.</span>
     <div class="small muted">${/iphone|ipad/i.test(navigator.userAgent) ? 'On iPhone: Share → Add to Home Screen to install it.' : 'Use your browser\'s "Install app" / "Add to Home screen" to install it.'}</div>
-    <div class="row" style="gap:6px"><button class="btn sm" id="btnMigrate" title="Copy projects that were saved in this browser before">⇪ Copy browser projects</button><a class="btn sm" href="/api/auth/signout">Sign out</a></div>`;
+    <div class="row" style="gap:6px"><button class="btn sm" id="btnMigrate" title="Copy projects that were saved in this browser before">⇪ Copy browser projects</button><a class="btn sm" href="/api/auth/signout" id="btnSignOut">Sign out</a></div>`;
   else if (Store.on) el.innerHTML = `<span class="small">📁 Saving to the data folder:</span><code class="small" style="word-break:break-all">${esc(Store.dataDir)}</code>
     <div class="row" style="gap:6px"><button class="btn sm" id="btnOpenFolder">Open folder</button><button class="btn sm" id="btnMigrate" title="Copy projects that were saved in this browser before">⇪ Copy browser projects</button></div>`;
   else if (Store.status === 'blocked') el.innerHTML = `<div class="note warn small">The ACS server is running, but this page was opened from a file, so it can't reach the data folder. Open <a href="${esc(Store.defaultBase())}/" target="_blank">${esc(Store.defaultBase())}</a> instead (or start it with <code>--allow-file-pages</code>). Saving in this browser for now.</div>`;
@@ -460,5 +531,16 @@ function renderStorage(){
   renderSyncInfo();
   const of = $('#btnOpenFolder'); if (of) of.onclick = () => Store.openFolder().catch(e => toast(e.message));
   const mg = $('#btnMigrate'); if (mg) mg.onclick = () => migrateBrowserProjects(true);
+  const so = $('#btnSignOut'); if (so) so.onclick = e => { e.preventDefault(); signOutHere(); };
+}
+/** sign out: the copies this browser keeps for working offline go too (another person may use it next) */
+async function signOutHere(){
+  const left = await Store.pendingIds();
+  if (left.length && !confirm(`${left.length} project(s) have changes that haven't reached your account yet. Signing out now discards them. Sign out anyway?`)) return;
+  sync.closed = true; await saving;   // a save still running (or a retry) would write its copy back
+  for (const k of [...await idbKeys(Store.offKey('')), ...await idbKeys('cache:project:')]) await idbDel(k);   // cache:project: = before per-account copies
+  try { localStorage.removeItem('acs-user'); localStorage.removeItem('acs-hosted'); } catch {}
+  try { if (window.caches) await caches.delete('acs-media'); } catch {}
+  location.href = '/api/auth/signout';
 }
 

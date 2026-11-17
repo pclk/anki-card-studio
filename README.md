@@ -80,6 +80,8 @@ app/api/[...path]/route.ts    the storage API -> lib/api.ts
 lib/api.ts                    same routes as local/acs.py, so the page works unchanged against either
 lib/store.ts                  Postgres storage, per user (GitHub account id)
 lib/fetch-readable.ts         "add a web page" as a source, with private-network (SSRF) protection
+lib/bridge.ts                 the Mac bridge's device tokens and jobs ("▶ Run on Mac")
+bridge/acs-bridge.mjs         the bridge itself: runs on your Mac, runs Claude Code or Codex on the jobs
 public/sw.js                  service worker: the app opens offline, libraries cached; /api is never cached
 public/manifest.webmanifest   installable app
 studio/studio.html            the whole Studio (single file)
@@ -98,6 +100,10 @@ local/acs.py                  the local companion server (still supported)
 - `acs_index`, `acs_deleted`, `acs_settings` — the project list, deleted ids (so a stale device can't bring a
   deleted project back; an explicit import can), and your keys and settings.
 - `acs_allowed` — people the admin let in from the app.
+- `acs_devices`, `acs_jobs`, `acs_job_events` — the Mac bridge: paired devices (only a hash of each token), the
+  jobs sent to them and their progress log. A job's files are stored like source files and removed with the job;
+  finished jobs are forgotten after 14 days, a run whose bridge goes quiet for 5 minutes fails, and so does a job
+  whose files never all arrived within an hour.
 - `acs_users` — everyone who has signed in (username ↔ account id), last activity, and the admin's controls: role,
   status (active / read-only / disabled), storage limit, and "signed out everywhere" time.
 
@@ -109,11 +115,19 @@ local/acs.py                  the local companion server (still supported)
 - Writes must come from the site itself: SameSite cookies, plus an Origin check.
 - The web-page import only fetches public http(s) addresses on ports 80/443. Every resolved IP is checked when the
   connection is made, and again on each redirect, so it can't be pointed at internal services.
+- **The Mac bridge** signs in with a device token (Settings → Mac bridge), which reaches only the bridge endpoints:
+  picking up this account's jobs, reading their files, posting progress and uploading the result. It can't read
+  projects or settings. Removing the device, disabling the account or "sign out everywhere" cuts it off at once. On
+  the Mac each job runs in its own folder with a fixed instruction and fixed agent flags; nothing from the server is
+  put on a command line. See the top of `bridge/acs-bridge.mjs`.
 - Never commit `.env*` files. Keep the database URL and secrets in Vercel's environment variables.
 
-**Offline:** an open tab keeps working when the connection drops, and changes are saved by themselves when it
-comes back. Opening the app with no connection shows an "offline" screen rather than an empty Studio; full offline
-editing isn't built yet.
+**Offline:** the Studio keeps working without a connection. Edits that can't reach the account are kept in the
+browser (IndexedDB, per account), so a closed tab or a reload loses nothing, and the installed app opens from those
+copies with no connection: every project opened on that device before, with the pictures that were shown (the service
+worker keeps them). When the connection is back the edits go up by themselves, merged 3-way with whatever other devices
+saved meanwhile (real clashes open the usual resolver). Sources, the Mac bridge, deleting projects and the admin pages
+need a connection. Signing out deletes the offline copies (and asks first if some edits haven't reached the account).
 
 ## Develop
 

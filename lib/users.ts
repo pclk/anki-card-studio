@@ -143,6 +143,9 @@ async function wipeUserInner(owner: string, forget: boolean): Promise<void> {
   await ensureSchema();
   for (const t of ["acs_upload_chunks", "acs_upload_files", "acs_chunks", "acs_files", "acs_history", "acs_projects", "acs_index", "acs_deleted", "acs_settings"])
     await db()(`delete from ${t} where owner = $1`, [owner]);
+  // the Mac bridge: its jobs (their files went above) and every device token
+  await db()("delete from acs_job_events where job in (select id from acs_jobs where owner = $1)", [owner]);
+  for (const t of ["acs_jobs", "acs_devices"]) await db()(`delete from ${t} where owner = $1`, [owner]);
   if (forget) await db()("delete from acs_users where owner = $1", [owner]);
   forgetUser(owner);
 }

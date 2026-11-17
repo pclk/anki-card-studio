@@ -1,7 +1,8 @@
 /* ====================================================================== TREE: project › sub-projects (= sub-decks = batch prompts) */
 const nodeById = id => S.nodes.find(n => n.id === id);
 const scopeNode = () => S.scope && S.scope !== 'root' ? nodeById(S.scope) : null;
-const natCmp = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, {numeric: true, sensitivity: 'base'});
+const treeCollator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+const natCmp = (a, b) => treeCollator.compare(String(a || ''), String(b || ''));
 const nodeKids = pid => S.nodes.filter(n => (n.parent || null) === (pid || null)).sort((a, b) => natCmp(a.name, b.name));
 function nodeDeckOf(n){ return n.deck || `${S.deck}::${n.name}`; }
 /** does the card belong to this node (or one of its children)? */
@@ -41,14 +42,32 @@ function renderTree(){
   const q = ($('#treeFilter') ? $('#treeFilter').value : '').trim().toLowerCase();
   const hit = name => !q || String(name || '').toLowerCase().includes(q);
   const mark = name => { const t = esc(name); if (!q) return t; const i = String(name).toLowerCase().indexOf(q); return i < 0 ? t : esc(name.slice(0, i)) + '<mark>' + esc(name.slice(i, i + q.length)) + '</mark>' + esc(name.slice(i + q.length)); };
-  const count = n => S.cards.filter(c => inNode(c, n)).length;
+  // Count each deck and its ancestors once, instead of scanning cards per row.
+  const deckCounts = new Map();
+  for (const c of S.cards){
+    let deck = cardDeck(c);
+    while (deck){
+      deckCounts.set(deck, (deckCounts.get(deck) || 0) + 1);
+      const split = deck.lastIndexOf('::');
+      if (split < 0) break;
+      deck = deck.slice(0, split);
+    }
+  }
+  const count = n => deckCounts.get(nodeDeckOf(n)) || 0;
   const row = (cls, depth, tw, name, ct, data, togKey) => `<div class="tn ${cls}" ${data} style="padding-left:${6 + depth * 14}px"><span class="tw${togKey ? ' tog' : ''}" ${togKey ? `data-tog="${esc(togKey)}" title="Expand / collapse"` : ''}>${tw}</span><span class="nm" title="${esc(name)}">${mark(name)}</span><span class="ct">${ct}</span></div>`;
   // with a filter: show matches and the path to them, everything expanded
   const anyHit = (list, kidsOf, n) => hit(n.name) || kidsOf(n.id).some(k => anyHit(list, kidsOf, k));
   // the same drawing for every project: the open one counts cards live, the others show their saved sub-deck tree
   el.innerHTML = [...projects].sort((a, b) => natCmp(a.name, b.name)).map(p => {
     const cur = p.id === curProject, nodes = cur ? S.nodes : (p.nodes || []);
-    const kidsOf = pid => nodes.filter(n => (n.parent || null) === (pid || null)).sort((a, b) => natCmp(a.name, b.name));
+    const children = new Map();
+    for (const n of nodes){
+      const parent = n.parent || null;
+      if (!children.has(parent)) children.set(parent, []);
+      children.get(parent).push(n);
+    }
+    for (const list of children.values()) list.sort((a, b) => natCmp(a.name, b.name));
+    const kidsOf = pid => children.get(pid || null) || [];
     const walk = (pid, depth) => kidsOf(pid).filter(n => !q || anyHit(nodes, kidsOf, n)).map(n => {
       const kids = kidsOf(n.id).length, open = q || !treeClosed.has(n.id);
       const sel = cur && S.scope === n.id ? 'tsel' : '', data = cur ? `data-node="${n.id}"` : `data-proj="${p.id}" data-pnode="${n.id}"`;

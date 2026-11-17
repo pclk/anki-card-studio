@@ -8,7 +8,7 @@ function lenientJSON(s){
 }
 function extractBundles(text){
   const blocks = [];
-  for (const m of text.matchAll(/<<<(?:ANKI|REVISE)_CARDS([\s\S]*?)(?:ANKI|REVISE)_CARDS>>>/g)) if (/"cards"\s*:/.test(m[1])) blocks.push(m[1]);
+  for (const m of text.matchAll(/<<<(?:ANKI|REVISE)_CARDS(?:[ \t]+id=\S+)?([\s\S]*?)(?:ANKI|REVISE)_CARDS>>>/g)) if (/"cards"\s*:/.test(m[1])) blocks.push(m[1]);
   if (!blocks.length) for (const m of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) if (/"cards"\s*:/.test(m[1])) blocks.push(m[1]);
   if (!blocks.length){ const i = text.indexOf('{'), j = text.lastIndexOf('}'); if (i >= 0 && j > i) blocks.push(text.slice(i, j + 1)); }
   const out = [], errors = [];
@@ -20,8 +20,8 @@ function extractBundles(text){
 }
 /** Apply a bundle. mode: 'merge' | 'replace'. Returns summary. */
 function applyBundle(d, mode, opts = {}){
-  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0};
-  const fmtSeen = new Set();   // formatting-pass batches this reply answers
+  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0, passes: []};
+  const fmtSeen = new Set();   // formatting-pass / checker-fix batches this reply answers
   const isProject = d.format === PROJECT_FORMAT;
   const isRevision = !!(opts.revision || d.revision);
   if (mode === 'replace'){ S.cards = []; for (const k of Object.keys(S.media)) dropURL(k); S.media = {}; }
@@ -34,14 +34,14 @@ function applyBundle(d, mode, opts = {}){
     if (!m || !m.filename) continue;
     const name = m.filename, prev = S.media[name];
     const meta = {origin: m.origin || (m.url ? 'url' : m.hint ? 'material' : 'generated')};
-    for (const k of ['url','hint','caption','credit']) if (m[k]) meta[k] = m[k];
-    if (m.data){ setMediaBlob(name, b64ToBlob(m.data, m.mime || MIME[extOf(name)] || 'image/png'), meta); sum.media++; }
+    for (const k of ['url','hint','caption','credit', ...(isProject ? ['rv', 'rvNote'] : [])]) if (m[k]) meta[k] = m[k];
+    if (m.data){ setMediaBlob(name, b64ToBlob(m.data, m.mime || MIME[extOf(name)] || 'image/png'), meta, !isProject); sum.media++; }
     else if (prev && (prev.blob || prev.remote) && !(meta.origin === 'url' && meta.url && meta.url !== prev.url)) { /* keep existing image */ }
     else { dropURL(name); S.media[name] = Object.assign({}, meta, {blob: null, error: null}); }
   }
   for (const raw of d.cards || []){
     if (!raw) continue;
-    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); continue; }   // a formatting pass never removes cards
+    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); sum.fmtSame++; continue; }   // a formatting pass or checker fix never removes cards
       if (c){ c.status = 'drop'; c.revised = true; sum.deleted++; } continue; }
     const n = normCard(raw);
     if (!n.deck && bundleDeck) n.deck = bundleDeck;
@@ -59,15 +59,17 @@ function applyBundle(d, mode, opts = {}){
         // formatting pass: the card keeps its review status. If it was approved and really changed, it waits for a
         // quick re-check (with a diff); if the AI sent it back unchanged, nothing happens.
         fmtSeen.add(existing.fmt); fmtFinish(existing);
-        const same = n.type === existing.type && FIELDS[existing.type].every(f => (n[f] || '') === (existing[f] || ''));
+        // a checker fix may change only the "why" or the source references, so those count as changes too
+        const same = n.type === existing.type && FIELDS[existing.type].every(f => (n[f] || '') === (existing[f] || ''))
+          && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || []);
         if (same){ sum.fmtSame++; continue; }
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), feedback: ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], feedback: ''};
         existing.revised = true; existing.edited = false;
         sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
         // keep the review state and any feedback the user already wrote
         for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
       } else if (!isProject){
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), feedback: existing.feedback || ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
       Object.assign(existing, n);
@@ -94,11 +96,12 @@ function applyBundle(d, mode, opts = {}){
   }
   // cards of an answered formatting batch that the reply left out were fine as they were
   if (fmtSeen.size) for (const c of S.cards) if (c.fmt && fmtSeen.has(c.fmt)){ fmtFinish(c); sum.fmtSame++; }
+  sum.passes = [...new Set([...fmtSeen].map(id => id[0]))];
   if (!isProject && !isRevision) markBatch(d, sum, idMap);
   syncTree();
   return sum;
 }
-const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo'} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
+const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo', ...(r.fmtJob ? {fmtJob: r.fmtJob} : {})} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
 
 async function importFiles(files, mode, opts = {}){
   const sums = []; let imgs = 0; const errors = [];
@@ -126,6 +129,7 @@ async function importFiles(files, mode, opts = {}){
 }
 function summarize({sums, imgs, errors}){
   const t = sums.reduce((a, s) => ({added: a.added + s.added, updated: a.updated + s.updated, deleted: a.deleted + s.deleted, media: a.media + s.media, recheck: a.recheck + (s.recheck || 0), fmtSame: a.fmtSame + (s.fmtSame || 0), fmtUpd: a.fmtUpd + (s.fmtUpd || 0)}), {added: 0, updated: 0, deleted: 0, media: 0, recheck: 0, fmtSame: 0, fmtUpd: 0});
+  const kinds = new Set(sums.flatMap(s => s.passes || [])), pass = kinds.has('K') ? (kinds.has('F') ? 'Formatting pass and checker fix' : 'Checker fix') : 'Formatting pass';
   const parts = [];
   if (t.added) parts.push(`${t.added} new card${t.added > 1 ? 's' : ''}`);
   if (t.updated) parts.push(`${t.updated} updated`);
@@ -134,7 +138,7 @@ function summarize({sums, imgs, errors}){
   let html = '';
   if (parts.length) html += `<div class="note ok">Imported ${parts.join(', ')}.</div>`;
   else if (!errors.length && !t.fmtSame) html += `<div class="note warn">Nothing found to import.</div>`;
-  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">Formatting pass: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
+  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">${pass}: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
   if (!parts.length && t.fmtSame && !errors.length) return {html, ok: true, recheck: 0, plain: 0};
   if (errors.length) html += `<div class="note bad" style="margin-top:6px"><b>Problems:</b><br>${errors.map(esc).join('<br>')}<br><span class="small">If the reply was cut off, ask Claude to "continue the JSON" or to save the bundle file instead.</span></div>`;
   const missing = Object.entries(S.media).filter(([n, m]) => !m.blob && !m.remote && m.origin === 'generated').map(([n]) => n);
@@ -215,7 +219,7 @@ async function fetchImageFromUrl(url, width = 1000){
 async function fetchUrlImages(){
   const todo = Object.entries(S.media).filter(([, m]) => m.origin === 'url' && m.url && !m.blob && !m.remote && !m.error);
   await Promise.all(todo.map(async ([name, m]) => {
-    try { const b = await fetchImageFromUrl(m.url); setMediaBlob(name, b); }
+    try { const b = await fetchImageFromUrl(m.url); setMediaBlob(name, b, {}, false); }
     catch (e) { m.error = (e && e.message) || 'download blocked'; if (/Failed to fetch|NetworkError|Load failed/i.test(m.error)) m.error = 'download blocked by the site (CORS) or offline'; }
     if ($('#tab-review').classList.contains('active')) renderReview();
   }));

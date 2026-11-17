@@ -14,6 +14,8 @@ import { applyRegistry } from "./users";
 export type User = {
   owner: string; login: string; name?: string | null; image?: string | null; admin?: boolean;
   status?: "active" | "readonly" | "disabled";
+  /** set when the caller is the Mac bridge signed in with a device token (lib/bridge.ts) */
+  device?: string;
 };
 
 /** apply the registry (role, status, sign-out-everywhere) - see lib/users.ts */

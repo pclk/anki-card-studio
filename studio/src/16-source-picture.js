@@ -6,11 +6,22 @@ function cardRefs(c){
   return m ? [{file: m[1], page: +m[2]}] : [];
 }
 const normTxt = s3 => String(s3).toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^a-z0-9]+/g, ' ').trim();
+const pendingSourceDocuments = new Map();
 async function srcDoc(src){
   if (srcDocCache.has(src.id)) return srcDocCache.get(src.id);
-  const bl = await Store.getSourceBlob(curProject, src.id, src.ext); if (!bl || !window.pdfjsLib) return null;
-  const doc = await pdfjsLib.getDocument({data: new Uint8Array(await bl.arrayBuffer())}).promise;
-  srcDocCache.set(src.id, doc); return doc;
+  const project = curProject, generation = srcDocGeneration;
+  const key = JSON.stringify([project, generation, src.id]);
+  if (pendingSourceDocuments.has(key)) return pendingSourceDocuments.get(key);
+  const load = (async () => {
+    const bl = await Store.getSourceBlob(project, src.id, src.ext); if (!bl || !window.pdfjsLib) return null;
+    const doc = await pdfjsLib.getDocument({data: new Uint8Array(await bl.arrayBuffer())}).promise;
+    if (project !== curProject || generation !== srcDocGeneration || !S.sources.some(x => x.id === src.id)){
+      await doc.destroy(); return null;
+    }
+    srcDocCache.set(src.id, doc); return doc;
+  })();
+  pendingSourceDocuments.set(key, load);
+  try { return await load; } finally { pendingSourceDocuments.delete(key); }
 }
 /** find the quote on a PDF page -> bbox in viewport pixels (whole quote, then its first / last words) */
 async function findQuote(page, vp, quote){
@@ -69,11 +80,16 @@ async function refExcerpt(src, ref){
   const before = txt.slice(from, at >= 0 ? at : from), mid = at >= 0 ? txt.slice(at, at + len) : '', after = txt.slice(at >= 0 ? at + len : from, to);
   return `<div class="aa-src-excerpt">${from > 0 ? '… ' : ''}${esc(before)}${mid ? `<mark>${esc(mid)}</mark>` : ''}${esc(after)}${to < txt.length ? ' …' : ''}</div>`;
 }
-const visCache = new Map();   // key -> {html, blob?, url?}
+const visCache = new class extends Map {
+  delete(key){ const value = this.get(key); if (value?.url) URL.revokeObjectURL(value.url); return super.delete(key); }
+  clear(){ for (const key of this.keys()) this.delete(key); }
+  set(key, value){ if (this.has(key)) this.delete(key); super.set(key, value); while (this.size > 64) this.delete(this.keys().next().value); return this; }
+}();   // key -> {html, blob?, url?}
 /** the visual for a card's first ref: {html} (excerpt) or {blob, url} (PDF picture); null if its source isn't stored */
 async function sourceVisual(c){
   const ref = cardRefs(c)[0]; if (!ref) return null;
   const src = findSource(ref.file) || (S.sources.length === 1 ? S.sources[0] : null); if (!src) return null;
+  const project = curProject, generation = srcDocGeneration;
   const key = `${curProject}|${src.id}|${ref.page}|${ref.quote || ''}|${(ref.box || []).join(',')}`;
   if (visCache.has(key)) return visCache.get(key);
   let v = null;
@@ -81,6 +97,7 @@ async function sourceVisual(c){
     if (src.kind === 'pdf'){ const sn = await refSnapshot(src, ref); if (sn) v = {blob: sn.blob, url: URL.createObjectURL(sn.blob), found: sn.found, label: `${src.name} p.${sn.page}`}; }
     if (!v){ const h = await refExcerpt(src, ref); if (h) v = {html: h, label: `${src.name} ${src.kind === 'pdf' || src.kind === 'pptx' ? 'p.' : '§'}${ref.page}`}; }
   } catch (e) { console.warn('source visual', e); }
+  if (project !== curProject || generation !== srcDocGeneration){ if (v?.url) URL.revokeObjectURL(v.url); return null; }
   visCache.set(key, v); return v;
 }
 let visToken = 0;

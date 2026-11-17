@@ -3,6 +3,8 @@ const DEFAULT_SETTINGS = {
   version: 2,
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
   showAnalytics: true,                             // the Analytics tab (Settings → Tabs)
+  promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
+  bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
   keys: {exclude: ['q'], change: ['w'], approve: ['d'], reset: ['r'], next: ['Meta', 'ArrowRight'], prev: ['ArrowLeft'],
          flip: ['Tab'], copy: ['c'], pane: ['e'], order: ['o'], image: ['i'], sidebar: ['\\']},
@@ -25,6 +27,8 @@ function mergeSettings(j){
   // v2 swapped the defaults (Q exclude, D approve); move people who never changed the old defaults (Q approve, D exclude) over
   if (j && j.keys && !(j.version >= 2) && J(j.keys.approve) === J(['q']) && J(j.keys.exclude) === J(['d'])){ out.keys.approve = ['d']; out.keys.exclude = ['q']; }
   if (j && j.showAnalytics === false) out.showAnalytics = false;
+  if (j && j.promptFile === true) out.promptFile = true;
+  if (j && ['claude', 'codex'].includes(j.bridgeAgent)) out.bridgeAgent = j.bridgeAgent;
   if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
     const v = j.checks[d.key]; if (v === undefined) continue;
     if (d.kind === 'level'){ if (['error', 'warn', 'off'].includes(v)) out.checks[d.key] = v; }
@@ -50,6 +54,7 @@ function applyTabs(){
 function renderKeyHints(){
   try { applyTabs(); } catch {}
   if ($('#ckGrid') && typeof renderCheckSettings === 'function') try { renderCheckSettings(); } catch {}   // the checker settings change with the rest of the settings
+  $$('.optPromptFile').forEach(cb => { cb.checked = !!SET.promptFile; });
   $$('.kbd[data-k]').forEach(el => { const ks = SET.keys[el.dataset.k] || []; el.textContent = ks.length ? keyName(ks[0]) : '–'; el.title = ks.map(keyName).join(' / '); });
 }
 /* -------- leader (request-change) menu: shown when the key is pressed and released */
@@ -108,7 +113,7 @@ function reviewAction(key, e){
   }
   return true;
 }
-const reviewKeysLive = () => !$('#imgDlg').open && !$('#setDlg').open && $('#tab-review').classList.contains('active') && S.cards.length;
+const reviewKeysLive = () => !$('#imgDlg').open && !$('#setDlg').open && !$('#irDlg').open && $('#tab-review').classList.contains('active') && S.cards.length;
 document.addEventListener('keydown', e => {
   if (capturing) return;
   if (MOD_KEYS.includes(e.key)){ modTap = e.repeat ? modTap : e.key; return; }
@@ -155,7 +160,7 @@ function renderSettings(){
     <select data-lthen="${i}"><option value="focus" ${x.then === 'focus' ? 'selected' : ''}>edit feedback</option><option value="next" ${x.then === 'next' ? 'selected' : ''}>go to next</option><option value="stay" ${x.then === 'stay' ? 'selected' : ''}>stay</option></select>
     <button class="btn sm" data-ldel="${i}" title="Remove">✕</button></div>`).join('');
 }
-$('#btnSettings').onclick = () => { renderSettings(); renderPeople(); $('#setDlg').showModal(); };
+$('#btnSettings').onclick = () => { renderSettings(); renderPeople(); if (typeof loadDevices === 'function') loadDevices(); $('#setDlg').showModal(); };
 /* ---- admin: user management (online version, admins only) - see lib/users.ts for what each control does */
 async function renderPeople(){ $('#peopleSec').hidden = !(Store.hosted && Store.user && Store.user.admin); }
 $('#btnAdmin').onclick = () => { $('#setDlg').close(); openAdmin(); };
@@ -342,10 +347,13 @@ $('#setFile').onchange = async e => { const f = e.target.files[0]; e.target.valu
   const head = new Uint8Array(await f.slice(0, 2).arrayBuffer());
   if (/\.zip$/i.test(f.name) || (head[0] === 0x50 && head[1] === 0x4b)){ $('#setDlg') && $('#setDlg').open && $('#setDlg').close(); return importAppZip(f); }
   try { SET = mergeSettings(JSON.parse(await f.text())); saveSettings(); renderSettings(); toast('Settings imported'); } catch (er) { toast('Not a settings file: ' + er.message); } };
+// "📎 As a file" next to each prompt's Copy button: one setting for all of them
+document.addEventListener('change', e => { const cb = e.target.closest('.optPromptFile'); if (!cb) return; SET.promptFile = cb.checked; saveSettings();
+  toast(cb.checked ? 'Copy now saves the prompt as a file to attach (and copies a short message)' : 'Copy puts the whole prompt on the clipboard again', 3500); });
 loadSettings(); renderKeyHints();
 
 document.addEventListener('paste', e => {
-  if ($('#imgDlg').open || !$('#tab-review').classList.contains('active') || !S.cards.length) return;
+  if ($('#imgDlg').open || $('#irDlg').open || !$('#tab-review').classList.contains('active') || !S.cards.length) return;
   if (e.target.closest('input,textarea')) return;
   const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
   if (it){ e.preventDefault(); openImageDialog({target: {f: curCard().type === 'cloze' ? 'extra' : 'back'}, blob: it.getAsFile()}); }

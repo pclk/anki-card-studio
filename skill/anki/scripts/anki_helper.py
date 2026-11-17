@@ -204,6 +204,53 @@ def find_upload(fragment):
     return hits[0]
 
 
+# --------------------------------------------------------------------------- blocks by id
+# The Studio's prompts put the material and the cards in blocks with an id taken from their content:
+# <<<SOURCE id=s-1a2b3c4d … SOURCE>>>, <<<REVISE_CARDS id=r-… … REVISE_CARDS>>>. When the prompt is saved as a file
+# (attached, in the working folder, or in Downloads), load_source("s-…") / Deck.load("r-…") read the block from there,
+# so it never has to be retyped into code.
+_BLOCK_ID = re.compile(r"[a-z]-[0-9a-f]{8}")
+_BLOCK_TAGS = {"SOURCE": ("SOURCE",), "CARDS": ("REVISE_CARDS", "ANKI_CARDS")}
+
+
+def find_block(block_id, kind="CARDS"):
+    """(text, path) of the block with this id, from the newest text file that has it. Looks in the uploads, the
+    working folder (and ANKI_MATERIAL_DIR) and ~/Downloads."""
+    dirs = UPLOAD_DIRS + [os.path.expanduser("~/Downloads")]
+    files, seen = [], set()
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for root, _, names in os.walk(d):
+            if root.count(os.sep) - d.count(os.sep) > 1:
+                continue
+            for f in names:
+                pth = os.path.join(root, f)
+                if pth in seen or not f.lower().endswith((".txt", ".md", ".json")):
+                    continue
+                seen.add(pth)
+                try:
+                    if os.path.getsize(pth) <= 64 << 20:
+                        files.append((os.path.getmtime(pth), pth))
+                except OSError:
+                    pass
+    tags = "|".join(_BLOCK_TAGS[kind])
+    pat = re.compile(r"<<<(" + tags + r")[ \t]+id=" + re.escape(block_id) + r"[^\n]*\n(.*?)\n?\1>>>", re.S)
+    for _, pth in sorted(files, reverse=True):
+        try:
+            with open(pth, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        if block_id in text:
+            m = pat.search(text)
+            if m:
+                return m.group(2), pth
+    raise FileNotFoundError(
+        f"No file has the block id={block_id}. Don't retype the block: ask the user to send the prompt as a file "
+        f"(Anki Card Studio: tick '📎 As a file' before copying) and attach it, or save it in {os.getcwd()} or ~/Downloads.")
+
+
 # --------------------------------------------------------------------------- HTML helpers
 def esc(s):
     """Escape plain text for use inside HTML fields."""
@@ -646,14 +693,39 @@ def _need_pymupdf():
 
 
 # --------------------------------------------------------------------------- PDF inspection
+def page_map(path):
+    """An excerpt from Anki Card Studio (e.g. "L01_p12-30.pdf") carries the original file and pages in its keywords:
+    returns (original file name, [original page of excerpt page 1, 2, ...]), or None for an ordinary PDF."""
+    if not str(path).lower().endswith(".pdf"):
+        return None
+    try:
+        kw = (_need_pymupdf().open(path).metadata or {}).get("keywords") or ""
+    except Exception:  # noqa: BLE001
+        return None
+    m = re.search(r"acs-pages=(\S+):([\d,]+)", kw)
+    if not m:
+        return None
+    from urllib.parse import unquote
+    return unquote(m.group(1)), [int(x) for x in m.group(2).split(",") if x]
+
+
+def orig_page(path, page):
+    """(file, page) to cite for page `page` (1-based) of `path`: the original file and page for a Studio excerpt."""
+    pm = page_map(path)
+    if pm and 1 <= page <= len(pm[1]):
+        return pm[0], pm[1][page - 1]
+    return os.path.basename(path), page
+
+
 def pdf_info(path, chars=160):
-    """Print page count and a text snippet + figure count for each page."""
+    """Print page count and a text snippet + figure count for each page (with the original page for an excerpt)."""
     mu = _need_pymupdf()
     doc = mu.open(path)
-    print(f"{os.path.basename(path)}: {len(doc)} pages")
+    pm = page_map(path)
+    print(f"{os.path.basename(path)}: {len(doc)} pages" + (f" - an excerpt of {pm[0]}: cite pages as {pm[0]} p.<orig>" if pm else ""))
     for i, p in enumerate(doc, 1):
         txt = " ".join(p.get_text().split())[:chars]
-        print(f"  p{i:>3}  figs={len(p.get_image_info()):<2} {txt}")
+        print(f"  p{i:>3}" + (f" (orig p.{pm[1][i - 1]})" if pm and i <= len(pm[1]) else "") + f"  figs={len(p.get_image_info()):<2} {txt}")
     return len(doc)
 
 
@@ -718,6 +790,46 @@ def render_page_preview(path, page, zoom=1.5, name=None):
     return out
 
 
+def _office_pages(path):
+    """{slide/section number: text} for a .pptx (one per slide, with speaker notes) or a .docx (one per heading
+    section) - plain zip + XML, no extra packages."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    z = zipfile.ZipFile(path)
+    tx = lambda el, tag: "".join(t.text or "" for t in el.iter() if t.tag.endswith("}" + tag))
+    out = {}
+    if path.lower().endswith(".pptx"):
+        names = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)), key=lambda n: int(re.findall(r"\d+", n)[-1]))
+        for i, n in enumerate(names, 1):
+            root = ET.fromstring(z.read(n))
+            lines = [tx(p, "t").strip() for p in root.iter() if p.tag.endswith("}p")]
+            rel = n.replace("slides/", "slides/_rels/") + ".rels"
+            if rel in z.namelist():
+                m = re.search(r'Target="\.\./notesSlides/(notesSlide\d+\.xml)"', z.read(rel).decode("utf-8", "replace"))
+                if m and "ppt/notesSlides/" + m.group(1) in z.namelist():
+                    nr = ET.fromstring(z.read("ppt/notesSlides/" + m.group(1)))
+                    notes = " ".join(t for t in (tx(p, "t").strip() for p in nr.iter() if p.tag.endswith("}p")) if t and not t.isdigit())
+                    if notes:
+                        lines.append("Speaker notes: " + notes)
+            out[i] = "\n".join(l for l in lines if l)
+    else:
+        root = ET.fromstring(z.read("word/document.xml"))
+        sec, n = [], 1
+        for p in root.iter():
+            if not p.tag.endswith("}p"):
+                continue
+            t = tx(p, "t").strip()
+            if not t:
+                continue
+            style = next((s.get(next(k for k in s.attrib if k.endswith("}val"))) for s in p.iter() if s.tag.endswith("}pStyle") and s.attrib), "")
+            if style and style.lower().startswith(("heading1", "heading2", "title")) and sum(map(len, sec)) > 400:
+                out[n] = "\n".join(sec); n += 1; sec = []
+            sec.append(t)
+        if sec:
+            out[n] = "\n".join(sec)
+    return out
+
+
 def office_images(path):
     """List images embedded in a .docx / .pptx / .xlsx file (they are zip archives)."""
     with zipfile.ZipFile(path) as z:
@@ -743,6 +855,7 @@ CHECK_DEFAULTS = {
     "unshown_code": "warn",        # the question calls a method whose code the front doesn't show
     "code_as_text": "warn",        # code written as plain text, or several lines squeezed into inline <code>
     "code_language": "warn",       # a code block without a language (no highlighting)
+    "code_line_chars": 27,         # longest line in a code block - a phone screen's width (0 = no limit)
     "unshown_math": "warn",        # the question cites an equation or theorem ("Eq. (3)", "Theorem 2") the card doesn't state
     "math_as_text": "warn",        # maths written as plain text (x^2, a_1, \frac), or a big formula squeezed into inline \( \)
     "math_in_code": "warn",        # maths inside <code> / a code block without a language: shown as raw LaTeX
@@ -777,6 +890,16 @@ _CODE_LIKE = re.compile(
     r"|(?:\bnew\s+[A-Z]\w*(?:<[^>]*>)?\s*\()|(?:\b[a-z]\w*\s*->\s*[\w(])|(?:\b[A-Z]\w*<[A-Z?][\w<>?, ]*>)"
     r"|(?:\breturn\s+[^.?!]{1,40};)"
     r"|(?:\b(?:public|private|protected|static)\s+(?:static\s+|final\s+|abstract\s+)*(?:class|interface|void|int|double|boolean|String|[A-Z]\w*)\b)")
+
+
+def _code_lines(c):
+    """Every line of the card's code blocks as the reader sees it: tags removed, entities decoded, tabs expanded to 8."""
+    out = []
+    for k in ("front", "back", "text", "extra", "source"):
+        for body in re.findall(r"<pre[^>]*>([\s\S]*?)</pre>", str(c.get(k) or ""), re.I):
+            t = _html.unescape(re.sub(r"<[^>]+>", "", re.sub(r"<br\s*/?>", "\n", body, flags=re.I)))
+            out += [line.expandtabs(8).rstrip() for line in t.split("\n")]
+    return out
 
 
 def _un_cloze(h):
@@ -1753,17 +1876,39 @@ class Deck:
         return out
 
     # ---------------------------------------------------------------- source text (for checking ref quotes)
-    def load_source(self, src, file=None):
+    def load_source(self, src=None, file=None):
         """Give validate() the text each ref points into, so it can check every quote is really there.
-        src: a PDF / text / markdown path, extract.json (from extract.py), or the raw text of a batch prompt
-        with [file p.N] markers (paste the whole SOURCE block). Returns {file: number of pages}."""
+        src: the id of a prompt's SOURCE block ("s-1a2b3c4d": read from the prompt file, never retype it), a PDF /
+        text / markdown path, extract.json (from extract.py), or text with [file p.N] markers. With no src, every
+        uploaded PDF. Returns {file: number of pages}."""
         text = None
+        if src is None:
+            pdfs = [p for p in list_uploads() if p.lower().endswith(".pdf")]
+            if not pdfs:
+                raise FileNotFoundError("load_source(): no uploaded PDFs - pass a path or the SOURCE block's id")
+            for p in pdfs:
+                self.load_source(p)
+            return {k: len(v) for k, v in self.source_pages.items()}
+        if isinstance(src, str) and _BLOCK_ID.fullmatch(src) and not os.path.exists(src):
+            text, where = find_block(src, "SOURCE")
+            print(f"Source block {src} read from {where}")
         if isinstance(src, str) and os.path.exists(src):
             if src.lower().endswith(".pdf"):
                 mu = _need_pymupdf()
                 doc = mu.open(src)
+                pm = page_map(src)
+                if pm and not file:      # a Studio excerpt: its pages are stored under the original file and page numbers
+                    pages = self.source_pages.setdefault(pm[0], {})
+                    for i, p in enumerate(doc, 1):
+                        pages[pm[1][i - 1] if i <= len(pm[1]) else i] = p.get_text()
+                    print(f"{os.path.basename(src)}: excerpt of {pm[0]} - quotes are checked against {pm[0]} p.{pm[1][0]}-{pm[1][-1]}")
+                    return {pm[0]: len(doc)}
                 self.source_pages[file or os.path.basename(src)] = {i: p.get_text() for i, p in enumerate(doc, 1)}
                 return {file or os.path.basename(src): len(doc)}
+            if src.lower().endswith((".pptx", ".docx")):
+                pages = _office_pages(src)
+                self.source_pages[file or os.path.basename(src)] = pages
+                return {file or os.path.basename(src): len(pages)}
             if src.lower().endswith(".json"):
                 d = json.load(open(src, encoding="utf-8"))
                 for f in d.get("files", []):
@@ -1902,6 +2047,12 @@ class Deck:
             if at_strict("code_as_text"):
                 for prob in _code_as_text(c):
                     at_strict("code_as_text")(f"{cid}: {prob}")
+            if ck["code_line_chars"]:
+                long = [ln for ln in _code_lines(c) if len(ln) > ck["code_line_chars"]]
+                if long:
+                    w = max(long, key=len)
+                    W(f"{cid}: {len(long)} code line(s) longer than {ck['code_line_chars']} characters (longest {len(w)}: {w.strip()[:40]!r}) - "
+                      "break long lines (after a comma or operator, one chained call per line) so the block fits a phone screen")
             for key, prob in _math_checks(c):
                 if at_strict(key):
                     at_strict(key)(f"{cid}: {prob}")
@@ -2138,12 +2289,18 @@ class Deck:
 
     @classmethod
     def load(cls, src):
-        """Resume from a bundle file path, a JSON string, or pasted text with <<<ANKI_CARDS markers."""
+        """Resume from the id of a prompt's REVISE_CARDS block ("r-1a2b3c4d": read from the prompt file, never retype
+        it), a bundle file path, a JSON string, or text with <<<ANKI_CARDS / <<<REVISE_CARDS markers."""
         if isinstance(src, dict):
             d = src
         else:
-            text = open(src, encoding="utf-8").read() if os.path.exists(str(src)) else str(src)
-            blocks = [json.loads(b) for b in re.findall(r"<<<(?:ANKI|REVISE)_CARDS(.*?)(?:ANKI|REVISE)_CARDS>>>", text, re.S)
+            if isinstance(src, str) and _BLOCK_ID.fullmatch(src) and not os.path.exists(src):
+                body, where = find_block(src, "CARDS")
+                print(f"Cards block {src} read from {where}")
+                text = "<<<REVISE_CARDS\n" + body + "\nREVISE_CARDS>>>"
+            else:
+                text = open(src, encoding="utf-8").read() if os.path.exists(str(src)) else str(src)
+            blocks = [json.loads(b) for b in re.findall(r"<<<(?:ANKI|REVISE)_CARDS(?:[ \t]+id=\S+)?(.*?)(?:ANKI|REVISE)_CARDS>>>", text, re.S)
                       if '"cards"' in b]
             d = blocks[0] if blocks else json.loads(text)
             for extra in blocks[1:]:          # several blocks (long decks) are merged
@@ -2190,11 +2347,13 @@ def help():
     FILES      list_uploads(), find_upload("part_of_name")
     PDF        pdf_info(p), pdf_text(p, page), pdf_find(p, "Figure 3"),
                pdf_figures(p, page=None), render_page_preview(p, page)
-    OFFICE     office_images(p)    (.docx/.pptx embedded images)
+               orig_page(p, n) -> (file, page) to cite for a Studio excerpt ("L01_p12-30.pdf")
+    OFFICE     office_images(p)    (.docx/.pptx embedded images); deck.load_source(p) reads their text
 
     deck = Deck("Parent::Child", tags=["topic"], id_prefix="c")   # batch: id_prefix="L01-c"
-    deck = Deck.load(path_or_pasted_text)    # resume a bundle / revision request; deck.feedback = {{id: text}}
-    deck.load_source(pdf_or_text)            # the material refs point into -> validate() checks every quote
+    deck = Deck.load("r-1a2b3c4d")           # a prompt's REVISE_CARDS block by id, read from the prompt file (or a bundle path)
+    deck.load_source("s-1a2b3c4d")           # a prompt's SOURCE block by id (or a PDF path; no argument = every uploaded PDF)
+                                             #   -> validate() checks every quote. Never retype a block into code.
     deck.configure_checks({{...}})            # the prompt's "Checker settings" (levels error/warn/off, limits); deck.checks
     IMAGES (each returns the filename to reference)
       deck.pdf_figure(p, page, index=0, name)          embedded figure incl. overlaid labels

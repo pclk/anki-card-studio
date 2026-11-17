@@ -1,6 +1,17 @@
 /* ====================================================================== SOURCES */
 const srcCache = new Map();      // source id -> {pages:[{page, text, figure}]}
-const srcDocCache = new Map();   // source id -> pdf.js document
+// Release PDF workers and buffers whenever a source is removed or a project changes.
+class SourceDocumentCache extends Map {
+  delete(key){
+    const doc = this.get(key), removed = super.delete(key);
+    if (doc) Promise.resolve().then(() => doc.destroy()).catch(() => {});
+    return removed;
+  }
+  clear(){ for (const key of this.keys()) this.delete(key); }
+}
+const srcDocCache = new SourceDocumentCache();
+let srcDocGeneration = 0;
+const clearSourceDocuments = () => { srcDocGeneration++; srcDocCache.clear(); if (typeof visCache !== 'undefined') visCache.clear(); };
 const SRC_ICON = {pdf: '📕', pptx: '📊', docx: '📄', text: '📝', web: '🌐', html: '🌐'};
 const srcInScope = x => { const n = scopeNode(); if (!n) return true; return nodeSubtree(n).some(m => m.id === x.node); };
 const tokEst = chars => Math.round(chars / 4);
@@ -229,7 +240,7 @@ function showTab(name){
   if (name === 'revise') renderReviseSummary();
   if (name === 'export') renderExport();
   if (name === 'analytics') renderAnalytics();
-  if (name === 'prompt') renderDeckSummary();
+  if (name === 'prompt'){ renderDeckSummary(); if (typeof renderAttachInfo === 'function') renderAttachInfo(); }
   if (name === 'checker') renderCheckSettings();
   if (name === 'sources') renderSourcesTab();
   renderScopeBar();
@@ -242,7 +253,9 @@ function updateTabCounts(){
   const n = S.cards.filter(c => c.status === 'new').length, ch = S.cards.filter(c => c.status === 'change').length;
   const rc = S.cards.filter(c => c.recheck).length;
   $('#tabReviewCount').textContent = S.cards.length ? `${n} left` + (rc ? ` · ${rc} re-check` : '') : '';
-  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (formatting pass)${rc ? ' · ' + rc : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
-  $('#tabReviseCount').textContent = ch ? String(ch) : ''; $('#tabReviseCount').hidden = !ch;
+  const ro = $('#filter option[value=recheck]'); if (ro) ro.textContent = `Re-check (formatting / checker fix)${rc ? ' · ' + rc : ''}`; $('#tabReviewCount').hidden = !S.cards.length;
+  const bi = brokenImages().length;   // cards to change + broken images to redo
+  $('#tabReviseCount').textContent = ch + bi ? String(ch + bi) : ''; $('#tabReviseCount').hidden = !(ch + bi);
+  const bo = $('#filter option[value=brokenimg]'); if (bo) bo.textContent = `Broken images${bi ? ' · ' + bi : ''}`;
 }
 

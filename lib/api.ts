@@ -12,6 +12,17 @@
  *        (header X-ACS-Chunked: 1) and each piece is fetched with ?chunk=i
  *   GET  /api/fetch?url=...                      readable text of a public web page (or a PDF up to 4 MB)
  *
+ * The Mac bridge (lib/bridge.ts). Signed-in Studio:
+ *   GET|POST /api/devices, DELETE /api/devices/<id>      device tokens (POST answers the token, once)
+ *   GET  /api/jobs[?project=<id>], POST /api/jobs        {project, kind, agent, title, files: [{name, size}], meta}
+ *   GET|DELETE /api/jobs/<id>; POST /api/jobs/<id>/(queue|cancel|imported); GET /api/jobs/<id>/events?after=n
+ *   PUT  /api/jobs/<id>/in/<name>   (chunked like media)  the job's files, while it is uploading
+ *   GET  /api/jobs/<id>/out/<name>                        the result the bridge uploaded
+ * The bridge itself, with "Authorization: Bearer acsd_…" (a device token reaches these and nothing else):
+ *   POST /api/bridge/hello {version, agents}; POST /api/bridge/claim {agents} -> {job | null}
+ *   GET  /api/bridge/jobs/<id>/in/<name>; POST /api/bridge/jobs/<id>/events [{type, text}] -> {cancel}
+ *   PUT  /api/bridge/jobs/<id>/out/<name>; POST /api/bridge/jobs/<id>/finish {ok, error}
+ *
  * Kept free of Next.js so the tests can call it directly.
  */
 import { transaction } from "./db";
@@ -22,6 +33,7 @@ import { fetchReadable } from "./fetch-readable";
 import type { User } from "./user";
 import { envLogins, adminLogins, forgetAllowedCache, allowedLogins } from "./allow";
 import * as us from "./users";
+import * as br from "./bridge";
 
 export const API_VERSION = "2";
 
@@ -55,6 +67,14 @@ async function handleApiInner(req: Request, parts: string[], user: User | null):
     const url = new URL(req.url);
     const p = parts.map((x) => { try { return decodeURIComponent(x); } catch { return x; } });
     const o = user.owner;
+
+    // the Mac bridge signs in with a device token: the bridge endpoints and nothing else
+    if (user.device) {
+      if (p[0] !== "bridge") return json(403, { ok: false, error: "a device token only works for the bridge" });
+      if (user.status === "readonly" && m !== "GET") return json(403, { ok: false, readonly: true, error: "this account is read-only (set by the admin)" });
+      return await bridgeDeviceApi(req, p.slice(1), user);
+    }
+    if (p[0] === "bridge") return json(403, { ok: false, error: "the bridge endpoints need a device token" });
 
     if (p.length === 1 && p[0] === "ping")
       return json(200, { ok: true, version: API_VERSION, hosted: true, dataDir: "", user: { login: user.login, name: user.name ?? null, image: user.image ?? null, admin: !!user.admin, status: user.status || "active" } });
@@ -90,6 +110,33 @@ async function handleApiInner(req: Request, parts: string[], user: User | null):
         await st.removeAllowed(login);
         forgetAllowedCache();
         return json(200, await list());
+      }
+    }
+
+    if (p[0] === "devices") {
+      if (p.length === 1 && m === "GET") return json(200, await br.listDevices(o));
+      if (p.length === 1 && m === "POST") return json(200, await br.addDevice(o, JSON.parse((await req.text()) || "{}").name));
+      if (p.length === 2 && m === "DELETE") { await br.revokeDevice(o, p[1]); return json(200, { ok: true }); }
+    }
+
+    if (p[0] === "jobs") {
+      if (p.length === 1 && m === "GET") return json(200, await br.listJobs(o, url.searchParams.get("project")));
+      if (p.length === 1 && m === "POST") return json(200, await br.createJob(o, JSON.parse((await req.text()) || "{}")));
+      const id = p[1] ? br.checkJobId(p[1]) : "";
+      if (p.length === 2 && m === "GET") return json(200, await br.jobView(o, id));
+      if (p.length === 2 && m === "DELETE") { await br.deleteJob(o, id); return json(200, { ok: true }); }
+      if (p.length === 3 && m === "POST" && p[2] === "queue") return json(200, await br.queueJob(o, id));
+      if (p.length === 3 && m === "POST" && p[2] === "cancel") return json(200, await br.cancelJob(o, id));
+      if (p.length === 3 && m === "POST" && p[2] === "imported") return json(200, { ok: true, first: await br.claimImport(o, id) });
+      if (p.length === 3 && m === "GET" && p[2] === "events") return json(200, await br.jobEvents(o, id, Number(url.searchParams.get("after") || 0)));
+      if (p.length === 4 && p[2] === "in" && m === "PUT") {
+        const c = chunkArgs(req, url); await br.putJobInput(o, id, p[3], c.type, c.idx, c.total, Buffer.from(await req.arrayBuffer()), c.upload);
+        return json(200, { ok: true });
+      }
+      if (p.length === 4 && p[2] === "out" && m === "GET") {
+        const j = await br.jobView(o, id);
+        if (!j.outputs.includes(p[3])) return json(404, { ok: false, error: "not found" });
+        return await fileResponse(req, url, o, id, "jobout", st.checkName(p[3]));
       }
     }
 
@@ -135,26 +182,10 @@ async function handleApiInner(req: Request, parts: string[], user: User | null):
       if (p.length === 3 && st.KINDS.has(p[2]) && m === "GET") return json(200, await st.listFiles(o, id, p[2]));
       if (p.length === 4 && st.KINDS.has(p[2])) {
         const kind = p[2], name = st.checkName(p[3]);
-        if (m === "GET") {
-          const f = await st.fileMeta(o, id, kind, name);
-          if (!f) return json(404, { ok: false, error: "not found" });
-          const ci = url.searchParams.get("chunk");
-          if (ci != null && (!/^\d+$/.test(ci) || !Number.isSafeInteger(Number(ci)) || Number(ci) >= f.chunks))
-            return json(400, { ok: false, error: "bad chunk number" });
-          // the browser keeps images; asking again costs a tiny "not modified" (304) when nothing changed
-          const etag = ci == null ? f.etag : f.etag.replace(/"$/, `-${ci}"`);
-          if (req.headers.get("if-none-match") === etag)
-            return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "private, no-cache" } });
-          if (f.chunks > 1 && ci == null)
-            return json(200, { chunked: true, chunks: f.chunks, size: f.size, type: f.mime }, { "X-ACS-Chunked": "1" });
-          const b = await st.readChunk(o, id, kind, name, ci == null ? 0 : Number(ci));
-          return b ? bytes(b, f.mime, { ETag: etag, "Cache-Control": "private, no-cache" }) : json(404, { ok: false, error: "not found" });
-        }
+        if (m === "GET") return await fileResponse(req, url, o, id, kind, name);
         if (m === "PUT") {
-          const idx = Number(url.searchParams.get("chunk") ?? 0), total = Number(url.searchParams.get("chunks") ?? 1);
-          const type = (req.headers.get("content-type") || "application/octet-stream").split(";")[0];
-          const body = Buffer.from(await req.arrayBuffer());
-          await st.writeChunk(o, id, kind, name, type, idx, total, body, url.searchParams.get("upload") || "");
+          const c = chunkArgs(req, url);
+          await st.writeChunk(o, id, kind, name, c.type, c.idx, c.total, Buffer.from(await req.arrayBuffer()), c.upload);
           return json(200, { ok: true });
         }
         if (m === "DELETE") { await st.deleteFile(o, id, kind, name); return json(200, { ok: true }); }
@@ -169,6 +200,50 @@ async function handleApiInner(req: Request, parts: string[], user: User | null):
     console.error(e);
     return json(500, { ok: false, error: "server error" });
   }
+}
+
+/** a stored file, or one piece of it (?chunk=i); big files first answer how many pieces there are */
+async function fileResponse(req: Request, url: URL, o: string, id: string, kind: string, name: string): Promise<Response> {
+  const f = await st.fileMeta(o, id, kind, name);
+  if (!f) return json(404, { ok: false, error: "not found" });
+  const ci = url.searchParams.get("chunk");
+  if (ci != null && (!/^\d+$/.test(ci) || !Number.isSafeInteger(Number(ci)) || Number(ci) >= f.chunks))
+    return json(400, { ok: false, error: "bad chunk number" });
+  // the browser keeps images; asking again costs a tiny "not modified" (304) when nothing changed
+  const etag = ci == null ? f.etag : f.etag.replace(/"$/, `-${ci}"`);
+  if (req.headers.get("if-none-match") === etag)
+    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "private, no-cache" } });
+  if (f.chunks > 1 && ci == null)
+    return json(200, { chunked: true, chunks: f.chunks, size: f.size, type: f.mime }, { "X-ACS-Chunked": "1" });
+  const b = await st.readChunk(o, id, kind, name, ci == null ? 0 : Number(ci));
+  return b ? bytes(b, f.mime, { ETag: etag, "Cache-Control": "private, no-cache" }) : json(404, { ok: false, error: "not found" });
+}
+const chunkArgs = (req: Request, url: URL) => ({
+  idx: Number(url.searchParams.get("chunk") ?? 0), total: Number(url.searchParams.get("chunks") ?? 1),
+  type: (req.headers.get("content-type") || "application/octet-stream").split(";")[0], upload: url.searchParams.get("upload") || "",
+});
+
+/* the bridge's own endpoints (device token only - see the top of this file) */
+async function bridgeDeviceApi(req: Request, p: string[], user: User): Promise<Response> {
+  const m = req.method, url = new URL(req.url);
+  const body = async () => JSON.parse((await req.text()) || "{}");
+  if (p.length === 1 && p[0] === "hello" && m === "POST") return json(200, await br.hello(user, await body()));
+  if (p.length === 1 && p[0] === "claim" && m === "POST") return json(200, { ok: true, job: await br.claimJob(user, (await body()).agents) });
+  if (p[0] === "jobs" && p[1]) {
+    const id = br.checkJobId(p[1]);
+    if (p.length === 4 && p[2] === "in" && m === "GET") {
+      const name = st.checkName(p[3]);
+      if (!(await br.deviceInputMeta(user, id, name))) return json(404, { ok: false, error: "not found" });
+      return await fileResponse(req, url, user.owner, id, "jobin", name);
+    }
+    if (p.length === 3 && p[2] === "events" && m === "POST") return json(200, { ok: true, ...(await br.postEvents(user, id, await body())) });
+    if (p.length === 4 && p[2] === "out" && m === "PUT") {
+      const c = chunkArgs(req, url); await br.putJobOutput(user, id, st.checkName(p[3]), c.type, c.idx, c.total, Buffer.from(await req.arrayBuffer()), c.upload);
+      return json(200, { ok: true });
+    }
+    if (p.length === 3 && p[2] === "finish" && m === "POST") return json(200, { ok: true, job: await br.finishJob(user, id, await body()) });
+  }
+  return json(404, { ok: false, error: "unknown bridge endpoint" });
 }
 
 /*

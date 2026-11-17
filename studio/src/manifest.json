@@ -15,5 +15,8 @@
   "13-revise.js",
   "14-export.js",
   "15-analytics.js",
-  "16-source-picture.js"
+  "16-source-picture.js",
+  "17-image-review.js",
+  "18-source-files.js",
+  "19-bridge.js"
 ]

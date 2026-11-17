@@ -79,6 +79,7 @@ const CHECK_DEFS = [
   {key: 'unshown_math', group: 'Self-contained', label: "Cites an equation or theorem the card doesn't show", kind: 'level', def: 'warn'},
   {key: 'code_as_text', group: 'Code', label: 'Code written as plain text / squeezed into inline code', kind: 'level', def: 'warn'},
   {key: 'code_language', group: 'Code', label: 'Code block without a language', kind: 'level', def: 'warn'},
+  {key: 'code_line_chars', group: 'Code', label: 'Longest line in a code block (fits a phone)', kind: 'num', def: 27, unit: 'chars'},
   {key: 'math_as_text', group: 'Maths', label: 'Maths written as plain text / squeezed into inline maths', kind: 'level', def: 'warn'},
   {key: 'math_in_code', group: 'Maths', label: 'Maths written inside code', kind: 'level', def: 'warn'},
   {key: 'ref_quote_min_chars', group: 'Sources', label: 'Minimum source-quote length', kind: 'num', def: 25, unit: 'chars'},
@@ -98,6 +99,7 @@ const CHECK_HOW = {
   outside_refs: 'Cards tagged refs-ok are skipped. In the question (front, or cloze text) it looks for phrases that point outside the card: "previous / next / other / earlier card", "the example / code / figure / table / method … above" or "… from the notes / lecture / slides", "Figure 3", "Fig. 2", "Slide 12", "Listing 4", "Table 2", "as shown / defined / discussed in the lecture / notes / slides / class", "in / from the notes / slides / lecture / textbook / tutorial / reading", "from L04" / "in lecture 3". On the back and Extra it only looks for references to other cards and to "the example / code / figure above". A numbered "Question 3.1", "Exercise 2" or "Example 4" is only ever a warning (fine when the whole problem is on the card).',
   unshown_code: 'Cards tagged refs-ok, and questions that contain a code block (<pre>), are skipped. Otherwise it looks in the question text and its inline <code> for a method called on a variable: a lowercase name, a dot, a method name and "(" - like p1.distanceTo(p2). Common library methods are ignored (add, get, set, put, remove, contains, size, isEmpty, equals, hashCode, toString, compareTo, length, charAt, substring, indexOf, append, map, filter, reduce, forEach, collect, stream, of, iterate, limit, sum, count, apply, accept, test, andThen, compose, next, hasNext, sort, split, trim, format, println, print and similar).',
   code_as_text: 'Two signs. (1) In the front, back or Extra, outside code tags: a call ending in ";" (foo(x);), a typed declaration (int x = …, String s;), new Foo(…), a lambda (x -> …), generics (List<Integer>), "return …;", or modifiers before a type (public static void, private final Point). (2) Inline <code> holding several statements - 2+ semicolons, a line break, or { … } over 40 characters - in a field without a code block.',
+  code_line_chars: 'Code blocks (<pre>) only - not inline <code>, prose or maths. Measures every line of every code block after removing tags and decoding entities, with tabs expanded to the next multiple of 8 (how the card shows them), and fails when the longest line is over the limit. The default, 27, is the width of a phone screen ("public ColoredCircle(Circle"): longer lines make the reader scroll sideways. 0 = no limit. Always a warning.',
   code_language: 'A code block (<pre>) whose <code> has no language-… class, so it is shown without syntax highlighting. code() in the skill always adds one.',
   unshown_math: 'Cards tagged refs-ok, and questions that contain display maths \\[ … \\], are skipped. Otherwise it looks in the question, outside code and maths, for an equation or result cited by number or position: "equation 3", "Eq. (2.1)", "eqn 4", "Theorem 2", "Lemma 3.1", "Proposition / Corollary / Identity / Formula 5", "using / by / from / in (3)", or "the equation / formula / identity / theorem / lemma / proof / derivation / result above / earlier".',
   math_as_text: 'Two signs. (1) In the front, back or Extra, outside code and maths: a LaTeX command (\\frac, \\sum, \\alpha, \\leq, \\begin …), a power (x^2, e^{-x}, (a+b)^2), a one-letter subscript (a_1, x_i, x_{n+1}), sqrt(…), or ∑ ∏ ∫ √. (2) Inline maths \\( … \\) that is too big for a line - a line break \\\\ outside a matrix, an align / aligned / gather / cases / array environment, or over 80 characters.',
@@ -172,6 +174,11 @@ function cardChecks(c, C = ck()){
     if (long){ strict('code_as_text', `${name} squeezes several lines of code into inline <code> ("${long.trim().slice(0, 40)}…"): use a code block.`); break; }
   }
   if (FIELDS[c.type].some(f => /<pre(?![^>]*>\s*<code)|<pre[^>]*>\s*<code(?![^>]*language-)/i.test(c[f] || ''))) strict('code_language', 'A code block has no language, so it is not highlighted.');
+  if (C.code_line_chars){
+    const long = codeLines(c).filter(l => l.length > C.code_line_chars);
+    if (long.length){ const w = long.reduce((a, l) => l.length > a.length ? l : a);
+      out.push({key: 'code_line_chars', level: 'W', msg: `${long.length} code line${long.length > 1 ? 's are' : ' is'} longer than ${C.code_line_chars} characters (the longest has ${w.length}: "${w.trim().slice(0, 40)}"): break long lines so each code block fits a phone screen without scrolling sideways.`}); }
+  }
   if (!tags.includes('refs-ok') && !/\\\[/.test(fixMath(mathWithoutCode(q)))){
     const m = FMT_MATHREF.exec(mathProse(q));
     if (m) strict('unshown_math', `The question cites "${m[0].trim()}" but the card doesn't state it: if answering needs it, write it on the front as maths (\\[ … \\]).`);
@@ -197,8 +204,16 @@ function cardChecks(c, C = ck()){
   }
   return out;
 }
+/** every line of the card's code blocks, as the reader sees it: tags removed, entities decoded, tabs expanded to 8 */
+function codeLines(c){
+  const out = [];
+  for (const f of FIELDS[c.type]) for (const m of String(c[f] || '').matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/gi))
+    for (const l of decodeEnt(m[1].replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')).split('\n'))
+      out.push(l.replace(/[^\t]*\t/g, s => s.slice(0, -1) + ' '.repeat(8 - (s.length - 1) % 8)).replace(/\s+$/, ''));
+  return out;
+}
 /** what the formatting pass sends: the presentation problems only */
-const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'unshown_math', 'math_as_text', 'math_in_code']);
+const FMT_KEYS = new Set(['outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'code_line_chars', 'unshown_math', 'math_as_text', 'math_in_code']);
 /* checks are re-run for a card only when it or the settings change (Analytics and the check filter look at every card) */
 const chkMemo = new WeakMap();
 function checksOf(c, C = ck(), cs = J(C)){
@@ -210,7 +225,7 @@ function checksOf(c, C = ck(), cs = J(C)){
 const CHECK_ROWS = [
   {key: 'why', label: 'No "why this card"', test: c => checksOf(c).some(x => x.key === 'why')},
   {key: 'why_min_words', label: '"Why" too short', test: c => checksOf(c).some(x => x.key === 'why_min_words')},
-  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'unshown_math', 'math_as_text', 'math_in_code', 'ref_page', 'ref_quote_min_chars']
+  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'code_line_chars', 'unshown_math', 'math_as_text', 'math_in_code', 'ref_page', 'ref_quote_min_chars']
     .map(k => ({key: k, label: CHECK_DEFS.find(d => d.key === k).label, test: c => checksOf(c).some(x => x.key === k)})),
   {key: 'missing_img', label: 'Image missing or not loaded', test: c => cardMissing(c), studio: true}
 ];
@@ -228,6 +243,9 @@ function ensureCheckOption(key){
     const o = document.createElement('option'); o.value = 'chk:' + key; o.dataset.chk = 1; o.textContent = 'Check: ' + r.label; sel.appendChild(o); }
 }
 function formatIssues(c){ return checksOf(c).filter(x => FMT_KEYS.has(x.key)).map(x => x.msg); }
+/** what the checker fix sends: every other check the Studio runs (content, length, rationale and sources) */
+const FIX_KEYS = new Set(['why', 'why_min_words', 'front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'ref_page', 'ref_quote_min_chars']);
+function fixIssues(c){ return checksOf(c).filter(x => FIX_KEYS.has(x.key)).map(x => x.msg); }
 
 /** set a card's review status; any decision on a card also settles a pending formatting re-check */
 function setCardStatus(c, st){ c.status = st; if (c.recheck) delete c.recheck; }
@@ -238,6 +256,7 @@ function filtered(){
     if (S.deckFilter && cardDeck(c) !== S.deckFilter) return false;
     if (S.filter === 'edited' && !c.edited) return false;
     if (S.filter === 'missing' && !cardMissing(c)) return false;
+    if (S.filter === 'brokenimg' && !cardBrokenImg(c)) return false;
     if (S.filter === 'recheck' && !c.recheck) return false;
     if (S.filter.startsWith('chk:')){ const r = checkRow(S.filter.slice(4)); if (r && !r.test(c)) return false; }
     if (['new','ok','change','drop'].includes(S.filter) && c.status !== S.filter) return false;
@@ -340,7 +359,7 @@ function renderReview(){
   $('#prevWrap').hidden = !c.prev;
   if (c.prev){
     $('#prevBox').innerHTML = prevDiffHTML(c);
-    $('#prevSum').textContent = c.recheck ? 'What the formatting pass changed' : 'Show previous version & feedback';
+    $('#prevSum').textContent = c.recheck ? 'What the formatting pass / checker fix changed' : 'Show previous version & feedback';
     // a re-check is about the changes, so show them straight away (once per card, so closing it sticks)
     if ($('#prevWrap').dataset.card !== c.id){ $('#prevWrap').dataset.card = c.id; $('#prevWrap').open = !!c.recheck; }
   }
@@ -514,7 +533,8 @@ function prevDiffHTML(c){
   let h = p.feedback ? `<div style="margin-bottom:6px"><b>Your feedback:</b> ${esc(p.feedback)}</div>` : '';
   if (p.type !== c.type) h += `<div>Type: ${esc(p.type)} → ${esc(c.type)}</div>`;
   let changed = 0;
-  for (const f of fields){
+  // older versions were saved without their "why": only compare it when it was kept
+  for (const f of 'why' in p ? [...fields, 'why'] : fields){
     const a = String(p[f] || ''), b = String(c[f] || ''); if (a === b) continue; changed++;
     const fa = (f === 'source' ? a : formatHTML(a)).split('\n'), fb = (f === 'source' ? b : formatHTML(b)).split('\n');
     const d = lineDiff(fa, fb);
@@ -523,7 +543,13 @@ function prevDiffHTML(c){
     let rows = '', gap = false;
     d.forEach((x, k) => { if (!keep[k]){ if (!gap) rows += '<div class="df-gap">⋯</div>'; gap = true; return; } gap = false;
       rows += `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`; });
-    h += `<div class="df-field"><b>${esc(FIELD_LABEL[f] || f)}</b><div class="df">${rows}</div></div>`;
+    h += `<div class="df-field"><b>${esc(FIELD_LABEL[f] || (f === 'why' ? 'Why this card' : f))}</b><div class="df">${rows}</div></div>`;
+  }
+  // source references, when the old version kept them
+  const refTxt = rs => (rs || []).map(r => `${r.file}${r.page ? ' p. ' + r.page : ''}${r.quote ? ': "' + r.quote + '"' : ''}`);
+  if ('refs' in p && J(p.refs || []) !== J(c.refs || [])){
+    changed++; const d = lineDiff(refTxt(p.refs), refTxt(c.refs));
+    h += `<div class="df-field"><b>Source location</b><div class="df">${d.map(x => `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`).join('')}</div></div>`;
   }
   if (!changed) h += '<div class="muted">No field changes.</div>';
   return h;
@@ -540,7 +566,7 @@ function renderCurChecks(c){
 function badgesHTML(c){
   renderCurChecks(c);
   return `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> `
-    + (c.recheck ? '<span class="pill warn" title="Approved before, then reformatted by a formatting pass: check the changes (see below the card), then approve or exclude it">re-check</span> ' : '')
+    + (c.recheck ? '<span class="pill warn" title="Approved before, then changed by a formatting pass or checker fix: check the changes (see below the card), then approve or exclude it">re-check</span> ' : '')
     + (c.edited ? '<span class="pill edited" title="You edited this card\'s fields directly">field-edited</span>' : '');
 }
 function renderReviewSoft(){ const c = curCard(); renderList(); updateTabCounts(); $('#stOk').classList.toggle('on', c.status === 'ok'); $('#stChange').classList.toggle('on', c.status === 'change'); $('#stDrop').classList.toggle('on', c.status === 'drop');
@@ -774,8 +800,9 @@ function renderImages(c){
     const thumb = st === 'ok' ? `<img src="${mediaURL(n)}" alt="">` : st === 'inline' ? `<img src="${esc(n)}" alt="">` : `<div class="ph">${st === 'snip' ? '✂' : st === 'loading' ? '⏳' : '⚠'}</div>`;
     const label = {ok: `<span class="pill ok">${esc(m.origin || 'ok')}</span>`, inline: '<span class="pill">inline</span>', snip: '<span class="pill warn">snip needed</span>', loading: '<span class="pill">downloading</span>', failed: '<span class="pill bad">download failed</span>', missing: '<span class="pill bad">missing</span>'}[st];
     const detail = st === 'snip' ? `<div style="color:var(--warn)">${esc(m.hint || '')}</div>` : st === 'failed' ? `<div style="color:var(--bad)">${esc(m.error)} - <a href="${esc(m.url)}" target="_blank" rel="noopener">open link</a></div>` : st === 'missing' ? `<div class="muted">Not in the bundle - drop the file on Import, or provide it here.</div>` : (m.credit ? `<div class="muted">${esc(m.credit)}</div>` : '');
-    const act = st === 'snip' ? 'Snip ✂' : (st === 'ok' ? 'Crop / replace' : 'Provide…');
-    return `<div class="imgrow" data-name="${esc(n)}">${thumb}<div class="meta"><code>${esc(n)}</code> ${label}${detail}</div>
+    const act = st === 'snip' ? 'Snip ✂' : (st === 'ok' ? 'Crop / replace' : 'Provide…'), v = imgVerdict(n);
+    const verdict = v === 'ok' ? ' <span class="pill ok" title="Approved in the image review">✓ image ok</span>' : v === 'broken' ? ` <span class="pill bad" title="Marked broken in the image review - fix it on Revise">✕ broken</span>${m.rvNote ? `<div style="color:var(--bad)">${esc(m.rvNote)}</div>` : ''}` : '';
+    return `<div class="imgrow" data-name="${esc(n)}">${thumb}<div class="meta"><code>${esc(n)}</code> ${label}${verdict}${detail}</div>
       <div class="stack" style="gap:4px">${st !== 'inline' ? `<button class="btn sm ${st === 'snip' ? 'primary' : ''}" data-act="replace">${act}</button>` : ''}<button class="btn sm" data-act="remove" title="Remove from this card">Remove</button></div></div>`;
   }).join('') || '<div class="muted small">No images yet.</div>';
 }

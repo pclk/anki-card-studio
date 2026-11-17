@@ -1,0 +1,297 @@
+#!/usr/bin/env node
+/**
+ * Anki Card Studio - Mac bridge. Runs the prompts you send from the Studio ("▶ Run on Mac") with Claude Code or
+ * Codex on this Mac, using your own subscription, and sends the finished anki_bundle.json / anki_revision.json back.
+ * The Studio can't start programs on your Mac, so this connects out to it and asks for work every few seconds.
+ *
+ *   node acs-bridge.mjs pair https://your-studio.vercel.app    paste the device token from Settings → Mac bridge
+ *   node acs-bridge.mjs                                          run (Ctrl+C to stop)
+ *   node acs-bridge.mjs status                                   which server and device this is set up for
+ *
+ * Needs Node 20+ and `claude` (Claude Code) and/or `codex` on your PATH. No other packages.
+ *
+ * Safety
+ * - The device token is kept in ~/.acs-bridge/config.json, readable only by you. Remove the device in the Studio to
+ *   cut it off at once. It is sent only over https (or to this Mac itself), and only to the server you paired with.
+ * - Each job runs in its own new folder (~/.acs-bridge/jobs/<id>). The prompt and files from the Studio are written
+ *   there as files; they are never put on a command line. The agent gets a fixed instruction from this script.
+ * - Claude Code runs with --permission-mode dontAsk and only the tools in `claudeTools` (anything else is refused,
+ *   nothing waits for an answer), and without your MCP servers (--strict-mcp-config). Codex runs in its
+ *   workspace-write sandbox. The agent still runs code (the skill is Python), so only pair devices with a Studio
+ *   account you trust - a job is as powerful as a prompt you'd paste into Claude Code yourself.
+ *
+ * Env (mostly for tests): ACS_BRIDGE_HOME (instead of ~/.acs-bridge), ACS_BRIDGE_SERVER + ACS_BRIDGE_TOKEN (instead of
+ * the config file), ACS_BRIDGE_CLAUDE / ACS_BRIDGE_CODEX (the commands), ACS_BRIDGE_POLL_MS.
+ */
+import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
+
+export const VERSION = '1';
+const HOME = process.env.ACS_BRIDGE_HOME || path.join(os.homedir(), '.acs-bridge');
+const CONFIG = path.join(HOME, 'config.json');
+const CHUNK = 3 * 1024 * 1024;
+const TIMEOUT_MS = Number(process.env.ACS_BRIDGE_TIMEOUT_MS) || 120_000;
+const TOKEN_RE = /^acsd_[A-Za-z0-9_-]{43}$/;
+const SKILL_FILES = { 'SKILL.md': '', 'anki_helper.py': 'scripts', 'extract.py': 'scripts', 'make_prompts.py': 'scripts' };
+const DEFAULTS = {
+  agents: ['claude', 'codex'],               // which agents this Mac runs (only the ones that are installed)
+  claudeTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'],
+  maxMinutes: 60,                            // a run that takes longer is stopped
+  keepJobs: false,                           // keep a job's folder after it succeeded (failed ones are always kept)
+};
+/** what the agent is told. Fixed here on purpose: nothing from the server ends up in an argument */
+export const INSTRUCTION = `You are running unattended for Anki Card Studio, in a folder made for this one job.
+Your task is in ./anki_prompt.txt: read it and follow it exactly.
+- The anki skill, in the exact version the Studio uses, is in ./anki-skill/SKILL.md; its scripts are in ./anki-skill/scripts (in Python: import sys; sys.path.insert(0, "anki-skill/scripts"); from anki_helper import *).
+- The files the prompt mentions as attached are in this folder. Read blocks of the prompt by their id with the helper (it finds anki_prompt.txt here); never retype them.
+- Outputs go to ./anki_out (ANKI_OUT_DIR is set): the result must be ./anki_out/anki_bundle.json for new cards, or ./anki_out/anki_revision.json for a revision, as the prompt asks.
+- Nobody can answer questions while you work: make sensible choices and mention them in your final reply.
+- Work only inside this folder.`;
+
+/* ------------------------------------------------------------------ config */
+export function loadConfig() {
+  let c = {};
+  try { c = JSON.parse(fs.readFileSync(CONFIG, 'utf8')); } catch {}
+  if (process.env.ACS_BRIDGE_SERVER) c.server = process.env.ACS_BRIDGE_SERVER;
+  if (process.env.ACS_BRIDGE_TOKEN) c.token = process.env.ACS_BRIDGE_TOKEN;
+  return { ...DEFAULTS, ...c };
+}
+function saveConfig(c) {
+  fs.mkdirSync(HOME, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2), { mode: 0o600 });
+  fs.chmodSync(CONFIG, 0o600);
+}
+/** the token only ever goes over https, or to this machine itself */
+export function checkServer(s) {
+  let u;
+  try { u = new URL(String(s)); } catch { throw new Error(`not a web address: ${s}`); }
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) throw new Error('the Studio address must start with https:// (http only for this Mac itself)');
+  return u.origin;
+}
+
+/* ------------------------------------------------------------------ talking to the Studio */
+export function client(server, token) {
+  const base = checkServer(server);
+  if (!TOKEN_RE.test(token || '')) throw new Error('that is not a device token (it starts with acsd_) - add the device again in the Studio');
+  // a request that hangs (bad Wi-Fi, a sleeping Mac waking up) gives up after 2 minutes; network errors and 5xx are
+  // tried 3 times. 4xx answers are final (the server said no), and 401 means the token is gone.
+  const call = async (method, p, body, type) => {
+    let r;
+    for (let tries = 0; ; tries++) {
+      try {
+        r = await fetch(`${base}/api/${p}`, { method, body, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS),
+          headers: { Authorization: `Bearer ${token}`, ...(type ? { 'Content-Type': type } : {}) } });
+        if (r.status < 500 || tries >= 2) break;
+      } catch (e) { if (tries >= 2) throw e; }
+      await new Promise((res) => setTimeout(res, 1000 * 3 ** tries));
+    }
+    if (r.status === 401) throw Object.assign(new Error('the Studio refused the device token (removed, or the account was signed out everywhere) - pair again'), { fatal: true });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw Object.assign(new Error(`${method} ${p}: ${j.error || 'HTTP ' + r.status}`), { status: r.status }); }
+    return r;
+  };
+  // each job's events are numbered once, so a post that is sent again (its answer was lost) isn't logged twice
+  const seqs = new Map();
+  const json = async (method, p, obj) => (await call(method, p, obj === undefined ? undefined : JSON.stringify(obj), 'application/json')).json();
+  return {
+    base,
+    hello: (info) => json('POST', 'bridge/hello', info),
+    claim: (agents) => json('POST', 'bridge/claim', { agents }),
+    events: (id, list) => {
+      let n = seqs.get(id) || 0;
+      for (const e of list) if (e.n == null) e.n = ++n;
+      seqs.set(id, n);
+      return json('POST', `bridge/jobs/${id}/events`, list);
+    },
+    finish: (id, ok, error) => json('POST', `bridge/jobs/${id}/finish`, { ok, error }),
+    async download(id, name) {
+      const p = `bridge/jobs/${id}/in/${encodeURIComponent(name)}`, r = await call('GET', p);
+      if (r.headers.get('x-acs-chunked') !== '1') return Buffer.from(await r.arrayBuffer());
+      const meta = await r.json(), parts = [];
+      for (let i = 0; i < meta.chunks; i++) parts.push(Buffer.from(await (await call('GET', `${p}?chunk=${i}`)).arrayBuffer()));
+      return Buffer.concat(parts);
+    },
+    async upload(id, name, bytes, type) {
+      const p = `bridge/jobs/${id}/out/${encodeURIComponent(name)}`, n = Math.max(1, Math.ceil(bytes.length / CHUNK)), up = randomUUID();
+      for (let i = 0; i < n; i++) await call('PUT', n === 1 ? p : `${p}?chunk=${i}&chunks=${n}&upload=${up}`, bytes.subarray(i * CHUNK, (i + 1) * CHUNK), type);
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ agents */
+const which = (cmd) => spawnSync(process.platform === 'win32' ? 'where' : 'which', [cmd], { encoding: 'utf8' }).status === 0;
+export function agentCommand(agent) { return agent === 'claude' ? process.env.ACS_BRIDGE_CLAUDE || 'claude' : process.env.ACS_BRIDGE_CODEX || 'codex'; }
+export function installedAgents(cfg) {
+  return cfg.agents.filter((a) => ['claude', 'codex'].includes(a)).filter((a) => {
+    const cmd = agentCommand(a); return path.isAbsolute(cmd) ? fs.existsSync(cmd) : which(cmd);
+  });
+}
+/** the command line for a job: fixed flags and the fixed instruction - nothing from the server */
+export function agentArgs(agent, cfg, dir) {
+  if (agent === 'claude')
+    return ['-p', INSTRUCTION, '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk',
+      '--tools', cfg.claudeTools.join(','), '--allowedTools', ...cfg.claudeTools, '--strict-mcp-config'];
+  return ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-C', dir, '-o', path.join(dir, 'anki_out', 'reply.md'), INSTRUCTION];
+}
+const short = (v, n = 160) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+/** one line of the agent's JSON output -> progress events for the Studio (and the final reply, if it is one) */
+export function toEvents(agent, line) {
+  let j; try { j = JSON.parse(line); } catch { return line.trim() ? [{ type: 'log', text: short(line, 400) }] : []; }
+  const out = [];
+  if (agent === 'claude') {
+    if (j.type === 'assistant') for (const c of j.message?.content || []) {
+      if (c.type === 'text' && c.text?.trim()) out.push({ type: 'text', text: c.text });
+      if (c.type === 'tool_use') out.push({ type: 'tool', text: `${c.name}: ${short(c.input?.command ?? c.input?.file_path ?? c.input ?? '')}` });
+    }
+    if (j.type === 'result') out.push({ type: j.is_error ? 'error' : 'result', text: String(j.result ?? j.subtype ?? ''), final: true });
+  } else {
+    const it = j.item || {};
+    if (j.type === 'item.completed' && it.type === 'agent_message') out.push({ type: 'text', text: String(it.text || '') });
+    if (j.type === 'item.started' && it.type === 'command_execution') out.push({ type: 'tool', text: `$ ${short(it.command || '')}` });
+    if (j.type === 'item.completed' && it.type === 'error') out.push({ type: 'error', text: short(it.message || 'error', 1000) });
+    if (j.type === 'error' || j.type === 'turn.failed') out.push({ type: 'error', text: short(j.message || j.error?.message || j.error || 'error', 1000) });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ one job */
+let running = null;   // stops the agent that is running now
+const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+
+/** a regular file's bytes, or null for anything else (missing, a folder, a link) */
+function readOwnFile(p) {
+  let fd;
+  try { fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)); } catch { return null; }
+  try { return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null; } finally { fs.closeSync(fd); }
+}
+
+export async function runJob(api, job, cfg, log = console.log) {
+  if (typeof job.id !== 'string' || !/^j[a-z0-9]{12,40}$/.test(job.id)) throw new Error('invalid job id');
+  const dir = path.join(HOME, 'jobs', job.id);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(path.join(dir, 'anki_out'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
+  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
+  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
+  const send = async (force) => {
+    if (!pending.length && !force && Date.now() - lastSent < 30_000) return;
+    const list = pending; pending = []; lastSent = Date.now();
+    try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
+    catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+  };
+  let revoked = null;
+  try {
+    // say so first: a slow download must not look like a bridge that went quiet
+    pending.push({ type: 'log', text: `Picked up on ${os.hostname()} - fetching ${job.files.length} file(s)` });
+    await send(true);
+    for (const f of job.files) {
+      await send(false);
+      if (cancelled) return { ok: false, cancelled: true };
+      if (!safeName(f.name)) throw new Error(`refusing the file name ${JSON.stringify(f.name)}`);
+      const bytes = await api.download(job.id, f.name), sub = SKILL_FILES[f.name];
+      fs.writeFileSync(sub === undefined ? path.join(dir, f.name) : path.join(dir, 'anki-skill', sub, f.name), bytes, { mode: 0o600 });
+    }
+    if (!fs.existsSync(path.join(dir, 'anki_prompt.txt'))) throw new Error('the job has no anki_prompt.txt');
+    // Codex reads AGENTS.md; Claude gets the same through its instruction
+    fs.writeFileSync(path.join(dir, 'AGENTS.md'), INSTRUCTION + '\n');
+    pending.push({ type: 'log', text: `Started with ${job.agent}` });
+    await send(true);
+    if (cancelled) return { ok: false, cancelled: true };
+    // its own process group, so stopping it also stops whatever it started (python, shells…)
+    const group = process.platform !== 'win32';
+    const child = spawn(agentCommand(job.agent), agentArgs(job.agent, cfg, dir), {
+      cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: group,
+      env: { ...process.env, ANKI_OUT_DIR: path.join(dir, 'anki_out'), ANKI_MATERIAL_DIR: dir },
+    });
+    const kill = (sig) => { try { if (group) process.kill(-child.pid, sig); else child.kill(sig); } catch {} };
+    stop = () => { kill('SIGTERM'); setTimeout(() => kill('SIGKILL'), 5000).unref(); };
+    running = stop;   // Ctrl+C on the bridge stops the agent too (it isn't in the terminal's process group)
+    const timer = setTimeout(() => { pending.push({ type: 'error', text: `stopped after ${cfg.maxMinutes} minutes` }); stop(); }, cfg.maxMinutes * 60_000);
+    // the device was removed (or the account signed out everywhere): stop the run at once, upload nothing
+    const flusher = setInterval(() => { send(false).catch((e) => { if (e.fatal && !revoked){ revoked = e; log(`  ${e.message}`); stop(); } }); }, 1500);
+    let errTail = '';
+    readline.createInterface({ input: child.stdout }).on('line', (line) => {
+      for (const e of toEvents(job.agent, line)) { if (e.final) reply = e.text; const { final, ...ev } = e; pending.push(ev); }
+    });
+    child.stderr.on('data', (d) => { errTail = (errTail + d).slice(-2000); });
+    const code = await new Promise((res) => { child.on('error', (e) => { errTail += String(e.message); res(-1); }); child.on('close', res); });
+    clearTimeout(timer); clearInterval(flusher); running = null;
+    if (revoked) throw revoked;
+    if (code !== 0 && errTail.trim()) pending.push({ type: 'error', text: errTail.trim().slice(-1000) });
+    await send(true);
+    if (cancelled) return { ok: false, cancelled: true };
+    // the result: whatever the run left in anki_out (only these names, and only real files: a link the agent made to
+    // somewhere else on this Mac is never followed, so it can't send your files to the Studio)
+    const outDir = path.join(dir, 'anki_out');
+    if (!fs.lstatSync(outDir, { throwIfNoEntry: false })?.isDirectory()) throw new Error('anki_out is no longer a folder');
+    const lexists = (p) => !!fs.lstatSync(p, { throwIfNoEntry: false });
+    if (reply && !lexists(path.join(outDir, 'reply.md'))) fs.writeFileSync(path.join(outDir, 'reply.md'), reply, { flag: 'wx' });
+    for (const name of ['anki_bundle.json', 'anki_revision.json', 'anki_explanations.md', 'reply.md']) {
+      const bytes = readOwnFile(path.join(outDir, name));
+      if (bytes) await api.upload(job.id, name, bytes, name.endsWith('.json') ? 'application/json' : 'text/markdown');
+    }
+    const r = await api.finish(job.id, code === 0, code === 0 ? '' : `${job.agent} exited with code ${code}${errTail.trim() ? ': ' + errTail.trim().slice(-300) : ''}`);
+    const ok = r.job?.status === 'done';
+    if (ok && !cfg.keepJobs) fs.rmSync(dir, { recursive: true, force: true });
+    return { ok, status: r.job?.status, error: r.job?.error, dir };
+  } catch (e) {
+    if (e.fatal) throw e;
+    await api.finish(job.id, false, String(e.message || e)).catch(() => {});
+    return { ok: false, error: String(e.message || e), dir };
+  }
+}
+
+/* ------------------------------------------------------------------ the loop */
+export async function serve(cfg, { once = false, log = console.log } = {}) {
+  if (!cfg.server || !cfg.token) throw new Error('not paired yet - run: node acs-bridge.mjs pair https://<your studio>');
+  const api = client(cfg.server, cfg.token), agents = installedAgents(cfg);
+  if (!agents.length) throw new Error('neither claude nor codex is on your PATH');
+  // offline at start (the Mac just woke up, no Wi-Fi yet): keep trying instead of giving up
+  let me;
+  for (let tries = 0; ; tries++) {
+    try { me = await api.hello({ version: VERSION, agents, host: os.hostname(), platform: process.platform }); break; }
+    catch (e) { if (e.fatal || e.status || once) throw e; if (!tries) log(`  (can't reach the Studio yet: ${e.message} - retrying)`); await new Promise((res) => setTimeout(res, Math.min(60_000, 2000 * 2 ** tries))); }
+  }
+  log(`Connected to ${api.base} as ${me.login} (device "${me.device}"), running ${agents.join(' + ')}. Waiting for jobs…`);
+  let wait = Number(process.env.ACS_BRIDGE_POLL_MS) || 5000, quiet = 0;
+  for (;;) {
+    let job = null;
+    try { job = (await api.claim(agents)).job; quiet = 0; }
+    catch (e) { if (e.fatal) throw e; quiet = Math.min(quiet + 1, 6); log(`  (can't reach the Studio: ${e.message})`); }
+    if (job) {
+      log(`▶ ${job.title} (${job.kind}, ${job.agent})`);
+      const r = await runJob(api, job, cfg, log);
+      log(r.ok ? `✓ done - the Studio imports it` : `✗ ${r.cancelled ? 'cancelled' : r.error || 'failed'}${r.dir && !r.ok ? ` (files kept in ${r.dir})` : ''}`);
+      if (once) return r;
+      continue;
+    }
+    if (once) return null;
+    await new Promise((res) => setTimeout(res, wait * 2 ** quiet));
+  }
+}
+
+async function pair(server) {
+  const origin = checkServer(server);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const token = (await new Promise((res) => rl.question('Paste the device token from the Studio (Settings → Mac bridge): ', res))).trim();
+  rl.close();
+  const me = await client(origin, token).hello({ version: VERSION, agents: [], host: os.hostname(), platform: process.platform });
+  saveConfig({ ...loadConfig(), server: origin, token });
+  console.log(`Paired with ${origin} as ${me.login} (device "${me.device}"). Saved in ${CONFIG} (only you can read it). Start it with: node acs-bridge.mjs`);
+}
+
+const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+if (isMain) {
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); process.exit(130); });
+  const [cmd, arg] = process.argv.slice(2);
+  const run = cmd === 'pair' ? pair(arg)
+    : cmd === 'status' ? Promise.resolve().then(() => { const c = loadConfig(); console.log(c.server ? `Server: ${c.server}\nToken: …${String(c.token).slice(-4)}\nAgents: ${installedAgents(c).join(', ') || 'none installed'}` : 'Not paired yet.'); })
+    : !cmd || cmd === 'run' ? serve(loadConfig(), { once: arg === '--once' })
+    : Promise.reject(new Error(`unknown command ${cmd} (pair, run, status)`));
+  run.catch((e) => { console.error('acs-bridge: ' + (e.message || e)); process.exit(1); });
+}

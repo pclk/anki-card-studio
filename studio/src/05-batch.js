@@ -90,25 +90,48 @@ function itemChars(it){
   if (it.content) return it.content.length;
   return (it.sources || []).reduce((a, s2) => { const src = s2.sid ? (S.sources || []).find(x => x.id === s2.sid) : findSource(s2.file || s2.name); return a + (src ? charsFor(src, s2.pages) : 0); }, 0);
 }
-async function itemPromptFull(it, i, n){ return itemPrompt({...it, content: await itemContent(it)}, i, n); }
+/** the stored sources a queue item uses: [{src, pages}] (and whether some of its listed sources aren't stored here) */
+function itemSourceList(it){
+  const list = [];
+  for (const s2 of it.sources || []){ const src = s2.sid ? (S.sources || []).find(x => x.id === s2.sid) : findSource(s2.file || s2.name); if (src) list.push({src, pages: s2.pages}); }
+  return {list, unmatched: (it.sources || []).length > list.length};
+}
+const itemAttachments = it => it.prompt ? [] : planAttachments(itemSourceList(it).list);
+async function itemPromptFull(it, i, n){
+  const {list, unmatched} = itemSourceList(it), atts = it.prompt ? [] : planAttachments(list);
+  if (!atts.length) return itemPrompt({...it, content: await itemContent(it)}, i, n);
+  // the part's own pages of the original files go with it; text only for sources that have no file
+  const rest = list.filter(x => !hasFile(x.src));
+  let material = await materialSection(atts, rest, it.title);
+  if (unmatched && it.content) material += `\n\n## More material (text, from sources not stored here)\n<<<SOURCE\n${it.content}\nSOURCE>>>`;
+  return itemPrompt({...it, material}, i, n);
+}
 function itemPrompt(it, i, n){
   if (it.prompt) return it.prompt;
   const p = readPrompt();
-  // no attachments in a batch chat: figures come from placeholders (see below), not cropping
-  const p2 = {...p, pImgMat: false, pTopic: it.focus || `Everything important in the source material below${it.title ? ` (${it.title})` : ''}.`, pDeck: it.deck, pCount: it.count || p.pCount};
+  // with the original files attached Claude crops figures itself; text only: figures come from placeholders (below)
+  const files = !!it.material;
+  const p2 = {...p, ...(files ? {} : {pImgMat: false}), pTopic: it.focus || `Everything important in the ${files ? 'attached material' : 'source material below'}${it.title ? ` (${it.title})` : ''}.`, pDeck: it.deck, pCount: it.count || p.pCount};
   const base = p.pMode === 'skill' ? buildSkillPrompt(p2) : fullPrompt(p2);
   const pre = it.id.replace(/[^A-Za-z0-9_]+/g, '');
+  if (files) return `${base}
+
+## This prompt: part ${i + 1} of ${n}${it.title ? ` - ${it.title}` : ''}
+- Card ids: start every id with "${pre}-" (e.g. ${pre}-c001)${p.pMode === 'skill' ? `, i.e. \`Deck(${JSON.stringify(it.deck)}, id_prefix="${pre}-c")\`` : ''}.
+- Make cards only from this part's material below; other parts get their own chats.
+
+${it.material}`;
+  const sb = idBlock('SOURCE', 's', it.content || '(empty)');
   return `${base}
 
 ## This prompt: part ${i + 1} of ${n}${it.title ? ` - ${it.title}` : ''}
 - Card ids: start every id with "${pre}-" (e.g. ${pre}-c001)${p.pMode === 'skill' ? `, i.e. \`Deck(${JSON.stringify(it.deck)}, id_prefix="${pre}-c")\`` : ''}.
-- There are **no attachments**: all the material for this part is in "Source material" below, extracted from my files. Markers like [L01.pdf p.12] give the file and page of the text that follows - use them for each card's Source${p.pRefs ? ' and refs (copy the quote verbatim from the text)' : ''}.
+- There are **no attachments of my files**: all the material for this part is in "Source material" below, extracted from my files. Markers like [L01.pdf p.12] give the file and page of the text that follows - use them for each card's Source${p.pRefs ? ' and refs (copy the quote verbatim from the text)' : ''}.
 - You cannot crop figures from my files. Where a figure from the material would help (see [figure] markers), add a "material" placeholder naming the exact file and page; generated diagrams and Wikimedia photos are fine.
+- With code execution: \`deck.load_source("${sb.id}")\` reads the Source material from this prompt saved as a file (an attachment, the working folder or Downloads), so never retype it. If no file has it, skip load_source (validate() then cannot check quotes) and say so in your summary.
 
 ## Source material
-<<<SOURCE
-${it.content || '(empty)'}
-SOURCE>>>`;
+${sb.text}`;
 }
 function parsePromptSets(text){
   const blocks = [...text.matchAll(/<<<ANKI_PROMPTS([\s\S]*?)ANKI_PROMPTS>>>/g)].map(m => m[1]);
@@ -146,10 +169,12 @@ $('#btnQPaste').onclick = () => { const t = $('#qPaste').value.trim(); if (t && 
 const qNext = () => S.batch && S.batch.items.find(i => i.status === 'todo');
 async function copyItem(it){
   const i = S.batch.items.indexOf(it);
-  await copyLater(itemPromptFull(it, i, S.batch.items.length), `Copied ${i + 1}/${S.batch.items.length}`);
+  await copyPrompt(itemPromptFull(it, i, S.batch.items.length), `Copied ${i + 1}/${S.batch.items.length}`);
+  const atts = itemAttachments(it), got = atts.length ? await downloadAttachments(atts) : 0;   // the prompt's second half: its files
   if (it.status === 'todo') it.status = 'copied';
-  it.copiedAt = Date.now(); save(); renderBatch();
-  toast(`Copied ${i + 1}/${S.batch.items.length}: ${it.title || it.id} - paste it into a NEW chat`, 2600);
+  it.copiedAt = Date.now(); delete it.macJob; save(); renderBatch();
+  if (got) toast(`Copied ${i + 1}/${S.batch.items.length} + downloaded ${attachNames(atts)} - in a NEW chat, attach ${got > 1 ? 'them' : 'it'} and paste the prompt`, 5000);
+  else if (!SET.promptFile) toast(`Copied ${i + 1}/${S.batch.items.length}: ${it.title || it.id} - paste it into a NEW chat`, 2600);
 }
 $('#btnCopyNext').onclick = () => { const it = qNext(); if (it) copyItem(it); else toast('Every prompt has been copied'); };
 $('#btnQReset').onclick = () => { if (!S.batch || !confirm('Mark every prompt as not copied (imported ones stay ticked)?')) return; S.batch.items.forEach(i => { if (i.status === 'copied') i.status = 'todo'; }); save(); renderBatch(); };
@@ -158,6 +183,7 @@ $('#qList').addEventListener('click', e => {
   const b = e.target.closest('button[data-q]'); if (!b) return;
   const it = S.batch.items.find(i => i.id === b.dataset.id); if (!it) return;
   if (b.dataset.q === 'copy') copyItem(it);
+  else if (b.dataset.q === 'files') downloadAttachments(itemAttachments(it)).then(n => { if (n) toast(`Downloaded ${n} file(s) for ${it.title || it.id}`); });
   else if (b.dataset.q === 'done'){ it.status = it.status === 'done' ? 'copied' : 'done'; save(); renderBatch(); }
   else if (b.dataset.q === 'view'){ const w = window.open('', '_blank'); if (w){ w.document.title = it.title || it.id; const pre = w.document.createElement('pre'); pre.style.whiteSpace = 'pre-wrap'; pre.textContent = 'Loading…'; w.document.body.appendChild(pre); itemPromptFull(it, S.batch.items.indexOf(it), S.batch.items.length).then(t => pre.textContent = t); } }
 });
@@ -199,14 +225,17 @@ function renderBatch(){
   $('#qProg').innerHTML = `<i style="width:${cnt('done') / n * 100}%;background:var(--ok)"></i><i style="width:${cnt('copied') / n * 100}%;background:var(--accent)"></i>`;
   $('#qNextLabel').innerHTML = nx ? `next: <b>${b.items.indexOf(nx) + 1}. ${esc(nx.title || nx.id)}</b>` : '<span style="color:var(--ok)">all copied ✓</span>';
   $('#btnCopyNext').disabled = !nx;
-  const tok = it => Math.round((itemPrompt({...it, content: ''}, 0, n).length + itemChars(it)) / 4 / 100) / 10;
+  // a part with files attached carries little text: its size is the prompt plus the files (counted by the chat, not here)
+  const tok = it => Math.round((itemPrompt({...it, content: ''}, 0, n).length + (itemAttachments(it).length ? 0 : itemChars(it))) / 4 / 100) / 10;
   $('#qList').innerHTML = b.items.map((it, i) => `<div class="qi ${it.status} ${it === nx ? 'next' : ''}">
     <span class="n">${i + 1}</span>
-    <div style="min-width:0"><div class="tt">${esc(it.title || it.id)}</div><div class="sub">${esc(it.deck)} · ~${tok(it)}k tokens${it.sources && it.sources.length ? ' · ' + esc(it.sources.map(s => `${s.file}${s.pages ? ' p.' + s.pages : ''}`).join(', ')) : ''}${it.cards ? ` · ${it.cards} cards` : ''}</div></div>
+    <div style="min-width:0"><div class="tt">${esc(it.title || it.id)}</div><div class="sub">${esc(it.deck)} · ~${tok(it)}k tokens${itemAttachments(it).length ? ' + 📎 ' + esc(attachNames(itemAttachments(it))) : ''}${it.sources && it.sources.length ? ' · ' + esc(it.sources.map(s => `${s.file}${s.pages ? ' p.' + s.pages : ''}`).join(', ')) : ''}${it.cards ? ` · ${it.cards} cards` : ''}</div></div>
     <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'imported'}[it.status]}</span>
       <button class="btn sm" data-q="view" data-id="${esc(it.id)}" title="Open the full prompt in a new tab">👁</button>
-      <button class="btn sm" data-q="copy" data-id="${esc(it.id)}">📋</button>
+      ${itemAttachments(it).length ? `<button class="btn sm" data-q="files" data-id="${esc(it.id)}" title="Download this prompt's files again: ${esc(attachNames(itemAttachments(it)))}">⬇</button>` : ''}
+      <button class="btn sm" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
       <button class="btn sm" data-q="done" data-id="${esc(it.id)}" title="Toggle imported">✓</button></div></div>`).join('');
+  if (typeof renderBatchJobs === 'function') renderBatchJobs();   // "Mac: running" on prompts sent to the bridge
   const cur = $('#qList .qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
 }
 const planFromStored = () => (($('input[name=planSrc]:checked') || {}).value || 'stored') === 'stored' && scopeSources().length > 0;

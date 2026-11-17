@@ -1,6 +1,8 @@
 /* ====================================================================== SYNC: revisions, 3-way merge, conflict resolver */
 const WINDOW_ID = 'w' + Math.random().toString(36).slice(2, 9);
-const sync = {rev: 0, base: null, dirty: false, paused: false, state: 'ok', saved: 0, merged: 0, note: ''};
+const sync = {rev: 0, base: null, dirty: false, paused: false, state: 'ok', saved: 0, merged: 0, note: '', kept: false, keptJson: null, keptPrev: null, closed: false};
+// kept: this window left a copy of its edits for the account in this browser (Store.keepPending): keptJson as stored,
+// keptPrev = this window's state it was made from (the base for merging in another tab's kept edits). closed: signing out
 let syncChannel = null; try { syncChannel = new BroadcastChannel('acs-sync'); } catch {}
 const plain = st => JSON.parse(JSON.stringify(st, (k, v) => (k === 'blob' || k === 'remote' || v instanceof Blob) ? undefined : v));
 const J = x => JSON.stringify(x === undefined ? null : x);
@@ -80,7 +82,8 @@ async function syncWithRemote(reason){
     sync.merged = Date.now();
     sync.note = reason === 'pull' ? 'Updated from another window' : 'Merged with changes saved elsewhere';
     if (needSave){ sync.dirty = true; renderSyncInfo(); await (async () => { saving = Promise.resolve(); await writeState(); })(); }
-    else { sync.dirty = false; sync.state = 'ok'; renderSyncInfo(); }
+    else { sync.dirty = false; sync.state = 'ok'; renderSyncInfo();
+      if (sync.kept){ sync.kept = false; await Store.dropPending(id, sync.keptJson); } }   // e.g. the kept edits were all turned down
     if (reason !== 'pull' || needSave) toast(sync.note + (conflicts.length ? ` - ${conflicts.length} clash(es) resolved` : ''), 2600);
   };
   if (!conflicts.length) return finish(merged);
@@ -97,7 +100,7 @@ function applyMerged(m, remote){
   const srcIds = J((S.sources || []).map(x => x.id));
   Object.assign(S, {deck: m.deck || S.deck, tags: m.tags || [], cards: m.cards || [], media, generalFeedback: m.generalFeedback || '', batch: m.batch || null,
                     projectName: m.projectName || '', nodes: m.nodes || [], sources: m.sources || [], whyAll: !!m.whyAll}, keepUI);
-  if (J(S.sources.map(x => x.id)) !== srcIds){ srcCache.clear(); srcDocCache.clear(); }
+  if (J(S.sources.map(x => x.id)) !== srcIds){ srcCache.clear(); clearSourceDocuments(); }
   if (!cardById(S.curId)) S.curId = S.cards[0] ? S.cards[0].id : null;
   syncTree(); softRefresh();
 }
@@ -130,12 +133,13 @@ setInterval(checkRemote, 15000);
 window.addEventListener('focus', () => checkRemote());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkRemote(); });
 if (syncChannel) syncChannel.onmessage = e => { const d = e.data || {}; if (d.from !== WINDOW_ID && d.pid === curProject) checkRemote(); };
-window.addEventListener('beforeunload', e => { if (sync.dirty && !sync.paused){ writeState(); } if (sync.paused){ e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (sync.closed) return; if (sync.dirty && !sync.paused){ writeState(); } if (sync.paused){ e.preventDefault(); e.returnValue = ''; } });
 function renderSyncInfo(){
   const el = $('#syncInfo'); if (!el) return;
   const t = ts => ts ? new Date(ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}) : '';
   el.innerHTML = sync.state === 'conflict' ? '<span style="color:var(--warn)">⚠ Edited in two places - choose what to keep</span> <button class="btn sm" id="btnReopenSync">Resolve…</button>'
-    : sync.state === 'error' ? '<span style="color:var(--bad)">⚠ Not saved - retrying on the next change</span>'
+    : sync.state === 'offline' ? '<span style="color:var(--warn)">📡 Offline - saved on this device</span>'
+    : sync.state === 'error' ? (sync.kept ? '<span style="color:var(--bad)">⚠ Not in your account yet - kept on this device, retrying</span>' : '<span style="color:var(--bad)">⚠ Not saved - retrying on the next change</span>')
     : sync.dirty ? '● Saving…' : `✓ Saved ${t(sync.saved) || 'and in sync'}${sync.merged ? ` · ${esc(sync.note)} ${t(sync.merged)}` : ''}`;
   const b = $('#btnReopenSync'); if (b) b.onclick = () => resolverReopen && resolverReopen();
 }
@@ -181,12 +185,18 @@ async function writeState(){
   if (!curProject) return;
   const id = curProject; let relabel = false;
   saving = saving.then(async () => {
-    if (sync.paused || id !== curProject) return;
+    if (sync.paused || sync.closed || id !== curProject) return;
     if (accountStatus() !== 'active'){ sync.state = 'error'; renderSyncInfo(); return; }   // read-only: keep the changes in this window only
     const st = snapshot(); st.rev = sync.rev + 1; st.savedAt = Date.now(); st.savedBy = WINDOW_ID;
     sync.dirty = false;
     try {
       let r = await Store.putProject(id, st, sync.rev);
+      if (r && r.offline){   // no connection (online version): kept in this browser until it's back, see backOnline
+        await keepHere(id, st); sync.state = 'offline'; sync.saved = Date.now();
+        const pr = projects.find(x => x.id === id);
+        if (pr){ const nm = st.projectName || st.deck || 'Untitled', nc = (st.cards || []).length; if (pr.name !== nm || pr.cards !== nc) relabel = true; pr.name = nm; pr.updated = Date.now(); pr.cards = nc; }
+        await saveIndex(); renderSyncInfo(); return;
+      }
       if (r && r.deleted) {
         sync.paused = true; sync.dirty = true;
         if (confirm('This project was deleted on another device. Restore it with the edits in this tab?')) {
@@ -200,9 +210,12 @@ async function writeState(){
       // label from what was saved: by now another project may be open
       const pr = projects.find(x => x.id === id);
       if (pr){ const nm = st.projectName || st.deck || 'Untitled', nc = (st.cards || []).length; if (pr.name !== nm || pr.cards !== nc) relabel = true; pr.name = nm; pr.updated = Date.now(); pr.cards = nc; }
+      if (sync.kept){ sync.kept = false; await Store.dropPending(id, sync.keptJson); }   // unless another tab kept newer edits meanwhile
       await saveIndex(); saveErrShown = false; retryDelay = 5000;
       try { syncChannel && syncChannel.postMessage({pid: id, rev: st.rev, from: WINDOW_ID}); } catch {}
     } catch (e) { console.error(e); sync.dirty = true; sync.state = 'error'; retrySave();
+      // the online version: keep the edits in this browser too, so closing the tab before the retry works loses nothing
+      if (Store.hosted && id === curProject) try { await keepHere(id, st); } catch {}
       if (!saveErrShown){ saveErrShown = true; toast('⚠ Could not save: ' + e.message + (Store.hosted ? (navigator.onLine === false ? ' - you are offline; it will save when you are back online' : ' - retrying') : Store.on ? ' - is acs.py still running?' : ''), 5000); } }
     renderSyncInfo();
   });
@@ -212,6 +225,15 @@ async function writeState(){
 async function saveIndex(){
   const merged = await Store.putIndex(projects);
   if (Array.isArray(merged)){ const open = new Map(projects.map(p => [p.id, p.open])); projects = merged.map(p => ({...p, open: open.get(p.id)})); }
+}
+/** keep this window's edits in the browser for the account; another tab's kept edits are merged in and shown here */
+async function keepHere(id, st){
+  const k = await Store.keepPending(id, st, sync.rev, sync.base, sync.keptPrev || sync.base);
+  sync.kept = true; sync.keptJson = k.json;
+  if (k.merged && id === curProject){
+    const media = {}; for (const [n, b] of Object.entries(k.blobs)) media[n] = {blob: b};
+    applyMerged(k.merged, {media}); sync.keptPrev = plain(snapshot());
+  } else sync.keptPrev = plain(st);
 }
 const saveSoon = debounce(writeState, 500);
 /* a failed save (offline, server hiccup) tries again by itself: after 5 s, doubling to 2 min, and as soon as the
@@ -228,11 +250,12 @@ function loadState(st){
   Object.assign(S, {deck: 'AI Generated Deck', tags: [], cards: [], media: {}, curId: null, generalFeedback: '', prompt: {}, order: 'source', deckFilter: '', batch: null, projectName: '', filter: 'all', q: '', nodes: [], sources: [], scope: 'root', whyAll: false});
   if (st) Object.assign(S, {deck: st.deck || S.deck, tags: st.tags || [], cards: st.cards || [], media: st.media || {}, curId: st.curId, generalFeedback: st.generalFeedback || '', prompt: st.prompt || {}, order: st.order || 'source',
                             batch: st.batch || null, projectName: st.projectName || '', nodes: st.nodes || [], sources: st.sources || [], scope: st.scope || 'root', whyAll: !!st.whyAll});
-  srcCache.clear(); srcDocCache.clear();
+  srcCache.clear(); clearSourceDocuments();
   try { const last = curProject && localStorage.getItem('acs-cur:' + curProject); if (last && S.cards.some(c => c.id === last)) S.curId = last; } catch {}
   if (typeof syncTree === 'function') syncTree();
   // what this window last agreed with the store: the base of every 3-way merge
   sync.rev = (st && st.rev) || 0; sync.base = st ? plain(st) : plain(snapshot()); sync.dirty = false; sync.paused = false; sync.state = 'ok';
+  sync.kept = false; sync.keptJson = sync.keptPrev = null;
 }
 /* the admin's controls on this account (online version): disabled = can't use the app, read-only = nothing is saved */
 const accountStatus = () => (Store.hosted && Store.user && Store.user.status) || 'active';
@@ -273,11 +296,14 @@ function showOffline(){
 }
 async function restore(){
   await Store.detect();
-  if (Store.status === 'offline'){ showOffline(); return; }
   if (accountStatus() === 'disabled'){ showDisabled(); return; }
+  if (Store.offline){
+    if (!await openOffline()){ showOffline(); return; }
+    applyAccountStatus(); renderStorage(); watchConnection(); return;
+  }
   applyAccountStatus();
   if (Store.hosted && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-  if (Store.on){ const ss = await Store.getSettings().catch(() => null); if (ss){ SET = mergeSettings(ss); try { localStorage.setItem('acs-settings', JSON.stringify(SET)); } catch {} renderKeyHints(); } }
+  if (Store.on) await loadSettings();
   projects = await Store.getIndex().catch(() => null) || [];
   if (Store.on && !projects.length) await migrateBrowserProjects(Store.hosted ? undefined : true);
   if (!projects.length && !Store.on){
@@ -292,22 +318,123 @@ async function restore(){
   if (!projects.some(x => x.id === curProject)) curProject = [...projects].sort((a, b) => (b.updated || 0) - (a.updated || 0))[0].id;
   setCurrent(curProject);
   loadState(await Store.getProject(curProject));
+  await resumePending(curProject);
   renderStorage();
+  if (Store.hosted) flushPending();
 }
-function setCurrent(id){ curProject = id; try { localStorage.setItem('acs-current', id); } catch {} if (!Store.on) idbPut('currentProject', id); }
+/** the account's settings; ones changed while offline go up instead (this browser had the newest) */
+async function loadSettings(){
+  let pend = false; try { pend = Store.hosted && localStorage.getItem(Store.offKey('settings-pending')) === '1'; } catch {}
+  if (pend){ try { await Store.putSettings(SET); localStorage.removeItem(Store.offKey('settings-pending')); return; } catch {} }
+  const ss = await Store.getSettings().catch(() => null);
+  if (ss){ SET = mergeSettings(ss); try { localStorage.setItem('acs-settings', JSON.stringify(SET)); } catch {} renderKeyHints(); }
+}
+
+/* ---- OFFLINE (online version): open from the copies in this browser, keep edits here, send them when it's back */
+/** a project this browser can open without a connection: its last account version, or {} for one made offline */
+async function offlineCopy(id){
+  const st = await Store.getProject(id); if (st) return st;
+  return await Store.getPending(id).catch(() => null) ? {} : null;
+}
+async function openOffline(){
+  projects = await Store.getIndex().catch(() => null) || [];
+  const pre = Store.offKey('project:'), can = new Set([...(await idbKeys(pre)).map(k => k.slice(pre.length)), ...await Store.pendingIds()]);
+  const here = projects.filter(p => can.has(p.id));
+  if (!here.length) return false;
+  try { curProject = localStorage.getItem('acs-current'); } catch {}
+  if (!here.some(p => p.id === curProject)) curProject = [...here].sort((a, b) => (b.updated || 0) - (a.updated || 0))[0].id;
+  setCurrent(curProject);
+  loadState(await offlineCopy(curProject));
+  await resumePending(curProject);
+  sync.state = 'offline';
+  return true;
+}
+/** edits this browser kept while the account couldn't be reached (Store.keepPending): put them back on top of the
+    version just loaded, with the account's version they started from as the merge base. The next save sends them; if
+    the account moved on meanwhile, its 409 merges them 3-way with those changes (and asks about real clashes). */
+async function resumePending(id){
+  if (!Store.hosted) return false;
+  const p = await Store.getPending(id).catch(() => null); if (!p || id !== curProject) return false;
+  const mine = JSON.parse(p.json), media = {}, loaded = sync.base;
+  for (const [n, e] of Object.entries(mine.media || {})){
+    const b = p.blobs && p.blobs[n], had = S.media[n];
+    media[n] = b ? {...e, blob: b} : had && had.blob ? {...e, blob: had.blob} : {...e, remote: true};
+  }
+  loadState({...mine, media});
+  sync.rev = p.baseRev || 0; sync.base = JSON.parse(p.base || 'null') || loaded;
+  sync.kept = true; sync.keptJson = p.json; sync.keptPrev = JSON.parse(p.json);
+  if (Store.offline) sync.state = 'offline';
+  else { sync.dirty = true; saveSoon(); }
+  renderSyncInfo();
+  return true;
+}
+/** other projects edited offline: each one whose account version hasn't moved goes up now; the rest wait until they
+    are opened (resumePending merges them then) */
+let flushing = false;
+async function flushPending(){
+  if (flushing || !Store.on) return; flushing = true;
+  try {
+    let sent = 0;
+    for (const id of await Store.pendingIds()){
+      if (id === curProject || !Store.on) continue;
+      const p = await Store.getPending(id); if (!p) continue;
+      try {
+        const st = JSON.parse(p.json);
+        for (const [n, b] of Object.entries(p.blobs || {})) if (st.media && st.media[n]) st.media[n].blob = b;
+        Object.assign(st, {rev: (p.baseRev || 0) + 1, savedAt: Date.now(), savedBy: WINDOW_ID});
+        const r = await Store.putProject(id, st, p.baseRev || 0);
+        if (r && r.ok){ await Store.dropPending(id, p.json); sent++;
+          const pr = projects.find(x => x.id === id); if (pr) Object.assign(pr, {name: st.projectName || st.deck || pr.name, cards: (st.cards || []).length, updated: Date.now()}); }
+      } catch (e) { console.warn('offline edits of', id, 'not sent yet:', e.message); }
+    }
+    if (sent){ await saveIndex().catch(() => {}); renderProjects(); }
+  } finally { flushing = false; }
+}
+/** offline: look for the connection every 10 s, and at once when the browser says it's back; then carry on online */
+function watchConnection(){
+  let busy = false;
+  const tryNow = async () => {
+    if (busy || !Store.offline) return; busy = true;
+    try {
+      await Store.detect(); if (Store.offline) return;
+      clearInterval(timer); window.removeEventListener('online', tryNow);
+      if (!Store.on || !Store.hosted){ location.reload(); return; }
+      await backOnline();
+    } finally { busy = false; }
+  };
+  const timer = setInterval(tryNow, 10000); window.addEventListener('online', tryNow);
+}
+async function backOnline(){
+  if (accountStatus() === 'disabled'){ showDisabled(); return; }
+  applyAccountStatus(); renderStorage();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  await loadSettings();
+  const mine = curProject && await Store.getPending(curProject);
+  sync.state = 'ok';
+  if (mine){ toast('Back online - saving the changes made offline', 2600); sync.dirty = true; await writeState(); }
+  else { renderSyncInfo(); await checkRemote(); }
+  await flushPending();
+  if (typeof loadDevices === 'function') loadDevices();
+  if (typeof pollJobs === 'function') pollJobs();
+}
+function setCurrent(id){ curProject = id; try { localStorage.setItem('acs-current', id); } catch {} if (!Store.on) idbPut('currentProject', id);
+  if (typeof pollJobs === 'function') setTimeout(pollJobs, 0); }   // the Mac bridge's jobs belong to a project
 function renderProjects(){ if (typeof renderTree === 'function') renderTree(); }
 let switchToken = 0;
 async function switchProject(id, st){
   const token = ++switchToken;
   // fetch first, then switch in one step: while the download runs, the open project and its data must stay a pair
   // (a save or sync check in that gap would otherwise mix one project's cards into another)
-  const data = st !== undefined ? st : await Store.getProject(id);
+  const data = st !== undefined ? st : Store.offline ? await offlineCopy(id) : await Store.getProject(id);
   if (token !== switchToken) return;     // another project was picked meanwhile
+  if (data == null && Store.offline){ toast("This project isn't on this device yet - it opens when you're back online", 4000); return; }
   if (sync.dirty) await writeState();   // nothing changed -> nothing to upload
   if (token !== switchToken) return;
   setCurrent(id);
   loadState(data);
-  refreshAll();
+  if (st === undefined) await resumePending(id);
+  if (Store.offline) sync.state = 'offline';
+  refreshAll(); renderSyncInfo();
 }
 async function newProject(name, st){
   const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -329,6 +456,7 @@ $('#syncDlg').addEventListener('cancel', e => e.preventDefault());   // a choice
 $('#btnNewProject').onclick = () => { const n = prompt('Name of the new project (also its parent deck):', 'New project'); if (n !== null) newProject(n.trim() || 'New project'); };
 $('#btnRenameProject').onclick = () => { const n = prompt('Rename project:', projName()); if (n !== null && n.trim()){ S.projectName = n.trim(); writeState(); } };
 $('#btnDeleteProject').onclick = async () => {
+  if (Store.offline) return toast('Deleting a project needs a connection', 3000);
   if (!confirm(`Delete the project "${projName()}"? (${S.cards.length} cards)${Store.on ? '\nIt is moved to the trash/ folder inside the data folder.' : '\nUse 💾 Save file first if you want a copy.'}`)) return;
   await Store.delProject(curProject).catch(() => {});
   projects = projects.filter(x => x.id !== curProject); curProject = null;

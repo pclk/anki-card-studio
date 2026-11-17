@@ -35,7 +35,7 @@ function openImageDialog(ctx){
   if (!m.hint) openProjectPdfsInDialog(null);
   renderSources();
 }
-function closeDlg(){ dlg.close(); dlgCtx = null; }
+function closeDlg(){ sourceRenderToken++; dlg.close(); dlgCtx = null; }
 $('#dlgClose').onclick = closeDlg;
 dlg.addEventListener('cancel', e => { e.preventDefault(); closeDlg(); });
 function clearStage(){ stageCanvas.width = stageCanvas.height = 10; $('#stageEmpty').style.display = 'flex'; $('#stage').style.visibility = 'hidden'; $('#dlgUse').disabled = true; $('#dlgPdfNav').hidden = true; }
@@ -43,12 +43,12 @@ function renderSources(){
   $('#dlgSources').innerHTML = sources.map(s => `<div class="srcitem ${s === curSource ? 'on' : ''}" data-id="${s.id}">${s.kind === 'pdf' ? '📄' : '🖼'} ${esc(s.name)}${s.kind === 'pdf' ? ` <span class="muted">(${s.pages} p)</span>` : ''}</div>`).join('');
 }
 $('#dlgSources').onclick = e => { const it = e.target.closest('.srcitem'); if (it) showSource(sources.find(s => s.id === +it.dataset.id)); };
-let srcSeq = 0;
+let srcSeq = 0, sourceRenderToken = 0;
 /** temp sources (pasted, downloaded, the current image) replace each other; opened files stay for the session */
 async function addSourceBlob(blob, name, temp = true){
   const im = await createImageBitmap(blob).catch(() => null);
   if (!im){ $('#dlgMsg').textContent = 'Could not read that image.'; return; }
-  const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; cv.getContext('2d').drawImage(im, 0, 0);
+  const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; try { cv.getContext('2d').drawImage(im, 0, 0); } finally { im.close(); }
   for (let i = sources.length - 1; i >= 0; i--) if (sources[i].temp) sources.splice(i, 1);
   const s = {id: ++srcSeq, name, kind: 'image', canvas: cv, temp};
   sources.unshift(s); await showSource(s);
@@ -65,6 +65,7 @@ async function addSourceFile(file){
   } else await addSourceBlob(file, file.name, false);
 }
 async function showSource(s){
+  const token = ++sourceRenderToken;
   if (!s) return clearStage();
   curSource = s; renderSources(); selRect = null; updateSel();
   $('#dlgPdfNav').hidden = s.kind !== 'pdf';
@@ -78,6 +79,7 @@ async function showSource(s){
     const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
     const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
     await page.render({canvasContext: ctx, viewport: vp}).promise;
+    if (token !== sourceRenderToken) return;
     s.canvas = cv;
   }
   drawStage();
@@ -182,7 +184,7 @@ function uniqueName(stem, ext, except){
 }
 function renameMedia(oldN, newN){
   const re = new RegExp(`(src=["'])${oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(["'])`, 'g');
-  for (const c of S.cards){ for (const f of FIELDS[c.type]) c[f] = c[f].replace(re, `$1${newN}$2`); if (c.prev) for (const f of FIELDS[c.prev.type]) c.prev[f] = (c.prev[f] || '').replace(re, `$1${newN}$2`); }
+  for (const c of S.cards){ for (const f of FIELDS[c.type]) c[f] = c[f].replace(re, (_, before, after) => before + newN + after); if (c.prev) for (const f of FIELDS[c.prev.type]) c.prev[f] = (c.prev[f] || '').replace(re, (_, before, after) => before + newN + after); }
   S.media[newN] = S.media[oldN]; delete S.media[oldN]; dropURL(oldN);
 }
 $('#dlgUse').onclick = async () => {
