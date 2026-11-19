@@ -11,7 +11,7 @@
     "test": "tsx --test scripts/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "sync:sanitizer": "node scripts/embed-sanitizer.mjs",
-    "test:local": "python3 scripts/local_test.py && python3 scripts/review_local_test.py && python3 scripts/math_checks_test.py && python3 scripts/block_by_id_test.py && python3 scripts/source_files_test.py && python3 scripts/code_width_test.py && python3 scripts/skipped_checks_test.py",
+    "test:local": "python3 scripts/local_test.py && python3 scripts/review_local_test.py && python3 scripts/math_checks_test.py && python3 scripts/block_by_id_test.py && python3 scripts/source_files_test.py && python3 scripts/code_width_test.py && python3 scripts/skipped_checks_test.py && python3 scripts/global_revision_test.py",
     "test:coverage": "node --import tsx --experimental-test-coverage --test scripts/*.test.ts",
     "build:studio": "node scripts/build-studio.mjs && node scripts/embed-sanitizer.mjs",
     "test:e2e": "playwright test",

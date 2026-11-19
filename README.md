@@ -6,7 +6,10 @@ Review, revise and export AI-made Anki cards — on your computer or your phone.
   account (Neon Postgres). Open the same address on any device; install it to your phone's home screen.
 - **Offline / local:** `studio/studio.html` still works on its own (saves in the browser), or with the local
   companion server `local/acs.py` (saves to a folder on your computer).
-- **The `anki` Claude skill** (`skill/anki/`) makes the cards: upload `skill/anki` as a zip in Claude's skill settings.
+- **The `anki` Claude skill** (`skill/anki/`) makes the cards: upload `skill/anki` as a zip in Claude's skill settings, or let
+  Claude download it from the server (`/skill/anki.zip`, public) when the prompt says so.
+- **The Assistant** (✦ tab) sends a question about the whole project to the Mac bridge with the project as files and
+  `bridge/acs-cli.mjs` (`acs.mjs`), a CLI to query them; the answer and any proposed changes come back to apply.
 
 How to use the Studio itself: [docs/USER-GUIDE.md](docs/USER-GUIDE.md).
 

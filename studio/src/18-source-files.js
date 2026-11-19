@@ -27,7 +27,7 @@ function safeFileName(name, fallback = 'source'){
    always accepted by the server and never shared: a PDF whose own name isn't goes as a whole-file excerpt, so its page
    map still names the original file. */
 function planAttachments(list){
-  const used = new Set(['anki_prompt.txt', 'skill.md', 'anki_helper.py', 'extract.py', 'make_prompts.py']);
+  const used = new Set(['anki_prompt.txt', 'skill.md', 'anki_helper.py', 'extract.py', 'make_prompts.py', 'acs.mjs', 'acs_project.json', 'acs_sources.json']);
   const unique = n => {
     const ext = (/\.[^.]+$/.exec(n) || [''])[0], stem = n.slice(0, n.length - ext.length);
     let out = n;

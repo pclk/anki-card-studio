@@ -145,7 +145,7 @@ function renderSyncInfo(){
 }
 /* ---- conflict resolver */
 let resolverReopen = null;
-const CF_LABEL = {why: 'Why this card', whyOnCard: 'Why on card', whyAll: 'Why on every card', front: 'Front', back: 'Back', text: 'Text', extra: 'Extra', source: 'Source', tags: 'Tags', status: 'Status', feedback: 'Feedback', deck: 'Sub-deck', refs: 'Source location', skipped_checks: 'Checks skipped by AI', type: 'Card type', ord: 'Study position', edited: 'Field-edited', revised: 'Revised', prev: 'Previous version', projectName: 'Project name', generalFeedback: 'General feedback'};
+const CF_LABEL = {why: 'Hidden notes', whyOnCard: 'Hidden notes on card', whyAll: 'Hidden notes on every card', front: 'Front', back: 'Back', text: 'Text', extra: 'Extra', source: 'Source', tags: 'Tags', status: 'Status', feedback: 'Feedback', deck: 'Sub-deck', refs: 'Source location', skipped_checks: 'Checks skipped by AI', type: 'Card type', ord: 'Study position', edited: 'Field-edited', revised: 'Revised', prev: 'Previous version', projectName: 'Project name', generalFeedback: 'General feedback'};
 const cfShow = v => { const s3 = v === undefined || v === null ? '(empty)' : typeof v === 'string' ? v : JSON.stringify(v); return esc(s3.length > 700 ? s3.slice(0, 700) + '…' : s3); };
 function openResolver(conflicts, merged, local, remote, finish){
   const dlg2 = $('#syncDlg'), list = $('#syncList');
@@ -313,11 +313,15 @@ async function restore(){
     await Store.putIndex(projects);
   }
   if (!projects.length){ projects = [{id: 'p' + Date.now().toString(36), name: 'Project 1', updated: Date.now()}]; await Store.putIndex(projects); }
-  try { curProject = localStorage.getItem('acs-current'); } catch {}
-  if (!curProject && !Store.on) curProject = await idbGet('currentProject');
-  if (!projects.some(x => x.id === curProject)) curProject = [...projects].sort((a, b) => (b.updated || 0) - (a.updated || 0))[0].id;
-  setCurrent(curProject);
-  loadState(await Store.getProject(curProject));
+  // the project becomes the current one only together with its data: an import or edit made while the download ran
+  // would otherwise land in the empty state that loadState() then replaces (the same rule as switchProject)
+  let id = null;
+  try { id = localStorage.getItem('acs-current'); } catch {}
+  if (!id && !Store.on) id = await idbGet('currentProject');
+  if (!projects.some(x => x.id === id)) id = [...projects].sort((a, b) => (b.updated || 0) - (a.updated || 0))[0].id;
+  const st = await Store.getProject(id);
+  setCurrent(id);
+  loadState(st);
   await resumePending(curProject);
   renderStorage();
   if (Store.hosted) flushPending();

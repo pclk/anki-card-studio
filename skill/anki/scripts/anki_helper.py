@@ -286,8 +286,9 @@ def box(kind, content, title=None):
 
 
 def rationale(tests, matters, mistake=None, connects=None, context=None):
-    """The card's why= : an explanation of why the card exists, shown to the user while reviewing (and, if they choose,
-    on the card). Write each part as 1-3 full sentences specific to THIS card - no generic filler.
+    """The default for a card's why= (its hidden notes): an explanation of why the card exists, shown to the user while
+    reviewing (and, if they choose, on the card). When the prompt has a "Hidden notes" section, write what it asks for
+    instead. Write each part as 1-3 full sentences specific to THIS card - no generic filler.
       tests    what exactly the card checks, and what a complete answer must show
       matters  why it is worth remembering: where it comes up (later lectures, labs, exams, real code / practice) and
                what goes wrong if you don't know it
@@ -745,6 +746,37 @@ def pdf_find(path, text):
     return out
 
 
+def section_box(path, page, quote, pad=0.01):
+    """The box (x0, y0, x1, y1 as page fractions) around the section of a PDF page a card was made from: the text
+    block(s) holding `quote` (its first words if the whole quote isn't found), with a little padding. Pass it as the
+    ref's 4th item: ref=("L03.pdf", 12, quote, section_box(path, 12, quote)) - the Studio then shows exactly that
+    section in the card. Returns None (and says so) when the quote isn't on the page; for a figure or a table use
+    pdf_figures() or render_page_preview() to pick the box instead. `page` is the page of `path` (an excerpt's own page,
+    not the original page you cite)."""
+    mu = _need_pymupdf()
+    p = mu.open(path)[page - 1]
+    W, H = p.rect.width, p.rect.height
+    words = " ".join(str(quote or "").split()).split(" ")
+    hits = []
+    for t in [" ".join(words), " ".join(words[:8]), " ".join(words[-8:]), " ".join(words[:4])]:
+        if len(t) >= 6:
+            hits = p.search_for(t)
+            if hits:
+                break
+    if not hits:
+        print(f"section_box: quote not found on {os.path.basename(path)} p.{page} - pick the box with render_page_preview()")
+        return None
+    x0, y0 = min(r.x0 for r in hits), min(r.y0 for r in hits)
+    x1, y1 = max(r.x1 for r in hits), max(r.y1 for r in hits)
+    # grow to the text blocks the quote is in (the paragraph, list or caption it belongs to)
+    for b in p.get_text("blocks"):
+        bx0, by0, bx1, by1 = b[:4]
+        if any(bx0 <= (r.x0 + r.x1) / 2 <= bx1 and by0 <= (r.y0 + r.y1) / 2 <= by1 for r in hits):
+            x0, y0, x1, y1 = min(x0, bx0), min(y0, by0), max(x1, bx1), max(y1, by1)
+    return (round(max(0, x0 / W - pad), 4), round(max(0, y0 / H - pad), 4),
+            round(min(1, x1 / W + pad), 4), round(min(1, y1 / H + pad), 4))
+
+
 def pdf_figures(path, page=None, min_frac=0.04):
     """List embedded raster figures as dicts {page, index, box(fractions)}; prints a summary.
     Tiny images (logos, bullets) smaller than `min_frac` of the page width/height are skipped.
@@ -861,6 +893,7 @@ CHECK_DEFAULTS = {
     "math_in_code": "warn",        # maths inside <code> / a code block without a language: shown as raw LaTeX
     "ref_quote_min_chars": 25,     # source quotes shorter than this can't be found reliably (0 = any length)
     "ref_page": "warn",            # a ref to a file without a page
+    "ref_section": "warn",         # a ref to a PDF without a box around the section the card was made from
     "unused_images": "warn",       # an image registered but not used by any card
     "order_window": 3,             # check_order(): how many cards back a spoiler counts
 }
@@ -1049,6 +1082,7 @@ class Deck:
         self._n = 0
         self._dirty = set()
         self._deleted = set()
+        self._na = {}            # id -> why a global revision's instruction doesn't apply to it (not_applicable)
         self._new_media = set()
         self._reserved = set()
         self.feedback = {}       # id -> reviewer feedback (filled by Deck.load on a revision request)
@@ -1106,7 +1140,8 @@ class Deck:
 
     @staticmethod
     def _refs(ref):
-        """ref: ("file.pdf", page, "verbatim quote") | {"file", "page", "quote", "box"} | a list of those."""
+        """ref: ("file.pdf", page, "verbatim quote", box) | {"file", "page", "quote", "box"} | a list of those.
+        box = the section the card was made from, (x0, y0, x1, y1) as page fractions - section_box() finds it."""
         if not ref:
             return []
         items = ref if isinstance(ref, list) else [ref]
@@ -1117,8 +1152,9 @@ class Deck:
             o = {"file": os.path.basename(str(r.get("file", ""))), "page": int(r.get("page") or 0)}
             if r.get("quote"):
                 o["quote"] = " ".join(str(r["quote"]).split())[:300]
-            if r.get("box"):
-                o["box"] = [round(float(x), 4) for x in r["box"]]
+            if r.get("box") is not None:
+                b = r["box"]
+                o["box"] = [round(float(x), 4) for x in b] if isinstance(b, (list, tuple)) else b
             out.append(o)
         return out
 
@@ -1129,9 +1165,10 @@ class Deck:
         ("lecture.pdf", 12, "verbatim quote") or a list of those.
         name = your handle for the card (use it in set_order / prereq instead of positions);
         group = topic for suggest_order (default: first tag); prereq = names/ids that must be studied first.
-        why = an extensive explanation of why this card exists - build it with rationale(tests=, matters=, mistake=,
-        connects=): what it tests, why it matters, the mistake it guards against, how it connects (shown to the user
-        while reviewing; they can choose to put it on the card).
+        why = the card's hidden notes (shown to the user while reviewing; they can choose to put them on the card). Unless
+        the prompt says what they hold, an extensive explanation of why this card exists - build it with
+        rationale(tests=, matters=, mistake=, connects=): what it tests, why it matters, the mistake it guards against,
+        how it connects.
         skip = checks validate() should not apply to this card, each with your reason: {"code_line_chars": "a URL that
         can't be broken"}. Only when the check is really wrong for the card - the user sees every skip and its reason.
         Returns the card id."""
@@ -1220,6 +1257,21 @@ class Deck:
             self.cards.remove(c)
         self._deleted.add(cid)
         self._dirty.discard(cid)
+        self._na.pop(cid, None)
+
+    def not_applicable(self, cid, reason):
+        """Global revision: the instruction doesn't fit this card, so leave it exactly as it was and say why, e.g.
+        deck.not_applicable("c012", "it has no code to convert"). The user sees the reason. Any change you already made to
+        the card is not saved."""
+        cid = self._rid(cid)
+        if not self.get(cid):
+            raise KeyError(cid)
+        reason = " ".join(str(reason or "").split())
+        if not reason:
+            raise ValueError("not_applicable needs a reason (why the instruction doesn't fit this card)")
+        self._na[cid] = reason[:300]
+        self._dirty.discard(cid)
+        return cid
 
     # ---------------------------------------------------------------- media
     def _register(self, stem, data=None, ext="png", origin="generated", **meta):
@@ -2095,12 +2147,12 @@ class Deck:
                 skip = {}
             rep_why = at_strict("why")
             if rep_why and not str(c.get("why") or "").strip():
-                rep_why(f"{cid}: no why= - explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
+                rep_why(f"{cid}: no why= (hidden notes) - unless the prompt says what they hold, explain why the card exists with why=rationale(tests=..., matters=..., mistake=..., connects=...)")
             elif rep_why and ck["why_min_words"]:
                 wn = len(re.sub(r"<[^>]+>", " ", c["why"]).split())
                 if wn < ck["why_min_words"] and on("why_min_words"):
-                    (E if ck["why"] == "error" else W)(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make it extensive: what it tests, why it "
-                            "matters, the common mistake, what it connects to (rationale() builds it)")
+                    (E if ck["why"] == "error" else W)(f"{cid}: why= is only {wn} words (minimum {ck['why_min_words']}) - make the hidden notes extensive "
+                            "(by default: what it tests, why it matters, the common mistake, what it connects to - rationale() builds it)")
             if "multi-ok" not in (c.get("tags") or []) and ck["multi_question"] != "off":
                 for level, prob in _multi_question(c):
                     at("multi_question", level)(f"{cid}: {prob}")
@@ -2213,14 +2265,22 @@ class Deck:
                 q = r.get("quote") or ""
                 if q and ck["ref_quote_min_chars"] and len(self._norm(q)) < ck["ref_quote_min_chars"] and on("ref_quote_min_chars"):
                     W(f"{cid}: ref quote is short ({len(self._norm(q))} chars) - quote at least ~{ck['ref_quote_min_chars']} characters so it can be found")
+                bx = r.get("box")
+                if bx is not None and not (isinstance(bx, (list, tuple)) and len(bx) == 4 and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in bx)
+                                           and bx[2] - bx[0] > 0.005 and bx[3] - bx[1] > 0.005):
+                    E(f"{cid}: ref box {bx} must be [x0, y0, x1, y1] page fractions (0-1) with x0 < x1 and y0 < y1")
+                elif bx is None and str(r["file"]).lower().endswith(".pdf") and at_strict("ref_section"):
+                    at_strict("ref_section")(f"{cid}: ref to {r['file']} p.{r.get('page') or '?'} has no box - give the section the card was made from, "
+                                             "ref=(file, page, quote, section_box(path, page, quote)), so the Studio can show exactly that section")
                 src = self._source_for(r["file"])
                 if q and src:
                     fname, pages = src
                     nq = self._norm(q)
-                    on = [p for p, txt in pages.items() if nq in self._norm(txt)]
-                    if r.get("page") and r["page"] in pages and r["page"] not in on:
-                        E(f"{cid}: ref quote not found on {fname} p.{r['page']}" + (f" - it is on p.{on[0]}" if on else " (or anywhere in that file) - copy it verbatim from the source text"))
-                    elif not on:
+                    # (not "on": that is the check-level helper above, used for every later card)
+                    found = [p for p, txt in pages.items() if nq in self._norm(txt)]
+                    if r.get("page") and r["page"] in pages and r["page"] not in found:
+                        E(f"{cid}: ref quote not found on {fname} p.{r['page']}" + (f" - it is on p.{found[0]}" if found else " (or anywhere in that file) - copy it verbatim from the source text"))
+                    elif not found:
                         E(f"{cid}: ref quote not found in {fname} - copy it verbatim from the source text")
         for m, meta in self.media.items():
             o = meta.get("origin")
@@ -2312,8 +2372,9 @@ class Deck:
         return out
 
     def to_dict(self, with_data=True, revision=False):
-        cards = [c for c in self.cards if c["id"] in self._dirty] if revision else list(self.cards)
+        cards = [c for c in self.cards if c["id"] in self._dirty and c["id"] not in self._na] if revision else list(self.cards)
         cards += [{"id": d, "delete": True} for d in sorted(self._deleted)] if revision else []
+        cards += [{"id": i, "not_applicable": r} for i, r in self._na.items()] if revision else []
         if revision:
             refs = {r for c in cards for v in c.values() if isinstance(v, str) for r in re.findall(r'src="([^"]+)"', v)}
             names = [n for n in self.media if n in refs or n in self._new_media]
@@ -2417,6 +2478,7 @@ def help():
     FILES      list_uploads(), find_upload("part_of_name")
     PDF        pdf_info(p), pdf_text(p, page), pdf_find(p, "Figure 3"),
                pdf_figures(p, page=None), render_page_preview(p, page)
+               section_box(p, page, quote) -> the box around the section a card comes from (the ref's 4th item)
                orig_page(p, n) -> (file, page) to cite for a Studio excerpt ("L01_p12-30.pdf")
     OFFICE     office_images(p)    (.docx/.pptx embedded images); deck.load_source(p) reads their text
 
@@ -2440,11 +2502,12 @@ def help():
       deck.web_image(url, name, caption, credit)       real photo; only CONFIRMED Wikimedia file names
       deck.material(name, hint)                        user snips it later ("file p.N - which figure")
     CARDS (fields are HTML; returns id)
-      deck.add_basic(front, back, extra="", source="", tags=[], images=[], ref=("f.pdf", 12, "verbatim quote"),
+      deck.add_basic(front, back, extra="", source="", tags=[], images=[], ref=("f.pdf", 12, "verbatim quote", box),
                      name="handle", group="topic", prereq=["other handle"], after=None,
                      why=rationale(tests="…", matters="…", mistake="…", connects="…"))   ONE question per card
       deck.add_cloze(text, extra="", source="", tags=[], images=[], ref=..., name=..., group=..., prereq=..., why=...)
       deck.update(id_or_name, **fields), deck.delete(id_or_name), deck.show(id=None)
+      deck.not_applicable(id, reason)   (global revision) leave the card as it was: the instruction doesn't fit it
     HTML       answer(t), box(kind, html, title=None), img(name, caption), bullets(list), table(headers, rows),
                code(text, "java"), code(text, inline=True), tex(r"\\frac{{a}}{{b}}"), cloze(text, n, hint), esc(text)
                box kinds: {", ".join(BOX_TITLES)}

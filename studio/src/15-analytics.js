@@ -51,7 +51,7 @@ function renderAnalytics(){
   const backW = cards.map(c => wordsOf(c.type === 'cloze' ? (c.text || '') + ' ' + (c.extra || '') : c.back));
   const delN = clz.map(c => new Set([...String(c.text || '').matchAll(/\{\{c(\d+)::/g)].map(m => m[1])).size);
   h += `<div class="ana-grid">`
-    + histHTML('"Why this card" length', whyW, withEdge([0, 1, 15, 30, 60, 90, 150, Infinity], C.why_min_words), b => C.why !== 'off' && (b.lo === 0 && b.hi === 1 || (C.why_min_words && b.hi <= C.why_min_words)), 'words',
+    + histHTML('Hidden-notes length', whyW, withEdge([0, 1, 15, 30, 60, 90, 150, Infinity], C.why_min_words), b => C.why !== 'off' && (b.lo === 0 && b.hi === 1 || (C.why_min_words && b.hi <= C.why_min_words)), 'words',
         C.why === 'off' ? 'check off' : `minimum ${C.why_min_words} words`)
     + (basic.length ? histHTML('Front length (basic cards)', frontC, withEdge([0, 50, 100, 150, 200, 400, 600, Infinity], C.front_max_chars && C.front_max_chars + 1), b => C.front_max_chars && b.lo >= C.front_max_chars + 1, 'characters of prose',
         C.front_max_chars ? `limit ${C.front_max_chars}` : 'no limit') : '')
@@ -193,26 +193,31 @@ CREATE INDEX ix_cards_nid on cards (nid); CREATE INDEX ix_cards_sched on cards (
   return {blob, notes: cards.length, cards: nCards, media: i};
   } finally { db.close(); }
 }
+/** build and download an .apkg of the cards, with the Export tab's options (also used by the Assistant's export action) */
+async function exportApkg(cards, deckName, progress = () => {}){
+  let extra = null, pics = 0, passages = 0;
+  if ($('#exSrcPics').checked && (S.sources || []).length){
+    extra = {html: {}, media: []};
+    const slug = deckName.split('::')[0].replace(/[^A-Za-z0-9]+/g, '_').toLowerCase().slice(0, 20) || 'deck';
+    for (const [k, c] of cards.entries()){
+      progress(`Source pictures ${k + 1} / ${cards.length}…`);
+      const v = await sourceVisual(c); if (!v) continue;
+      if (v.blob){ const nm = `${slug}_src_${c.id.replace(/[^A-Za-z0-9_-]+/g, '_')}.jpg`; extra.media.push([nm, v.blob]); extra.html[c.id] = `<div class="aa-src-shot"><img src="${nm}"></div>`; pics++; }
+      else { extra.html[c.id] = v.html; passages++; }
+    }
+  }
+  const r = await buildApkg(deckName, cards, {prefix: $('#exPrefix').checked, stripMissing: $('#exStripMissing').checked, extra});
+  const fname = deckName.replace(/::/g, ' - ').replace(/[\\/:*?"<>|]+/g, '_') + '.apkg';
+  download(r.blob, fname);
+  return {...r, fname, pics, passages};
+}
 $('#btnExport').onclick = async () => {
   const cards = exportCards(); if (!cards.length) return toast('No cards to export with the current selection');
   const deckName = ($('#exDeck').value || S.deck || 'AI Generated Deck').trim();
   $('#btnExport').disabled = true; $('#exResult').innerHTML = '<div class="note">Building…</div>';
   try {
-    let extra = null, pics = 0, passages = 0;
-    if ($('#exSrcPics').checked && (S.sources || []).length){
-      extra = {html: {}, media: []};
-      const slug = deckName.split('::')[0].replace(/[^A-Za-z0-9]+/g, '_').toLowerCase().slice(0, 20) || 'deck';
-      for (const [k, c] of cards.entries()){
-        $('#exResult').innerHTML = `<div class="note">Source pictures ${k + 1} / ${cards.length}…</div>`;
-        const v = await sourceVisual(c); if (!v) continue;
-        if (v.blob){ const nm = `${slug}_src_${c.id.replace(/[^A-Za-z0-9_-]+/g, '_')}.jpg`; extra.media.push([nm, v.blob]); extra.html[c.id] = `<div class="aa-src-shot"><img src="${nm}"></div>`; pics++; }
-        else { extra.html[c.id] = v.html; passages++; }
-      }
-    }
-    const r = await buildApkg(deckName, cards, {prefix: $('#exPrefix').checked, stripMissing: $('#exStripMissing').checked, extra});
-    const fname = deckName.replace(/::/g, ' - ').replace(/[\\/:*?"<>|]+/g, '_') + '.apkg';
-    download(r.blob, fname);
-    $('#exResult').innerHTML = `<div class="note ok">Downloaded <b>${esc(fname)}</b> - ${r.notes} notes → ${r.cards} cards, ${r.media} images (${(r.blob.size / 1024).toFixed(0)} KB)${pics || passages ? `; source pictures on ${pics} card(s), quoted passages on ${passages}` : ''}.</div>`;
+    const r = await exportApkg(cards, deckName, t => { $('#exResult').innerHTML = `<div class="note">${esc(t)}</div>`; });
+    $('#exResult').innerHTML = `<div class="note ok">Downloaded <b>${esc(r.fname)}</b> - ${r.notes} notes → ${r.cards} cards, ${r.media} images (${(r.blob.size / 1024).toFixed(0)} KB)${r.pics || r.passages ? `; source pictures on ${r.pics} card(s), quoted passages on ${r.passages}` : ''}.</div>`;
   } catch (e) { console.error(e); $('#exResult').innerHTML = `<div class="note bad">Export failed: ${esc(e.message)}</div>`; }
   $('#btnExport').disabled = false;
 };

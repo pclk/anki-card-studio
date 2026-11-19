@@ -1,20 +1,58 @@
 /* ====================================================================== PROMPT */
 const helperSource = () => $('#helperSrc').textContent.replace(/^\n/, '');
-const PROMPT_IDS = ['pTopic','pDeck','pCount','pLevel','pLang','pBasic','pCloze','pImgGen','pImgWeb','pImgMat','pOrder','pRefs','pInclSrc','pDetail','pTags','pExtra','pSplit','pMaxPages'];
+const PROMPT_IDS = ['pTopic','pDeck','pCount','pLevel','pLang','pBasic','pCloze','pImgGen','pImgWeb','pImgMat','pOrder','pRefs','pInclSrc','pDetail','pTags','pExtra','pNotes','pSplit','pMaxPages'];
 function readPrompt(){
   const p = {}; for (const id of PROMPT_IDS){ const el = $('#' + id); p[id] = el.type === 'checkbox' ? el.checked : el.value; }
   p.pScript = ($('input[name=pScript]:checked') || {}).value || 'attach';
   p.pMode = ($('input[name=pMode]:checked') || {}).value || 'skill';
+  p.pSkill = ($('input[name=pSkill]:checked') || {}).value || 'installed';
   p.pFlow = ($('#flowSeg button.on') || {dataset: {}}).dataset.flow || 'single'; return p;
 }
 function writePrompt(p){
   for (const id of PROMPT_IDS){ if (!(id in p)) continue; const el = $('#' + id); if (el.type === 'checkbox') el.checked = !!p[id]; else el.value = p[id]; }
   if (p.pScript) { const r = $(`input[name=pScript][value=${p.pScript}]`); if (r) r.checked = true; }
   { const r = $(`input[name=pMode][value=${p.pMode || 'skill'}]`); if (r) r.checked = true; }
+  { const r = $(`input[name=pSkill][value=${p.pSkill || 'installed'}]`); if (r) r.checked = true; }
   $$('#flowSeg button').forEach(b => b.classList.toggle('on', b.dataset.flow === (p.pFlow || 'single')));
 }
 const skillSource = () => $('#skillSrc').textContent.replace(/^\n/, '');
 const promptMode = () => (S.prompt && S.prompt.pMode) || 'skill';
+/* ---- the AI can download the skill (or, without the skill, anki_helper.py) from this Studio's server (/skill/...) instead
+   of the user installing it: the online Studio, or the local companion (acs.py - reachable only from this computer, e.g.
+   by Claude Code here). A page opened from disk has no server, so the prompts fall back to the installed skill / the
+   attached script. Mac-bridge jobs get the files with the job, so runOnMac takes the download steps out again. */
+const skillBase = () => (Store.on && /^https?:$/.test(location.protocol)) ? location.origin : '';
+const skillLocal = () => !!skillBase() && !Store.hosted;
+const skillFromWeb = (p = S.prompt || {}) => (p.pMode || 'skill') === 'skill' && p.pSkill === 'web' && !!skillBase();
+const helperFromWeb = (p = S.prompt || {}) => (p.pMode || 'skill') !== 'skill' && p.pScript === 'web' && !!skillBase();
+/** the section every skill prompt starts with when the AI downloads the skill itself */
+function skillGetSection(p = S.prompt || {}){
+  if (!skillFromWeb(p)) return '';
+  const b = skillBase();
+  return `## Get the anki skill first
+Use the **anki** skill from my Anki Card Studio rather than an installed copy (it is the exact version my Studio reads):
+1. Download it into the working folder: \`curl -fsSL ${b}/skill/anki.zip -o anki-skill.zip && unzip -oq anki-skill.zip -d anki-skill\` - this makes \`anki-skill/anki/SKILL.md\` and \`anki-skill/anki/scripts/\`. Without curl or unzip, in Python: \`import io, urllib.request, zipfile; zipfile.ZipFile(io.BytesIO(urllib.request.urlopen("${b}/skill/anki.zip").read())).extractall("anki-skill")\`.
+2. Read \`anki-skill/anki/SKILL.md\` in full and follow it; its skill folder (\`<skill_dir>\`) is \`anki-skill/anki\`.
+3. If you can't reach ${b} (no network access to it${skillLocal() ? ' - it is a server on my computer, so only an AI running here can' : ''}), use the anki skill if it is installed; if it isn't, stop and tell me, so I can attach it instead.
+The single files are also at ${b}/skill/SKILL.md, ${b}/skill/anki_helper.py, ${b}/skill/extract.py and ${b}/skill/make_prompts.py.
+
+`;
+}
+/** how the no-skill prompt loads anki_helper.py when the AI downloads it */
+const helperWebLoad = () => `Download **anki_helper.py** from my Anki Card Studio and load it in your code environment:
+\`\`\`python
+import urllib.request; exec(urllib.request.urlopen("${skillBase()}/skill/anki_helper.py").read().decode("utf-8"))
+help()
+\`\`\`
+If you can't reach ${skillBase()} (no network access to it), stop and ask me to attach anki_helper.py instead.`;
+/** where a no-skill revision prompt says to get anki_helper.py again */
+const helperAgain = () => helperFromWeb() ? `download it with \`exec(urllib.request.urlopen("${skillBase()}/skill/anki_helper.py").read().decode("utf-8"))\` after \`import urllib.request\`` : 'load anki_helper.py again if needed';
+/** a prompt for a Mac-bridge job, which has the skill files with it: without the download steps */
+function forMac(prompt){
+  const g = skillGetSection(); if (g) prompt = prompt.split(g).join('');
+  if (helperFromWeb()) prompt = prompt.split(helperWebLoad()).join('Load anki_helper.py: it is in ./anki-skill/scripts (in Python: `import sys; sys.path.insert(0, "anki-skill/scripts"); from anki_helper import *`).');
+  return prompt;
+}
 const STEPS = {
   skill: ['Install the <b>anki</b> skill once (button on the left).',
           'In Claude Code or a Claude chat, attach or point to your material, then paste the prompt.',
@@ -24,15 +62,29 @@ const STEPS = {
           'Drop the file / paste the reply under the prompt, then review every card.']
 };
 function updateModeUI(mode){
-  const skill = mode === 'skill';
+  const skill = mode === 'skill', web = !!skillBase();
+  // downloading from this Studio needs its address: only the online Studio has one
+  $$('input[name=pSkill][value=web], input[name=pScript][value=web]').forEach(r => { r.disabled = !web; r.closest('label').title = !web ? 'Needs the online Studio or the local companion (acs.py): the AI needs an address to download from'
+    : skillLocal() ? `From ${skillBase()}/skill/ - only an AI on this computer (e.g. Claude Code) can reach it` : `From ${skillBase()}/skill/`; });
+  $('#skillInstall').hidden = skillFromWeb();
   $('#skillNote').hidden = !skill; $('#pScriptWrap').hidden = skill;
   $('#btnCopyScript').hidden = skill; $('#btnDlScript').hidden = skill; $('#btnDlSkill2').hidden = !skill;
-  $('#pSteps').innerHTML = STEPS[skill ? 'skill' : 'other'].map(t => `<li>${t}</li>`).join('');
+  const steps = [...STEPS[skill ? 'skill' : 'other']];
+  if (skillFromWeb()) steps[0] = `Nothing to install: the prompt tells Claude to download the <b>anki</b> skill from this Studio (Claude needs network access to ${esc(skillBase())}${skillLocal() ? ': on this computer only, so use Claude Code here' : ''}).`;
+  if (helperFromWeb()) steps[0] = 'Open a new chat and attach your material, then paste the prompt: the AI downloads <b>anki_helper.py</b> from this Studio itself.';
+  $('#pSteps').innerHTML = steps.map(t => `<li>${t}</li>`).join('');
   $('#rvMode').value = mode;
 }
 /* ---- checker settings: the Prompt page panel, and the section every prompt carries when they differ from the defaults */
 /** how the AI records a check it skips on purpose for one card (the Studio shows the reason, and the user can undo it) */
 const SKIP_RULE = helper => `If one of the quality checks is genuinely wrong for a particular card (fixing it would make the card worse - e.g. a URL in a code line that can't be broken, or a whole problem statement the question needs), don't distort the card: record the skip on it with your reason, \`"skipped_checks": {"code_line_chars": "the URL can't be broken"}\`${helper ? ' (helper: `skip={...}` on add_basic/add_cloze/update, or `deck.skip(id, check, reason)`)' : ''}. Use the check names (${SKIPPABLE.join(', ')}). Skip rarely: I see every skip and its reason, and can undo it.`;
+/* ---- hidden notes: each card's "why" field. The Prompt page says what goes in them; left empty, they explain why the card
+   was made (what it tests, why it matters, the common mistake, how it connects) */
+const notesSpec = () => String((S.prompt && S.prompt.pNotes) || '').trim();
+/** the section revision prompts carry when the Prompt page says what the hidden notes hold */
+const notesSection = helper => notesSpec() ? `\n## Hidden notes\nEach card's "why" field holds its hidden notes: I read them while reviewing, and can put them on the card (collapsed). They hold: ${notesSpec()}${helper ? ' (pass the HTML as why=; rationale() is only for the default)' : ''}.\n` : '';
+/** what the full (no-skill) prompt asks for in "why" */
+const NOTES_RATIONALE = 'an extensive explanation of why the card was made: why=rationale(tests=…, matters=…, mistake=…, connects=…): 1-3 specific sentences per part (~60-150 words): what exactly it tests and what a full answer must show; why it matters (where it comes up - later topics, labs, exams, practice - and what goes wrong without it); the misconception it guards against; prerequisites and related cards. No generic filler';
 function checkerSection(mode){
   const C = ck(), changed = CHECK_DEFS.filter(d => C[d.key] !== d.def);
   if (!changed.length) return '';
@@ -80,9 +132,10 @@ function buildSkillPrompt(p){
     p.pLang && p.pLang.trim().toLowerCase() !== 'english' && `Language: ${p.pLang}`,
     p.pTags && `Tags on every card: ${p.pTags}`,
     `Card order: ${p.pOrder ? 'anti-spoiler interleaved order (deck.set_order)' : 'as written'}`,
-    `Source locations: ${p.pRefs ? 'yes - refs with file, page and a short exact quote on every card' : 'Source field only'}`
+    `Source locations: ${p.pRefs ? 'yes - on every card, refs to the exact section it was made from: file, page, the verbatim text that led to the card, and for PDFs a box around that section (the Studio screenshots it)' : 'Source field only'}`,
+    `Hidden notes (why=): ${(p.pNotes || '').trim() || 'the default - why the card was made (rationale())'}`
   ].filter(Boolean);
-  return `Use the **anki** skill to make Anki cards.
+  return `${skillGetSection(p)}Use the **anki** skill to make Anki cards.
 
 ## What to cover
 ${p.pTopic.trim() || 'Everything important in the attached material.'}
@@ -163,8 +216,8 @@ function fullPrompt(p){
    "back": "<div class=\\"aa-answer\\">Direct answer</div><div class=\\"aa-box aa-why\\"><div class=\\"aa-box-title\\">Why / how</div>Explanation…</div><figure class=\\"aa-fig\\"><img src=\\"heart_valves.png\\"><figcaption>Caption</figcaption></figure>",
    "extra": "<div class=\\"aa-box aa-mnemonic\\"><div class=\\"aa-box-title\\">Mnemonic</div>…</div>",
    "source": "lecture3.pdf p.12", "tags": ["valves"],
-   "why": "<p><b>Tests:</b> …</p><p><b>Why it matters:</b> …</p><p><b>Common mistake:</b> …</p><p><b>Connects to:</b> …</p>"${p.pRefs ? `,
-   "refs": [{"file": "lecture3.pdf", "page": 12, "quote": "the mitral valve sits between the left atrium"}]` : ''}},
+   "why": "${(p.pNotes || '').trim() ? '<p>…</p>' : '<p><b>Tests:</b> …</p><p><b>Why it matters:</b> …</p><p><b>Common mistake:</b> …</p><p><b>Connects to:</b> …</p>'}"${p.pRefs ? `,
+   "refs": [{"file": "lecture3.pdf", "page": 12, "quote": "the mitral valve sits between the left atrium", "box": [0.08, 0.31, 0.92, 0.44]}]` : ''}},
   {"id": "c002", "type": "cloze",
    "text": "The {{c1::mitral}} valve sits between the {{c2::left atrium}} and left ventricle.",
    "extra": "<img src=\\"heart_valves.png\\">", "source": "p.12", "tags": [], "why": "…"}
@@ -181,14 +234,14 @@ ANKI_CARDS>>>` + checkerSection('other');
     workflow = `## How to deliver
 You have no code tool for this task. Write the cards yourself as JSON in exactly the format below. Every image you reference with <img src="…"> must appear in "media" with origin "url" (Wikimedia) or "material" (with a precise hint). If there are more than ~40 cards, split them over several consecutive <<<ANKI_CARDS … ANKI_CARDS>>> blocks (each a complete JSON object); I will paste them all.`;
   } else {
-    const load = p.pScript === 'inline'
+    const load = helperFromWeb(p) ? helperWebLoad() : p.pScript === 'inline'
       ? 'The full source of anki_helper.py is at the end of this message. Save it to a file in your code environment (e.g. /tmp/anki_helper.py) and exec() it.'
       : 'I attached **anki_helper.py**. Load it in your code environment with:\n```python\nimport glob; exec(open(glob.glob("/mnt/**/anki_helper.py", recursive=True)[0]).read())\nhelp()\n```';
     workflow = `## How to work (use your code-execution tool)
 ${load}
 1. Read my material first (list_uploads(), pdf_info(path), pdf_text(path, page), pdf_figures(path)). Plan the cards before writing them.
 2. Create the deck: \`deck = Deck(${JSON.stringify(p.pDeck || 'AI Generated Deck')}${p.pTags ? ', tags=' + JSON.stringify(p.pTags.split(/\s+/).filter(Boolean)) : ''})\`
-3. Make images with the helper (each call RETURNS the filename to use - extensions can change) and add cards with deck.add_basic(...) / deck.add_cloze(...), using the HTML helpers answer(), box(kind, html), img(name, caption), bullets(), table(). Give every card an extensive why=rationale(tests=…, matters=…, mistake=…, connects=…): 1-3 specific sentences per part (~60-150 words): what exactly it tests and what a full answer must show; why it matters (where it comes up - later topics, labs, exams, practice - and what goes wrong without it); the misconception it guards against; prerequisites and related cards. No generic filler.
+3. Make images with the helper (each call RETURNS the filename to use - extensions can change) and add cards with deck.add_basic(...) / deck.add_cloze(...), using the HTML helpers answer(), box(kind, html), img(name, caption), bullets(), table(). Give every card hidden notes as why=: ${(p.pNotes || '').trim() ? `HTML holding ${p.pNotes.trim()}` : NOTES_RATIONALE}.
    Call \`deck.load_source(...)\` with the material your refs point into, so quotes get checked: the file paths (no argument = every uploaded PDF), or the id of a <<<SOURCE block - never retype a block into code.
 4. Run \`deck.validate()\`: fix every ERROR and look at every warn. Repeat until clean (a check that is wrong for one card can be skipped with a reason - see "Output format").
 5. **Look at every image - not optional.** Run \`deck.contact_sheet()\` (and \`deck.preview_png()\` for the cards), then OPEN each PNG it prints with your image-viewing tool and check every image: elements overlapping or covering each other, anything cut off, unreadable text, wrong content. Redraw and look again until they are clean. validate() also reports overlaps it can measure and stays red until every new image has been on a contact sheet - but only your own look catches everything.
@@ -227,7 +280,10 @@ ${imgLines.join('\n') || '- (images disabled - text only)'}
    - \`<div class="aa-box aa-KIND"><div class="aa-box-title">Title</div>…</div>\` with KIND = ${BOX_KINDS.join(' | ')}
    - \`<figure class="aa-fig"><img src="FILENAME"><figcaption>…</figcaption></figure>\` for images (FILENAME only, no path)
 ${p.pOrder ? `8. **Anti-spoiler study order.** Keep the cards written grouped by topic, but after writing them choose a study order in which no card directly gives away the answer of a card shortly after it (e.g. a definition card right before the cloze of the same sentence). Interleave topics while keeping true prerequisites first. Record it as a top-level \`"order": [ids…]\`${p.pScript === 'none' ? '' : ' (helper: `deck.set_order([...])`)'}.
-` : ''}${p.pRefs ? `${p.pOrder ? 9 : 8}. **Exact source locations.** Give every card \`"refs": [{"file": "lecture3.pdf", "page": 12, "quote": "5-15 words copied verbatim from that page"}]\`${p.pScript === 'none' ? '' : ' (helper: `ref=("lecture3.pdf", 12, "verbatim quote")` on add_basic/add_cloze)'}. Copy at least ~25 characters exactly as the source's text says them (a PDF's text layer; for markdown/web pages the rendered text without * # or backticks; for web pages use the URL as "file") - my app searches for it to show the source passage inside the card.
+` : ''}${p.pRefs ? `${p.pOrder ? 9 : 8}. **Exact source sections.** Every card cites the exact section of the material it was made from, so I can see where it came from: \`"refs": [{"file": "lecture3.pdf", "page": 12, "quote": "the text that led to this card", "box": [x0, y0, x1, y1]}]\`${p.pScript === 'none' ? '' : ' (helper: `ref=("lecture3.pdf", 12, "verbatim quote", section_box(path, 12, "verbatim quote"))` on add_basic/add_cloze)'}.
+   - **quote:** the sentence(s) that led to the card, copied verbatim (at least ~25 characters) - a PDF's text layer; for markdown/web pages the rendered text without * # or backticks; for web pages use the URL as "file". My app searches for it.
+   - **box (PDFs):** the section the card was made from - the paragraph, figure, table or slide region - as page fractions (0-1, top-left origin). My app screenshots exactly that region into the card${p.pScript === 'none' ? '' : ' (`section_box()` finds the block around a quote; for a figure use the box from `pdf_figures()` or `render_page_preview()`)'}.
+   - Where a screenshot isn't possible (slides, documents, web pages, notes, or a card from my request itself), the verbatim quote is the citation: quote the exact text that led to the card${p.pTopic.trim() ? ' (for a card that comes from my request rather than the material, `"file": "prompt"` and a quote of my request)' : ''}.
 ` : ''}${p.pExtra.trim() ? '\n## Extra instructions\n' + p.pExtra.trim() + '\n' : ''}
 ${workflow}
 

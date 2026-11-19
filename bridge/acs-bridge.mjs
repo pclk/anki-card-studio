@@ -39,7 +39,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '2';
+export const VERSION = '3';
 const HOME = process.env.ACS_BRIDGE_HOME || path.join(os.homedir(), '.acs-bridge');
 const CONFIG = path.join(HOME, 'config.json');
 const CHUNK = 3 * 1024 * 1024;
@@ -60,7 +60,8 @@ export const INSTRUCTION = `You are running unattended for Anki Card Studio, in 
 Your task is in ./anki_prompt.txt: read it and follow it exactly.
 - The anki skill, in the exact version the Studio uses, is in ./anki-skill/SKILL.md; its scripts are in ./anki-skill/scripts (in Python: import sys; sys.path.insert(0, "anki-skill/scripts"); from anki_helper import *).
 - The files the prompt mentions as attached are in this folder. Read blocks of the prompt by their id with the helper (it finds anki_prompt.txt here); never retype them.
-- Outputs go to ./anki_out (ANKI_OUT_DIR is set): the result must be ./anki_out/anki_bundle.json for new cards, or ./anki_out/anki_revision.json for a revision, as the prompt asks.
+- Outputs go to ./anki_out (ANKI_OUT_DIR is set): ./anki_out/anki_bundle.json for new cards, ./anki_out/anki_revision.json for a revision, ./anki_out/anki_actions.json for proposed actions - whichever the prompt asks for (some tasks ask only for an answer).
+- If ./acs.mjs is here, it is the user's Studio project (acs_project.json, acs_sources.json): run node acs.mjs help.
 - Nobody can answer questions while you work: make sensible choices and mention them in your final reply.
 - Work only inside this folder.`;
 
@@ -266,7 +267,7 @@ export async function runJob(api, job, cfg, log = console.log) {
     if (!fs.lstatSync(outDir, { throwIfNoEntry: false })?.isDirectory()) throw new Error('anki_out is no longer a folder');
     const lexists = (p) => !!fs.lstatSync(p, { throwIfNoEntry: false });
     if (reply && !lexists(path.join(outDir, 'reply.md'))) fs.writeFileSync(path.join(outDir, 'reply.md'), reply, { flag: 'wx' });
-    for (const name of ['anki_bundle.json', 'anki_revision.json', 'anki_explanations.md', 'reply.md']) {
+    for (const name of ['anki_bundle.json', 'anki_revision.json', 'anki_actions.json', 'anki_explanations.md', 'reply.md']) {
       const bytes = readOwnFile(path.join(outDir, name));
       if (bytes) await api.upload(job.id, name, bytes, name.endsWith('.json') ? 'application/json' : 'text/markdown');
     }

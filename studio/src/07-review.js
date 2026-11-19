@@ -68,8 +68,8 @@ function decodeEnt(s){ return new DOMParser().parseFromString(String(s).replace(
 /* ---- the checker: the same card-quality checks as the skill's validate(), with the same settings (SET.checks, edited on
    the Prompt page and passed to Claude in every prompt). Used by the checker fixes and the Analytics tab. */
 const CHECK_DEFS = [
-  {key: 'why', group: 'Why this card', label: '"Why" present and long enough', kind: 'level', def: 'warn'},
-  {key: 'why_min_words', group: 'Why this card', label: 'Minimum words in "why"', kind: 'num', def: 45, unit: 'words'},
+  {key: 'why', group: 'Hidden notes', label: 'Hidden notes present and long enough', kind: 'level', def: 'warn'},
+  {key: 'why_min_words', group: 'Hidden notes', label: 'Minimum words in the hidden notes', kind: 'num', def: 45, unit: 'words'},
   {key: 'front_max_chars', group: 'Length', label: 'Maximum front length (prose, code and maths not counted)', kind: 'num', def: 300, unit: 'chars'},
   {key: 'back_max_words', group: 'Length', label: 'Maximum answer length (code not counted)', kind: 'num', def: 0, unit: 'words'},
   {key: 'cloze_max_deletions', group: 'Length', label: 'Maximum cloze numbers per note', kind: 'num', def: 3, unit: 'c1…cN'},
@@ -84,14 +84,15 @@ const CHECK_DEFS = [
   {key: 'math_in_code', group: 'Maths', label: 'Maths written inside code', kind: 'level', def: 'warn'},
   {key: 'ref_quote_min_chars', group: 'Sources', label: 'Minimum source-quote length', kind: 'num', def: 25, unit: 'chars'},
   {key: 'ref_page', group: 'Sources', label: 'Source reference without a page', kind: 'level', def: 'warn'},
+  {key: 'ref_section', group: 'Sources', label: 'PDF source reference without the section the card was made from', kind: 'level', def: 'warn'},
   {key: 'unused_images', group: 'Images', label: 'Image not used by any card (checked by Claude)', kind: 'level', def: 'warn'},
   {key: 'order_window', group: 'Study order', label: 'Spoiler window in the study order', kind: 'num', def: 3, unit: 'cards'}
 ];
 const CHECK_DEFAULTS = Object.fromEntries(CHECK_DEFS.map(d => [d.key, d.def]));
 /* exactly what each check looks for (kept in step with cardChecks() below and validate() in anki_helper.py) */
 const CHECK_HOW = {
-  why: 'Fails when the card\'s "why this card" field is empty once HTML tags are removed.',
-  why_min_words: 'Removes HTML tags from "why", splits it on spaces and counts the words. Fails below the minimum. (An empty "why" is reported by the check above instead.) Its level follows the "why" check.',
+  why: 'Fails when the card\'s hidden notes ("why") are empty once HTML tags are removed. Unless the prompt says what to put there, the hidden notes explain why the card was made.',
+  why_min_words: 'Removes HTML tags from the hidden notes, splits them on spaces and counts the words. Fails below the minimum. (Empty notes are reported by the check above instead.) Its level follows the hidden-notes check.',
   front_max_chars: 'Basic cards only. Takes the front, removes code blocks (<pre>), inline <code>, maths \\( … \\) and \\[ … \\], and HTML tags, then counts the characters left (spaces included). Fails above the limit. Always a warning.',
   back_max_words: 'Counts the words on the back (basic cards) or in the cloze text plus Extra (cloze cards), after removing code blocks and HTML tags. Fails above the limit. Always a warning.',
   cloze_max_deletions: 'Cloze cards only. Counts the different numbers used in {{c1::…}}, {{c2::…}} … (c1 used twice counts once). Fails above the limit. Always a warning.',
@@ -106,6 +107,7 @@ const CHECK_HOW = {
   math_in_code: 'Inline <code> or a code block without a language-… class (code with a language, language-latex included, is left alone) holding maths: \\( … \\), \\[ … \\] or a LaTeX command like \\frac or \\sum. Code shows it as raw LaTeX instead of a formula.',
   ref_quote_min_chars: 'Each source reference\'s quote, with runs of spaces collapsed, must be at least this many characters, so it can be found again in the material. (When the material is loaded, Claude also checks that the quote really is on that page - that part is always an error.)',
   ref_page: 'A source reference to a file (anything that isn\'t an http(s) address) without a page number.',
+  ref_section: 'A source reference to a PDF without a "box": the region of the page (paragraph, figure, table) the card was made from, as page fractions [x0, y0, x1, y1]. With a box, the source picture shows exactly that section; without one it shows the area around the quote.',
   unused_images: 'Run by Claude only: an image registered on the deck that no card\'s HTML uses.',
   order_window: 'Used by Claude when it orders the cards: a card counts as spoiling a later one if it comes up to this many places earlier and its answer terms, numbers or image give away the later card\'s answer.',
   missing_img: 'Studio only: a card shows an image whose file is not in the project (or could not be downloaded).'
@@ -133,8 +135,8 @@ function cardChecks(c, C = ck()){
   const add = (key, designed, msg) => { const lv = C[key]; if (lv === 'off') return; out.push({key, level: lv === 'warn' ? 'W' : designed, msg}); };
   const strict = (key, msg) => { const lv = C[key]; if (lv !== 'off') out.push({key, level: lv === 'error' ? 'E' : 'W', msg}); };
   const why = String(c.why || '').trim(), wn = why ? decodeEnt(why.replace(/<[^>]+>/g, ' ')).split(/\s+/).filter(Boolean).length : 0;
-  if (!why) strict('why', 'There is no "why this card" rationale.');
-  else if (C.why_min_words && wn < C.why_min_words) out.push(...(C.why === 'off' ? [] : [{key: 'why_min_words', level: C.why === 'error' ? 'E' : 'W', msg: `The "why" has ${wn} words (minimum ${C.why_min_words}).`}]));
+  if (!why) strict('why', 'There are no hidden notes ("why").');
+  else if (C.why_min_words && wn < C.why_min_words) out.push(...(C.why === 'off' ? [] : [{key: 'why_min_words', level: C.why === 'error' ? 'E' : 'W', msg: `The hidden notes have ${wn} words (minimum ${C.why_min_words}).`}]));
   if (!cloze && C.front_max_chars){
     const n = decodeEnt(String(c.front || '').replace(/<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>/gi, '').replace(/\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g, '').replace(/<[^>]+>/g, '')).length;
     if (n > C.front_max_chars) out.push({key: 'front_max_chars', level: 'W', msg: `The front has ${n} characters of prose (limit ${C.front_max_chars}).`});
@@ -199,10 +201,19 @@ function cardChecks(c, C = ck()){
     if (r && r.file && !r.page && !/^https?:/.test(r.file)){ strict('ref_page', `The source reference to ${r.file} has no page.`); break; }
   }
   for (const r of c.refs || []){
+    if (r && /\.pdf$/i.test(r.file || '') && !refBox(r)){ strict('ref_section', `The source reference to ${r.file}${r.page ? ' p.' + r.page : ''} has no box around the section the card was made from.`); break; }
+  }
+  for (const r of c.refs || []){
     const n = String((r && r.quote) || '').replace(/\s+/g, ' ').trim().length;
     if (n && C.ref_quote_min_chars && n < C.ref_quote_min_chars){ out.push({key: 'ref_quote_min_chars', level: 'W', msg: `A source quote is only ${n} characters (minimum ${C.ref_quote_min_chars}).`}); break; }
   }
   return out;
+}
+/** a ref's section box [x0, y0, x1, y1] (page fractions), or null when it has none or it is malformed */
+function refBox(r){
+  const b = r && r.box; if (!Array.isArray(b) || b.length !== 4 || !b.every(v => Number.isFinite(+v))) return null;
+  const [x0, y0, x1, y1] = b.map(v => Math.min(1, Math.max(0, +v)));
+  return x1 - x0 > 0.005 && y1 - y0 > 0.005 ? [x0, y0, x1, y1] : null;
 }
 /** every line of the card's code blocks, as the reader sees it: tags removed, entities decoded, tabs expanded to 8 */
 function codeLines(c){
@@ -224,9 +235,9 @@ function checksOf(c, C = ck(), cs = J(C)){
 }
 // a check key as used by the Review filter ("chk:<key>"); 'missing_img' is the Studio's own image check
 const CHECK_ROWS = [
-  {key: 'why', label: 'No "why this card"', test: c => checksOf(c).some(x => x.key === 'why')},
-  {key: 'why_min_words', label: '"Why" too short', test: c => checksOf(c).some(x => x.key === 'why_min_words')},
-  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'code_line_chars', 'unshown_math', 'math_as_text', 'math_in_code', 'ref_page', 'ref_quote_min_chars']
+  {key: 'why', label: 'No hidden notes', test: c => checksOf(c).some(x => x.key === 'why')},
+  {key: 'why_min_words', label: 'Hidden notes too short', test: c => checksOf(c).some(x => x.key === 'why_min_words')},
+  ...['front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'outside_refs', 'unshown_code', 'code_as_text', 'code_language', 'code_line_chars', 'unshown_math', 'math_as_text', 'math_in_code', 'ref_page', 'ref_section', 'ref_quote_min_chars']
     .map(k => ({key: k, label: CHECK_DEFS.find(d => d.key === k).label, test: c => checksOf(c).some(x => x.key === k)})),
   {key: 'missing_img', label: 'Image missing or not loaded', test: c => cardMissing(c), studio: true}
 ];
@@ -245,7 +256,7 @@ function ensureCheckOption(key){
 }
 function formatIssues(c){ return checksOf(c).filter(x => FMT_KEYS.has(x.key)).map(x => x.msg); }
 /** the Others preset: every other per-card check (content, length, rationale and sources) */
-const FIX_KEYS = new Set(['why', 'why_min_words', 'front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'ref_page', 'ref_quote_min_chars']);
+const FIX_KEYS = new Set(['why', 'why_min_words', 'front_max_chars', 'back_max_words', 'cloze_max_deletions', 'multi_question', 'ref_page', 'ref_section', 'ref_quote_min_chars']);
 function fixIssues(c){ return checksOf(c).filter(x => FIX_KEYS.has(x.key)).map(x => x.msg); }
 /** every check a checker fix can send (the per-card ones), in the Checker's order: the rule picker on the Revise tab */
 const FIX_RULES = CHECK_DEFS.map(d => d.key).filter(k => FMT_KEYS.has(k) || FIX_KEYS.has(k));
@@ -269,6 +280,7 @@ function filtered(){
     if (S.filter === 'brokenimg' && !cardBrokenImg(c)) return false;
     if (S.filter === 'recheck' && !c.recheck) return false;
     if (S.filter === 'skipped' && !(c.skipped_checks && Object.keys(c.skipped_checks).length)) return false;
+    if (S.filter === 'glob' && !revFilterMatch(c)) return false;
     if (S.filter.startsWith('chk:')){ const r = checkRow(S.filter.slice(4)); if (r && !r.test(c)) return false; }
     if (['new','ok','change','drop'].includes(S.filter) && c.status !== S.filter) return false;
     if (q && !(c.id + ' ' + FIELDS[c.type].map(f => c[f]).join(' ') + ' ' + c.tags.join(' ')).toLowerCase().includes(q)) return false;
@@ -370,7 +382,7 @@ function renderReview(){
   $('#prevWrap').hidden = !c.prev;
   if (c.prev){
     $('#prevBox').innerHTML = prevDiffHTML(c);
-    $('#prevSum').textContent = c.recheck ? 'What the formatting pass / checker fix changed' : 'Show previous version & feedback';
+    $('#prevSum').textContent = c.recheck ? 'What the global revision changed' : 'Show previous version & feedback';
     // a re-check is about the changes, so show them straight away (once per card, so closing it sticks)
     if ($('#prevWrap').dataset.card !== c.id){ $('#prevWrap').dataset.card = c.id; $('#prevWrap').open = !!c.recheck; }
   }
@@ -554,7 +566,7 @@ function prevDiffHTML(c){
     let rows = '', gap = false;
     d.forEach((x, k) => { if (!keep[k]){ if (!gap) rows += '<div class="df-gap">⋯</div>'; gap = true; return; } gap = false;
       rows += `<div class="df-${x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : 'ctx'}">${x[0] === ' ' ? '&nbsp;' : x[0]} ${esc(x[1]) || '&nbsp;'}</div>`; });
-    h += `<div class="df-field"><b>${esc(FIELD_LABEL[f] || (f === 'why' ? 'Why this card' : f))}</b><div class="df">${rows}</div></div>`;
+    h += `<div class="df-field"><b>${esc(FIELD_LABEL[f] || (f === 'why' ? 'Hidden notes' : f))}</b><div class="df">${rows}</div></div>`;
   }
   // source references, when the old version kept them
   const refTxt = rs => (rs || []).map(r => `${r.file}${r.page ? ' p. ' + r.page : ''}${r.quote ? ': "' + r.quote + '"' : ''}`);
@@ -592,7 +604,8 @@ $('#curChecks ul').addEventListener('click', e => {
 function badgesHTML(c){
   renderCurChecks(c);
   return `<span class="pill ${{ok:'ok',change:'warn',drop:'bad'}[c.status] || ''}">${{new:'unreviewed',ok:'approved',change:'change requested',drop:'excluded'}[c.status]}</span> `
-    + (c.recheck ? '<span class="pill warn" title="Approved before, then changed by a formatting pass or checker fix: check the changes (see below the card), then approve or exclude it">re-check</span> ' : '')
+    + (c.recheck ? '<span class="pill warn" title="Approved before, then changed by a global revision: check the changes (see below the card), then approve or exclude it">re-check</span> ' : '')
+    + (c.fmtNA ? `<span class="pill" title="${esc('The last global revision left this card as it was: ' + c.fmtNA)}">left as is</span> ` : '')
     + (c.edited ? '<span class="pill edited" title="You edited this card\'s fields directly">field-edited</span>' : '');
 }
 function renderReviewSoft(){ const c = curCard(); renderList(); updateTabCounts(); $('#stOk').classList.toggle('on', c.status === 'ok'); $('#stChange').classList.toggle('on', c.status === 'change'); $('#stDrop').classList.toggle('on', c.status === 'drop');
@@ -738,10 +751,10 @@ function renderCloze(text, n, back){
     return back ? `<span class="cloze">${ans}</span>` : `<span class="cloze">[${hint || '...'}]</span>`;
   });
 }
-/** is the card's "why" put on the card (end of Extra)? per-card choice, else the Export-tab default */
+/** are the card's hidden notes ("why") put on the card (end of Extra)? per-card choice, else the Export-tab default */
 const whyOn = c => !!(c.why && c.why.trim()) && (c.whyOnCard === true || (c.whyOnCard !== false && !!S.whyAll));
 const whyHTML = w => /<[a-z][\s\S]*>/i.test(w) ? w : String(w).split(/\n{2,}/).map(p => `<p>${esc(p.trim())}</p>`).join('');
-const extraWithWhy = c => (c.extra || '') + (whyOn(c) ? `<details class="aa-purpose"><summary>Why this card</summary>${whyHTML(c.why.trim())}</details>` : '');
+const extraWithWhy = c => (c.extra || '') + (whyOn(c) ? `<details class="aa-purpose"><summary>Notes</summary>${whyHTML(c.why.trim())}</details>` : '');
 function cardHTML(c, sd, n){
   c = {...c, front: fixMath(c.front), back: fixMath(c.back), text: fixMath(c.text), extra: fixMath(extraWithWhy(c))};
   const extra = c.extra && c.extra.trim() ? `<div class="extra">${c.extra}</div>` : '';
@@ -763,7 +776,7 @@ function renderWhy(c){
   box.dataset.card = c.id;
   const v = $('#whyView');
   if (has){ sanitizeInto(v, fixMath(whyHTML(c.why.trim()))); renderMath(v); }
-  else v.innerHTML = '<div class="small muted">No explanation for this card yet. ✎ Edit to add one.</div>';
+  else v.innerHTML = '<div class="small muted">No hidden notes for this card yet. ✎ Edit to add some.</div>';
   $('#whyOnCard').checked = whyOn(c); $('#whyOnCard').disabled = !has;
 }
 function whyEditing(on){

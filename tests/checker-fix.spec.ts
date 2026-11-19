@@ -34,7 +34,7 @@ test('checker fixes: one queue, each prompt with its own rules; prompt per enabl
  await expect(page.locator('#fixPanel')).toBeVisible();
  await ev(page,`SET.fixRules=[...FIX_KEYS];renderFmtPass()`);   // local only: the shared settings stay as they are
  await expect(page.locator('#fxPresets .btn.on')).toHaveText('Others');
- await expect(page.locator('#fqUses')).toContainText('no "why"');
+ await expect(page.locator('#fqUses')).toContainText('no hidden notes');
  await expect(page.locator('#fqUses')).toContainText('several questions');
  await expect(page.locator('#fqUses')).toContainText('source without a page');
  await expect(page.locator('#fqUses')).toContainText('Claude may rewrite content');
@@ -72,7 +72,7 @@ test('checker fixes: one queue, each prompt with its own rules; prompt per enabl
  const block=JSON.parse(/<<<REVISE_CARDS id=r-[0-9a-f]{8}\n([\s\S]*?)\nREVISE_CARDS>>>/.exec(prompt)![1]);
  expect(block.cards.map((c:any)=>c.id).sort()).toEqual(['k-long','k-multi','k-nowhy','k-ref']);
  for (const c of block.cards) expect(c.feedback).toMatch(/^Checker fix - the checks found: /);
- expect(block.cards.find((c:any)=>c.id==='k-nowhy').feedback).toContain('no "why this card"');
+ expect(block.cards.find((c:any)=>c.id==='k-nowhy').feedback).toContain('no hidden notes');
  expect(block.cards.find((c:any)=>c.id==='k-ref').refs).toEqual([{file:'net.pdf',page:0,quote:'reliable'}]);
  // the Formatting prompt is a formatting pass: no content changes, no splits
  const fp:string=await ev(page,`fixPrompt(fmtItems()[1].cards)`);
@@ -91,12 +91,12 @@ test('checker fixes: one queue, each prompt with its own rules; prompt per enabl
   {...CARDS[0],why:WHY},
   {...CARDS[1],front:'What is a stack?',back:'LIFO'},
   {id:'k-multi-b',type:'basic',front:'What is a queue?',back:'FIFO',why:WHY,after:'k-multi'},
-  {...CARDS[3],refs:[{file:'net.pdf',page:12,quote:'TCP provides reliable, in-order delivery'}]},
+  {...CARDS[3],refs:[{file:'net.pdf',page:12,quote:'TCP provides reliable, in-order delivery',box:[0.1,0.2,0.9,0.3]}]},
   {id:'k-long',delete:true}]};
  await page.locator('#fixPanel details:has(#fqPaste) summary').click();
  await page.locator('#fqPaste').fill(JSON.stringify(reply));
  await page.locator('#fqApply').click();
- await expect(page.locator('#fqResult')).toContainText('Checker fix');
+ await expect(page.locator('#fqResult')).toContainText('Global revision');
  await expect(page.locator('#fqResult')).toContainText('1 new card');
  await page.locator('#tabs button[data-tab=revise]').click();
  await expect(page.locator('#fqList .pill').nth(0)).toHaveText('answered');
@@ -109,10 +109,10 @@ test('checker fixes: one queue, each prompt with its own rules; prompt per enabl
  expect(by('k-multi-b')).toMatchObject({status:'new'});
  expect(st.map((c:any)=>c.id).indexOf('k-multi-b')).toBe(st.map((c:any)=>c.id).indexOf('k-multi')+1);
  expect(by('k-fmt')).toMatchObject({fmt:'Q2'});
- expect(await ev(page,`JSON.stringify(cardById('k-ref').refs)`)).toBe(JSON.stringify([{file:'net.pdf',page:12,quote:'TCP provides reliable, in-order delivery'}]));
+ expect(await ev(page,`JSON.stringify(cardById('k-ref').refs)`)).toBe(JSON.stringify([{file:'net.pdf',page:12,quote:'TCP provides reliable, in-order delivery',box:[0.1,0.2,0.9,0.3]}]));
  expect(await ev(page,`fixIssues(cardById('k-nowhy')).length+fixIssues(cardById('k-multi')).length+fixIssues(cardById('k-ref')).length`)).toBe(0);
  // the re-check diff shows the new "why"
- expect(await ev(page,`prevDiffHTML(cardById('k-nowhy'))`)).toContain('Why this card');
+ expect(await ev(page,`prevDiffHTML(cardById('k-nowhy'))`)).toContain('Hidden notes');
  await expect.poll(async()=>(await saved(request,pid,'k-nowhy'))?.recheck,{timeout:15000}).toBe(true);
  expect((await saved(request,pid,'k-nowhy')).why).toBe(WHY);
  expect((await saved(request,pid,'k-multi-b'))?.after).toBe('k-multi');
@@ -149,7 +149,7 @@ test('the rule picker: presets, ticking rules, your own presets; kept with the s
   expect(await ev(page,`fmtCandidates().map(c=>c.id).join()`)).toBe('k-ref');
   await page.locator('#fxRules [data-rule=multi_question]').check();
   await expect(page.locator('#fxPresets .btn.on')).toHaveCount(0);
-  expect(await ev(page,`pickedRules().join()`)).toBe('multi_question,ref_quote_min_chars,ref_page');
+  expect(await ev(page,`pickedRules().join()`)).toBe('multi_question,ref_quote_min_chars,ref_page,ref_section');
   expect(await ev(page,`fmtCandidates().map(c=>c.id).sort().join()`)).toBe('k-multi,k-ref');
   await expect(page.locator('#fxRules label',{hasText:'source without a page'})).toContainText('(warn)');
   // save it as a preset of your own
@@ -165,9 +165,9 @@ test('the rule picker: presets, ticking rules, your own presets; kept with the s
   await page.locator('#tabs button[data-tab=revise]').click();
   await expect(page.locator('#fxPresets .btn.on')).toHaveText('Formatting');
   await page.locator('#fxPresets [data-preset]',{hasText:'Splits and refs'}).click();
-  expect(await ev(page,`pickedRules().join()`)).toBe('multi_question,ref_quote_min_chars,ref_page');
+  expect(await ev(page,`pickedRules().join()`)).toBe('multi_question,ref_quote_min_chars,ref_page,ref_section');
   // nothing picked: nothing to build
-  for (const k of ['multi_question','ref_quote_min_chars','ref_page']) await page.locator(`#fxRules [data-rule=${k}]`).uncheck();
+  for (const k of ['multi_question','ref_quote_min_chars','ref_page','ref_section']) await page.locator(`#fxRules [data-rule=${k}]`).uncheck();
   await expect(page.locator('#fqUses')).toContainText('pick some rules');
   await expect(page.locator('#fqBuild')).toBeDisabled();
   await expect(page.locator('#fxSave')).toBeDisabled();

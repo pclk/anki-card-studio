@@ -21,7 +21,8 @@
  * The bridge itself, with "Authorization: Bearer acsd_…" (a device token reaches these and nothing else):
  *   POST /api/bridge/hello {version, agents}; POST /api/bridge/claim {agents} -> {job | null}
  *   GET  /api/bridge/jobs/<id>/in/<name>; POST /api/bridge/jobs/<id>/events [{type, text}] -> {cancel}
- *   PUT  /api/bridge/jobs/<id>/out/<name>; POST /api/bridge/jobs/<id>/finish {ok, error}
+ *   PUT  /api/bridge/jobs/<id>/out/<name> (anki_bundle.json, anki_revision.json, anki_actions.json, anki_explanations.md, reply.md);
+ *   POST /api/bridge/jobs/<id>/finish {ok, error}
  *
  * Kept free of Next.js so the tests can call it directly.
  */

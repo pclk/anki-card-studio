@@ -27,6 +27,8 @@ What it does
     An .html double-clicked from disk (file://) is only allowed with --allow-file-pages, because
     websites can fake that kind of origin too.
   * "Open folder" (Finder / Explorer / file manager)
+  * serves the anki skill at /skill/anki.zip (and /skill/SKILL.md, /skill/anki_helper.py, …), so an AI on this
+    computer can download it itself
   * fetches web pages as readable text for the Sources step (browsers can't, because of CORS)
 
 Only listens on 127.0.0.1 and only answers this server's own pages (and file:// pages when
@@ -209,6 +211,32 @@ class App:
             raise PermissionError("bad project id")
         return self.data / "projects" / pid
 
+    SKILL_FILES = {"SKILL.md": ("SKILL.md", "skillSrc", "text/markdown; charset=utf-8"),
+                   "anki_helper.py": ("scripts/anki_helper.py", "helperSrc", "text/x-python; charset=utf-8"),
+                   "extract.py": ("scripts/extract.py", "extractSrc", "text/x-python; charset=utf-8"),
+                   "make_prompts.py": ("scripts/make_prompts.py", "promptsSrc", "text/x-python; charset=utf-8")}
+
+    def skill_file(self, name: str) -> bytes:
+        """a file of the anki skill: from the repo (local/acs.py -> ../skill/anki), else the copy built into the newest
+        Studio .html (its <script type="text/plain" id="skillSrc"> etc.)"""
+        rel, sid, _ = self.SKILL_FILES[name]
+        f = self.script_dir.parent / "skill" / "anki" / rel
+        if f.is_file():
+            return f.read_bytes()
+        for h in self.html_files():
+            m = re.search(r'<script type="text/plain" id="%s">\n?([\s\S]*?)</script>' % sid, h.read_text("utf-8", "replace"))
+            if m:
+                return m.group(1).encode()
+        raise FileNotFoundError(name)
+
+    def skill_zip(self) -> bytes:
+        import io, zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, (rel, _, _) in self.SKILL_FILES.items():
+                z.writestr("anki/" + rel, self.skill_file(name))
+        return buf.getvalue()
+
     def html_files(self):
         seen, out = set(), []
         # apps/ in the data folder, next to this script, and the repo's studio/ folder (local/acs.py -> ../studio)
@@ -326,6 +354,13 @@ def make_handler(app: App):
                         f"<h2>Anki Card Studio</h2><p>Data folder: <code>{html.escape(str(app.data))}</code></p>"
                         f"<ul>{rows or '<li>No .html found - put anki_card_studio.html into the apps/ folder.</li>'}</ul></body>")
                 return self.send(200, page, "text/html; charset=utf-8")
+            # the anki skill, for an AI on this computer to download (the Studio's "Claude downloads it" option)
+            if p[0] == "skill" and len(p) == 2:
+                if p[1] == "anki.zip":
+                    return self.send(200, app.skill_zip(), "application/zip", {"Content-Disposition": 'attachment; filename="anki-skill.zip"'})
+                if p[1] in app.SKILL_FILES:
+                    return self.send(200, app.skill_file(p[1]), app.SKILL_FILES[p[1]][2])
+                raise FileNotFoundError
             if p[0] == "apps" and len(p) == 2:
                 f = next((x for x in files if x.name == p[1]), None)
                 if not f:

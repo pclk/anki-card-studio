@@ -26,8 +26,10 @@ const DEFAULT_SETTINGS = {
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   bridgeOpts: {claude: {}, codex: {}},              // what each agent runs with there: model, effort, limits (empty = the CLI's default)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
-  fixRules: [...FMT_KEYS],                         // the rules a checker fix sends (Revise → Checker fixes)
-  fixPresets: [],                                  // your own rule presets there: [{name, rules}]
+  fixRules: [...FMT_KEYS],                         // the Checker rules a global revision fixes (Revise → Global revision)
+  grTask: {instr: '', mode: 'content', split: false, del: false},   // its instruction and options
+  grFilter: {match: 'all', conds: []},             // its filter: [{key, deny, a: {arguments}}], allow all / any
+  fixPresets: [],                                  // your own presets there: [{name, rules, task?, filter?}]
   keys: {exclude: ['q'], change: ['w'], approve: ['d'], reset: ['r'], next: ['Meta', 'ArrowRight'], prev: ['ArrowLeft'],
          flip: ['Tab'], copy: ['c'], pane: ['e'], order: ['o'], image: ['i'], sidebar: ['\\']},
   leader: [
@@ -58,14 +60,27 @@ function mergeSettings(j){
     else if (Number.isFinite(+v) && +v >= 0) out.checks[d.key] = Math.round(+v);
   }
   if (j && Array.isArray(j.fixRules)) out.fixRules = FIX_RULES.filter(k => j.fixRules.includes(k));
+  if (j && j.grTask) out.grTask = cleanGrTask(j.grTask);
+  if (j && j.grFilter) out.grFilter = cleanGrFilter(j.grFilter);
   if (j && Array.isArray(j.fixPresets)) out.fixPresets = j.fixPresets.filter(p => p && typeof p.name === 'string' && p.name.trim() && Array.isArray(p.rules))
-    .map(p => ({name: p.name.trim().slice(0, 40), rules: FIX_RULES.filter(k => p.rules.includes(k))})).filter(p => p.rules.length).slice(0, 20);
+    .map(p => { const t = p.task && cleanGrTask(p.task), f = p.filter && cleanGrFilter(p.filter);
+      return {name: p.name.trim().slice(0, 40), rules: FIX_RULES.filter(k => p.rules.includes(k)), ...(t && t.instr.trim() ? {task: t} : {}), ...(f && f.conds.length ? {filter: f} : {})}; })
+    .filter(p => p.rules.length || p.task || p.filter).slice(0, 20);
   if (j && j.swipe && typeof j.swipe === 'object'){
     const n = (v, lo, hi, d) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d;
     out.swipe = {dist: n(j.swipe.dist, 8, 60, 25), angle: n(j.swipe.angle, 10, 75, 50), effects: j.swipe.effects !== false};
   }
   if (j && Array.isArray(j.leader)) out.leader = j.leader.filter(x => x && x.key).map(x => ({key: String(x.key), text: String(x.text || ''), then: ['focus', 'next', 'stay'].includes(x.then) ? x.then : 'next'}));
   return out;
+}
+/** a global revision's instruction and options, and its filter, as saved (condition keys are checked when they are used) */
+function cleanGrTask(t){
+  return {instr: typeof t.instr === 'string' ? t.instr.slice(0, 4000) : '', mode: t.mode === 'format' ? 'format' : 'content', split: !!t.split, del: !!t.del};
+}
+function cleanGrFilter(f){
+  const arg = a => Object.fromEntries(Object.entries(a && typeof a === 'object' ? a : {}).filter(([, v]) => ['string', 'number'].includes(typeof v)).map(([k, v]) => [k.slice(0, 20), typeof v === 'string' ? v.slice(0, 500) : v]));
+  return {match: f && f.match === 'any' ? 'any' : 'all',
+    conds: (f && Array.isArray(f.conds) ? f.conds : []).filter(x => x && typeof x.key === 'string').slice(0, 30).map(x => ({key: x.key.slice(0, 40), deny: !!x.deny, ...(x.a ? {a: arg(x.a)} : {})}))};
 }
 function saveSettings(){ try { localStorage.setItem('acs-settings', JSON.stringify(SET)); } catch {} Store.putSettings(SET).catch(() => {}); renderKeyHints(); if (typeof settingsChanged === 'function') settingsChanged(); }
 const MOD_KEYS = ['Meta', 'Control', 'Alt', 'Shift'];

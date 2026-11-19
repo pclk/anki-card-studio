@@ -54,8 +54,9 @@ class SkippedChecks(unittest.TestCase):
         cid = d.add_basic(long_front, "A", ref=("notes.pdf", 0, "short"))
         before = [x for x in probs(d) if x.split(" ", 1)[1].startswith(cid)]
         self.assertTrue(any("no why=" in x for x in before) and any("characters of prose" in x for x in before)
-                        and any("ref has no page" in x for x in before) and any("ref quote is short" in x for x in before), before)
-        for k in ("why", "front_max_chars", "ref_page", "ref_quote_min_chars"):
+                        and any("ref has no page" in x for x in before) and any("ref quote is short" in x for x in before)
+                        and any("has no box" in x for x in before), before)
+        for k in ("why", "front_max_chars", "ref_page", "ref_quote_min_chars", "ref_section"):
             d.skip(cid, k, f"test reason for {k}")
         self.assertEqual([x for x in probs(d) if x.split(" ", 1)[1].startswith(cid)], [])
         # short why: its own check, independent of "why"

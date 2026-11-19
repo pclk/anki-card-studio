@@ -33,9 +33,11 @@ export const STALE_MS = 5 * 60_000;
 export const UPLOAD_MS = 60 * 60_000;
 export const KEEP_DAYS = 14;
 export const AGENTS = new Set(["claude", "codex"]);
-export const JOB_KINDS = new Set(["cards", "revision", "format"]);
+/** cards -> anki_bundle.json; revision, format -> anki_revision.json; ask (the Assistant) -> an answer (reply.md), and
+    maybe anki_revision.json / anki_actions.json, which the user applies in the Studio */
+export const JOB_KINDS = new Set(["cards", "revision", "format", "ask"]);
 /** what a bridge may upload as a job's result */
-export const OUT_RE = /^(?:anki_bundle\.json|anki_revision\.json|anki_explanations\.md|reply\.md)$/;
+export const OUT_RE = /^(?:anki_bundle\.json|anki_revision\.json|anki_actions\.json|anki_explanations\.md|reply\.md)$/;
 const JOB_ID_RE = /^j[a-z0-9]{12,40}$/;
 /* what a job may ask its agent for (the bridge checks the same again before they become flags: agentOptions in
    bridge/acs-bridge.mjs). Empty values mean "the CLI's own default". */
@@ -300,7 +302,7 @@ export async function postEvents(user: User, id: string, events: unknown): Promi
 
 export async function putJobOutput(user: User, id: string, name: string, mime: string, idx: number, total: number, bytes: Buffer, upload: string) {
   await mine(user, id);
-  if (!OUT_RE.test(name)) throw new HttpError(400, "a job's result is anki_bundle.json, anki_revision.json, anki_explanations.md or reply.md");
+  if (!OUT_RE.test(name)) throw new HttpError(400, "a job's result is anki_bundle.json, anki_revision.json, anki_actions.json, anki_explanations.md or reply.md");
   await st.writeChunk(user.owner, id, "jobout", name, mime, idx, total, bytes, upload);
 }
 
@@ -311,8 +313,9 @@ export async function finishJob(user: User, id: string, body: Record<string, unk
   if (j.status === "cancelled" || j.status === "done" || j.status === "failed") return view(j);
   if (j.status !== "running") throw new HttpError(409, `the job is ${j.status}`);
   const outputs = await st.listFiles(user.owner, id, "jobout");
-  const ok = body.ok === true && (j.kind === "cards" ? outputs.includes("anki_bundle.json") : outputs.includes("anki_revision.json"));
-  const error = ok ? null : clip(body.error, 1000) || (body.ok === true ? `no ${j.kind === "cards" ? "anki_bundle.json" : "anki_revision.json"} was made` : "the run failed");
+  const need = j.kind === "cards" ? "anki_bundle.json" : j.kind === "ask" ? "reply.md" : "anki_revision.json";
+  const ok = body.ok === true && outputs.includes(need);
+  const error = ok ? null : clip(body.error, 1000) || (body.ok === true ? (j.kind === "ask" ? "there was no answer" : `no ${need} was made`) : "the run failed");
   await db()("update acs_jobs set status = $2, error = $3, outputs = $4, finished_at = now(), heartbeat_at = now() where id = $1",
     [id, ok ? "done" : "failed", error, JSON.stringify(outputs)]);
   return view(await getJob(user.owner, id));

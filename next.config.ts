@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // the Studio page is read from disk at request time; make sure it ships with the function
+  // the Studio page and the skill (served at /skill/...) are read from disk at request time; make sure they ship
   outputFileTracingIncludes: {
     "/": ["./studio/studio.html"],
+    "/skill/[file]": ["./skill/anki/SKILL.md", "./skill/anki/scripts/*.py"],
   },
   poweredByHeader: false,
   // only loaded for local development without a database URL (ACS_PGLITE_DIR)

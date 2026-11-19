@@ -58,6 +58,27 @@ class LocalHTTP(unittest.TestCase):
     def test_path_traversal(self):
         for path in ['project/a%2fb','project/p/media/..%2fx']:
             self.assertEqual(self.request(path,'PUT',b'{}')[0],403)
+    def test_skill_download(self):
+        import io, zipfile
+        root = self.base[:-len('api/')]
+        with urllib.request.urlopen(root + 'skill/anki.zip') as r:
+            self.assertEqual(r.headers['Content-Type'], 'application/zip')
+            z = zipfile.ZipFile(io.BytesIO(r.read()))
+        self.assertEqual(sorted(z.namelist()), ['anki/SKILL.md', 'anki/scripts/anki_helper.py', 'anki/scripts/extract.py', 'anki/scripts/make_prompts.py'])
+        self.assertEqual(z.read('anki/SKILL.md'), (Path('skill/anki/SKILL.md')).read_bytes())
+        with urllib.request.urlopen(root + 'skill/anki_helper.py') as r:
+            self.assertEqual(r.read(), Path('skill/anki/scripts/anki_helper.py').read_bytes())
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(root + 'skill/..%2Facs.py')
+        self.assertEqual(e.exception.code, 404)
+    def test_skill_from_the_built_studio(self):
+        # outside the repo there is no skill/ folder: the copy built into the Studio .html is served
+        app = acs.App(Path(self.tmp.name)/'data2', 0, Path(self.tmp.name)/'elsewhere'/'local')
+        (app.data/'apps').mkdir(parents=True, exist_ok=True)
+        (app.data/'apps'/'studio.html').write_text('<script type="text/plain" id="skillSrc">\n---\nname: anki\n</script>')
+        self.assertEqual(app.skill_file('SKILL.md'), b'---\nname: anki\n')
+        with self.assertRaises(FileNotFoundError):
+            app.skill_file('extract.py')
     def test_unknown(self):
         self.assertEqual(self.request('unknown')[0],404)
 if __name__ == '__main__': unittest.main()

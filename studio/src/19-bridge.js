@@ -93,14 +93,15 @@ $('#brScript').onclick = () => download(new Blob([$('#bridgeSrc').textContent.re
 $('#brJobsOpen').onclick = () => { $('#setDlg').close(); openJobs(); };
 
 /* ---- making a job: the prompt, its attachments and this Studio's own copy of the skill, as files */
-async function runOnMac({kind, title, prompt, atts = [], meta = {}}){
+async function runOnMac({kind, title, prompt, atts = [], meta = {}, extra = []}){
   if (!bridgeReady()) return toast('Add a device in Settings → Mac bridge first'), null;
   if (!prompt) return toast('Nothing to run'), null;
+  prompt = forMac(prompt);   // the job brings the skill files: no download steps
   const files = [{name: 'anki_prompt.txt', blob: new Blob([prompt], {type: 'text/plain'})},
     {name: 'SKILL.md', blob: new Blob([skillSource()], {type: 'text/markdown'})},
     {name: 'anki_helper.py', blob: new Blob([helperSource()], {type: 'text/x-python'})},
     {name: 'extract.py', blob: new Blob([$('#extractSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})},
-    {name: 'make_prompts.py', blob: new Blob([$('#promptsSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})}];
+    {name: 'make_prompts.py', blob: new Blob([$('#promptsSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})}, ...extra];
   for (const a of atts){
     if (files.some(f => f.name === a.name)) continue;
     try { files.push({name: a.name, blob: await attachmentBlob(a)}); } catch (er) { toast(`${a.name}: ${er.message}`, 5000); return null; }
@@ -131,12 +132,14 @@ async function pollJobs(){
   try { list = await brCall('GET', `jobs?project=${encodeURIComponent(pid)}`); } catch { return pid === curProject ? pollJobsSoon(15000) : undefined; }
   if (pid !== curProject) return;   // a late answer for the project that was open before: the new one's poll has it
   BR.jobs = list;
-  for (const j of BR.jobs) if (j.status === 'done' && (!j.importedAt || BR.claimed.has(j.id)) && !BR.importing.has(j.id) && (BR.tries.get(j.id) || 0) < IMPORT_TRIES) await importJob(j);
+  // an Assistant job's answer is shown on its tab, and its changes wait for Apply there
+  if (typeof renderAsk === 'function') renderAsk();
+  for (const j of BR.jobs) if (j.kind !== 'ask' && j.status === 'done' && (!j.importedAt || BR.claimed.has(j.id)) && !BR.importing.has(j.id) && (BR.tries.get(j.id) || 0) < IMPORT_TRIES) await importJob(j);
   requeueFailed();
   if ($('#jobsDlg').open) await refreshLogs();
   renderJobs();
   if (BR.jobs.some(j => JOB_OPEN.includes(j.status))) pollJobsSoon(3000);
-  else if (BR.jobs.some(j => j.status === 'done' && (!j.importedAt || BR.claimed.has(j.id)) && (BR.tries.get(j.id) || 0) < IMPORT_TRIES)) pollJobsSoon(BR.retryMs);
+  else if (BR.jobs.some(j => j.kind !== 'ask' && j.status === 'done' && (!j.importedAt || BR.claimed.has(j.id)) && (BR.tries.get(j.id) || 0) < IMPORT_TRIES)) pollJobsSoon(BR.retryMs);
 }
 /** a Mac job that failed or was cancelled gives its prompt back: the batch item or checker-fix prompt it
     took is "to do" again, so "Run all on Mac" sends it again. Only while that job is still the one that took it (it.macJob,
@@ -178,7 +181,7 @@ async function importJob(j, again = false){
       if (typeof renderBatch === 'function') renderBatch();
       toast(s.ok ? `🖥 ${j.title}: ${r.sums.reduce((a, x) => a + x.added, 0)} new card(s) imported - review them` : `🖥 ${j.title}: nothing imported`, 4500);
     } else if (j.kind === 'revision') await applyRevisionResult(await importFiles(files, 'merge', {revision: true}));
-    else await fqApplied(await importFiles(files, 'merge', {revision: true}));
+    else await fqApplied(await importFiles(files, 'merge', {revision: true, queueOnly: true}));
     j.importedAt = new Date().toISOString(); BR.claimed.delete(j.id);
   } catch (er) {
     // a network blip: the next poll tries again by itself, so only the last automatic try (or a manual one) says so
@@ -208,7 +211,7 @@ function renderJobsList(){
       <span class="small muted">${esc(agentName(j.agent))}${j.options && Object.keys(j.options).length ? ` (${esc(brOptsText(j.options, j.agent))})` : ''} · ${esc(ago(j.created))}${j.importedAt ? ' · imported' : ''}</span>
       <button class="btn sm" data-ja="log">${shown ? 'Hide log' : 'Log'}</button>
       ${JOB_OPEN.includes(j.status) ? '<button class="btn sm bad" data-ja="cancel">Cancel</button>' : ''}
-      ${j.status === 'done' ? `<button class="btn sm" data-ja="import" title="Import its result again">Import</button>` : ''}
+      ${j.status === 'done' && j.kind !== 'ask' ? `<button class="btn sm" data-ja="import" title="Import its result again">Import</button>` : ''}
       ${(j.outputs || []).includes('anki_explanations.md') ? '<button class="btn sm" data-ja="expl">⬇ Explanations</button>' : ''}
       ${!JOB_OPEN.includes(j.status) || j.status === 'uploading' ? '<button class="btn sm" data-ja="del" title="Delete the job and its files">🗑</button>' : ''}</div>
       ${j.error && j.status !== 'cancelled' ? `<div class="small" style="color:var(--bad);margin-top:4px">${esc(j.error)}</div>` : ''}
@@ -281,17 +284,19 @@ $('#runImageFix').onclick = async () => {
   onMacToast(await runOnMac({kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
 };
 $('#runFmt').onclick = async () => {
-  const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No checker-fix prompt is still to do');
+  const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No global-revision prompt is still to do');
   let sent = 0;
   for (const it of todo){
-    // a new session has none of the material: content fixes (the "why", source references) come from it, formatting doesn't need it
-    const rules = itemRules(it.cards), atts = formattingOnly(rules) ? [] : planAttachments(refSourceList(it.cards)), prompt = fixPrompt(it.cards, rules);
-    const j = await runOnMac({kind: 'format', title: `${rulesName(rules)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
+    // a new session has none of the material: content changes (the hidden notes, source references, an instruction that may
+    // rewrite content) come from it, formatting doesn't need it
+    const rules = itemRules(it.cards), task = itemTask(it.cards), prompt = fixPrompt(it.cards, rules, task);
+    const atts = formattingOnly(rules) && !(task && task.mode === 'content') ? [] : planAttachments(refSourceList(it.cards));
+    const j = await runOnMac({kind: 'format', title: `${itemName(it.cards, rules, task)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
     if (!j) break;
     it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
   }
   save(); renderFmtPass();
-  if (sent) toast(`🖥 ${sent} checker-fix prompt(s) sent to your Mac`, 4000);
+  if (sent) toast(`🖥 ${sent} global-revision prompt(s) sent to your Mac`, 4000);
 };
 // start: once the storage is known (Store.hosted), and again whenever a project opens
 setTimeout(function startBridge(){ if (Store.status === 'detecting' || (Store.on && !curProject)) return setTimeout(startBridge, 500); loadDevices(); pollJobs(); }, 300);

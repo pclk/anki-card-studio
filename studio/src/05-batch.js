@@ -45,7 +45,7 @@ ${await sourcesOutline(list)}`;
 function planPrompt(p){
   const root = p.pDeck || 'AI Generated Deck';
   const goal = p.pTopic.trim() || 'Everything important in the attached material.';
-  if (p.pMode === 'skill') return `Use the **anki** skill's **batch planning** workflow. Do not write any cards.
+  if (p.pMode === 'skill') return `${skillGetSection(p)}Use the **anki** skill's **batch planning** workflow. Do not write any cards.
 
 I've attached my course material. Split it into self-contained card-making prompts and give me **anki_prompts.json** for Anki Card Studio.
 
@@ -107,7 +107,7 @@ async function itemPromptFull(it, i, n){
   return itemPrompt({...it, material}, i, n);
 }
 function itemPrompt(it, i, n){
-  if (it.prompt) return it.prompt;
+  if (it.prompt) return readPrompt().pMode === 'skill' && !it.prompt.includes(skillGetSection()) ? skillGetSection() + it.prompt : it.prompt;   // written by make_prompts.py
   const p = readPrompt();
   // with the original files attached Claude crops figures itself; text only: figures come from placeholders (below)
   const files = !!it.material;

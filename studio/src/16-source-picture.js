@@ -42,22 +42,26 @@ async function findQuote(page, vp, quote){
   }
   return null;
 }
-/** PDF source -> JPEG of the region around the quote (highlighted); whole page if the quote isn't found */
+/** PDF source -> JPEG of the section the card was made from: exactly the ref's box when it has one (the quote highlighted
+    inside it), else the region around the quote (highlighted); the whole page if the quote isn't found */
 async function refSnapshot(src, ref){
   const doc = await srcDoc(src); if (!doc) return null;
-  const pn = Math.min(Math.max(1, ref.page || 1), doc.numPages), page = await doc.getPage(pn);
-  const v1 = page.getViewport({scale: 1}), vp = page.getViewport({scale: 1400 / v1.width});
+  const pn = Math.min(Math.max(1, ref.page || 1), doc.numPages), page = await doc.getPage(pn), box = refBox(ref);
+  // a small section is rendered sharper, so it still reads at full width
+  const v1 = page.getViewport({scale: 1}), vp = page.getViewport({scale: Math.min(4, Math.max(1400, box ? 1000 / (box[2] - box[0]) : 0) / v1.width)});
   const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await page.render({canvasContext: ctx, viewport: vp}).promise;
-  const hit = ref.box ? {x0: ref.box[0] * cv.width, y0: ref.box[1] * cv.height, x1: ref.box[2] * cv.width, y1: ref.box[3] * cv.height} : await findQuote(page, vp, ref.quote);
+  const hit = await findQuote(page, vp, ref.quote);
   if (hit){ ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = 'rgba(255,214,0,.5)'; ctx.fillRect(hit.x0 - 6, hit.y0 - 4, hit.x1 - hit.x0 + 12, hit.y1 - hit.y0 + 8); ctx.restore(); }
-  let crop = {y: 0, h: cv.height};
-  if (hit){ const pad = cv.height * 0.13, y0 = Math.max(0, hit.y0 - pad), y1 = Math.min(cv.height, hit.y1 + pad); crop = {y: y0, h: Math.max(y1 - y0, cv.height * 0.22)}; }
-  const W = 1000, sc = W / cv.width, out = document.createElement('canvas'); out.width = W; out.height = Math.round(crop.h * sc);
-  out.getContext('2d').drawImage(cv, 0, crop.y, cv.width, crop.h, 0, 0, W, out.height);
+  let crop = {x: 0, y: 0, w: cv.width, h: cv.height};
+  if (box){ const px = cv.width * 0.012, py = cv.height * 0.008, x0 = Math.max(0, box[0] * cv.width - px), y0 = Math.max(0, box[1] * cv.height - py);
+    crop = {x: x0, y: y0, w: Math.min(cv.width, box[2] * cv.width + px) - x0, h: Math.min(cv.height, box[3] * cv.height + py) - y0}; }
+  else if (hit){ const pad = cv.height * 0.13, y0 = Math.max(0, hit.y0 - pad), y1 = Math.min(cv.height, hit.y1 + pad); crop = {x: 0, y: y0, w: cv.width, h: Math.max(y1 - y0, cv.height * 0.22)}; }
+  const W = Math.min(1000, Math.round(crop.w)), sc = W / crop.w, out = document.createElement('canvas'); out.width = W; out.height = Math.max(1, Math.round(crop.h * sc));
+  out.getContext('2d').drawImage(cv, crop.x, crop.y, crop.w, crop.h, 0, 0, W, out.height);
   const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', 0.82));
-  return {blob, found: !!hit, page: pn};
+  return {blob, found: !!(box || hit), page: pn};
 }
 /** text sources (slides, docs, web, notes) -> the passage around the quote, with the quote marked */
 async function refExcerpt(src, ref){

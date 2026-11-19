@@ -20,8 +20,12 @@ function extractBundles(text){
 }
 /** Apply a bundle. mode: 'merge' | 'replace'. Returns summary. */
 function applyBundle(d, mode, opts = {}){
-  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0};
-  const fmtSeen = new Set();   // checker-fix prompts this reply answers
+  const sum = {added: 0, updated: 0, deleted: 0, media: 0, deck: d.deck || '', recheck: 0, fmtSame: 0, fmtUpd: 0, na: [], outside: []};
+  // opts.queueOnly (a reply to global-revision prompts): it may change only cards waiting in a prompt, and add only the
+  // parts of a card it split; anything else in it is left out and listed
+  const outside = (raw, c) => { if (!opts.queueOnly || (c && c.fmt)) return false; if (!c && raw.after && cardById(raw.after) && (cardById(raw.after).fmt || cardById(raw.after).fmtDone)) return false;
+    sum.outside.push(String(raw.id || '(new card)')); return true; };
+  const fmtSeen = new Set();   // global-revision prompts this reply answers
   const isProject = d.format === PROJECT_FORMAT;
   const isRevision = !!(opts.revision || d.revision);
   if (mode === 'replace'){ S.cards = []; for (const k of Object.keys(S.media)) dropURL(k); S.media = {}; }
@@ -41,7 +45,14 @@ function applyBundle(d, mode, opts = {}){
   }
   for (const raw of d.cards || []){
     if (!raw) continue;
-    if (raw.delete){ const c = cardById(raw.id); if (c && isRevision && c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); sum.fmtSame++; continue; }   // a checker fix never removes cards
+    // a global revision that doesn't fit a card: the AI leaves it as it was and says why
+    if (typeof raw.not_applicable === 'string' && raw.id){ const c = cardById(raw.id);
+      if (c && isRevision){ if (c.fmt){ fmtSeen.add(c.fmt); fmtFinish(c); sum.fmtSame++; } c.fmtNA = raw.not_applicable.replace(/\s+/g, ' ').trim().slice(0, 300) || 'no reason given'; sum.na.push({id: c.id, reason: c.fmtNA}); }
+      continue; }
+    if (raw.delete){ const c = cardById(raw.id); if (c && outside(raw, c)) continue;
+      // a checker fix never removes cards; a global revision only when it was allowed to
+      if (c && isRevision && c.fmt && !opts.keepStatus && !(c.fmtTask && c.fmtTask.del)){ fmtSeen.add(c.fmt); fmtFinish(c); sum.fmtSame++; continue; }
+      if (c && isRevision && c.fmt && !opts.keepStatus){ fmtSeen.add(c.fmt); fmtFinish(c); delete c.recheck; }
       if (c){ c.status = 'drop'; c.revised = true; sum.deleted++; } continue; }
     const n = normCard(raw);
     if (!n.deck && bundleDeck) n.deck = bundleDeck;
@@ -54,22 +65,25 @@ function applyBundle(d, mode, opts = {}){
       n.id = nid2;
     }
     const existing = n.id && cardById(n.id);
+    if (outside(raw, existing)) continue;
     if (existing){
-      if (!isProject && isRevision && existing.fmt){
+      // opts.keepStatus (an Assistant reply the user applied): the same, for any card it changes
+      if (!isProject && isRevision && (existing.fmt || opts.keepStatus)){
         // formatting pass: the card keeps its review status. If it was approved and really changed, it waits for a
         // quick re-check (with a diff); if the AI sent it back unchanged, nothing happens.
-        fmtSeen.add(existing.fmt); fmtFinish(existing);
+        if (!opts.keepStatus){ fmtSeen.add(existing.fmt); fmtFinish(existing); }
         // a checker fix may change only the "why" or the source references, so those count as changes too
         const same = n.type === existing.type && FIELDS[existing.type].every(f => (n[f] || '') === (existing[f] || ''))
           && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || [])
           && (!('skipped_checks' in n) || J(n.skipped_checks) === J(existing.skipped_checks || {}));
         if (same){ sum.fmtSame++; continue; }
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: ''};
-        existing.revised = true; existing.edited = false;
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: opts.keepStatus ? opts.note || '' : existing.fmtTask && existing.fmtTask.instr ? 'Global revision: ' + existing.fmtTask.instr : ''};
+        existing.revised = true; existing.edited = false; delete existing.fmtNA;
         sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
         // keep the review state and any feedback the user already wrote
         for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
       } else if (!isProject){
+        delete existing.fmtNA;
         existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
@@ -103,7 +117,7 @@ function applyBundle(d, mode, opts = {}){
   syncTree();
   return sum;
 }
-const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo', ...(r.fmtJob ? {fmtJob: r.fmtJob} : {})} : {}), ...(Array.isArray(r.fmtRules) ? {fmtRules: r.fmtRules.map(String)} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
+const pickStatus = r => ({status: r.status || 'new', feedback: r.feedback || '', revised: !!r.revised, edited: !!r.edited, prev: r.prev || null, ...(r.recheck ? {recheck: true} : {}), ...(r.fmt ? {fmt: r.fmt, fmtSt: r.fmtSt || 'todo', ...(r.fmtJob ? {fmtJob: r.fmtJob} : {})} : {}), ...(Array.isArray(r.fmtRules) ? {fmtRules: r.fmtRules.map(String)} : {}), ...(r.fmtTask && typeof r.fmtTask.instr === 'string' ? {fmtTask: {instr: r.fmtTask.instr, mode: r.fmtTask.mode === 'format' ? 'format' : 'content', split: !!r.fmtTask.split, del: !!r.fmtTask.del}} : {}), ...(typeof r.fmtNA === 'string' ? {fmtNA: r.fmtNA} : {}), ...(r.fmtDone ? {fmtDone: r.fmtDone} : {}), time: r.time || 0, ...(typeof r.ord === 'number' ? {ord: r.ord} : {})});
 
 async function importFiles(files, mode, opts = {}){
   const sums = []; let imgs = 0; const errors = [];
@@ -130,7 +144,7 @@ async function importFiles(files, mode, opts = {}){
   return {sums, imgs, errors};
 }
 function summarize({sums, imgs, errors}){
-  const t = sums.reduce((a, s) => ({added: a.added + s.added, updated: a.updated + s.updated, deleted: a.deleted + s.deleted, media: a.media + s.media, recheck: a.recheck + (s.recheck || 0), fmtSame: a.fmtSame + (s.fmtSame || 0), fmtUpd: a.fmtUpd + (s.fmtUpd || 0)}), {added: 0, updated: 0, deleted: 0, media: 0, recheck: 0, fmtSame: 0, fmtUpd: 0});
+  const t = sums.reduce((a, s) => ({added: a.added + s.added, updated: a.updated + s.updated, deleted: a.deleted + s.deleted, media: a.media + s.media, recheck: a.recheck + (s.recheck || 0), fmtSame: a.fmtSame + (s.fmtSame || 0), fmtUpd: a.fmtUpd + (s.fmtUpd || 0), na: a.na.concat(s.na || []), outside: a.outside.concat(s.outside || [])}), {added: 0, updated: 0, deleted: 0, media: 0, recheck: 0, fmtSame: 0, fmtUpd: 0, na: [], outside: []});
   const parts = [];
   if (t.added) parts.push(`${t.added} new card${t.added > 1 ? 's' : ''}`);
   if (t.updated) parts.push(`${t.updated} updated`);
@@ -138,9 +152,11 @@ function summarize({sums, imgs, errors}){
   if (t.media + imgs) parts.push(`${t.media + imgs} image${t.media + imgs > 1 ? 's' : ''}`);
   let html = '';
   if (parts.length) html += `<div class="note ok">Imported ${parts.join(', ')}.</div>`;
-  else if (!errors.length && !t.fmtSame) html += `<div class="note warn">Nothing found to import.</div>`;
-  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">Checker fix: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
-  if (!parts.length && t.fmtSame && !errors.length) return {html, ok: true, recheck: 0, plain: 0};
+  else if (!errors.length && !t.fmtSame && !t.na.length && !t.outside.length) html += `<div class="note warn">Nothing found to import.</div>`;
+  if (t.recheck || t.fmtSame) html += `<div class="note" style="margin-top:6px">Global revision: ${t.recheck} approved card${t.recheck === 1 ? '' : 's'} changed and wait${t.recheck === 1 ? 's' : ''} for a re-check (Review → filter <i>Re-check</i>)${t.fmtSame ? `; ${t.fmtSame} needed no change` : ''}.</div>`;
+  if (t.outside.length) html += `<div class="note warn" style="margin-top:6px">Left out ${t.outside.length} card${t.outside.length === 1 ? '' : 's'} the reply changed that ${t.outside.length === 1 ? "isn't" : "aren't"} in a waiting prompt: ${esc(t.outside.slice(0, 12).join(', '))}${t.outside.length > 12 ? ' …' : ''}. Revise ${t.outside.length === 1 ? 'it' : 'them'} from <i>Ask Claude for changes</i> instead.</div>`;
+  if (t.na.length) html += `<div class="note" style="margin-top:6px">Left as is - the instruction didn't apply to ${t.na.length} card${t.na.length === 1 ? '' : 's'}:<div class="small" style="margin-top:4px">${t.na.slice(0, 12).map(x => `<b>${esc(x.id)}</b>: ${esc(x.reason)}`).join('<br>')}${t.na.length > 12 ? '<br>…' : ''}</div></div>`;
+  if (!parts.length && (t.fmtSame || t.na.length || t.outside.length) && !errors.length) return {html, ok: true, recheck: 0, plain: 0};
   if (errors.length) html += `<div class="note bad" style="margin-top:6px"><b>Problems:</b><br>${errors.map(esc).join('<br>')}<br><span class="small">If the reply was cut off, ask Claude to "continue the JSON" or to save the bundle file instead.</span></div>`;
   const missing = Object.entries(S.media).filter(([n, m]) => !m.blob && !m.remote && m.origin === 'generated').map(([n]) => n);
   if (missing.length) html += `<div class="note warn" style="margin-top:6px">${missing.length} generated image(s) are referenced but not loaded yet (${esc(missing.slice(0, 4).join(', '))}${missing.length > 4 ? '…' : ''}). Drop <b>anki_bundle.json</b> (or the image files) to add them.</div>`;
