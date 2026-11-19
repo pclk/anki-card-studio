@@ -10,6 +10,7 @@ async function open(page:any,request:any,info:any,cards:any[]){
  expect((await request.put('/api/projects',{headers,data:[{id:pid,name:pid,cards:0,updated:Date.now()}]})).ok()).toBeTruthy();
  await page.addInitScript((id:string)=>localStorage.setItem('acs-current',id),pid);
  await page.goto('/');await page.waitForFunction('Store.on && curProject && !sync.dirty');
+ await page.evaluate(()=>(window as any).eval('SET.showCopy=true;applyCopyButtons()'));   // these tests use the 📋 Copy buttons (hidden unless chosen in Settings); this browser only, not saved
  await page.locator('#tabs button[data-tab=prompt]').click();
  await page.locator('#importFile').setInputFiles({name:'anki_bundle.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({deck:pid,cards}))});
  await expect(page.locator('#importResult')).toContainText(`${cards.length} new card`);

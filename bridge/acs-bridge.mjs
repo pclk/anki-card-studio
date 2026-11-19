@@ -17,8 +17,12 @@
  * Safety
  * - The device token is kept in ~/.acs-bridge/config.json, readable only by you. Remove the device in the Studio to
  *   cut it off at once. It is sent only over https (or to this Mac itself), and only to the server you paired with.
- * - Each job runs in its own new folder (~/.acs-bridge/jobs/<id>). The prompt and files from the Studio are written
- *   there as files; they are never put on a command line. The agent gets a fixed instruction from this script.
+ * - Each run gets its own new folder (~/.acs-bridge/jobs/<id>-<pid>-<random>), removed when the run ends - done, failed,
+ *   cancelled or the bridge stopped (keepJobs keeps them). The prompt and files from the Studio are written there as files; they are never
+ *   put on a command line or into the agent's messages. The agent gets a fixed instruction from this script and reads
+ *   the files with its own tools. Big blocks of the prompt (material, cards) go to files of their own (anki_blocks/).
+ * - Files the Studio declares with a sha256 are kept in ~/.acs-bridge/cache, so the skill and a lecture's slides
+ *   are downloaded once, not for every job (checked against the hash each time; old entries are pruned).
  * - Claude Code runs with --permission-mode dontAsk and only the tools in `claudeTools` (anything else is refused,
  *   nothing waits for an answer), and without your MCP servers (--strict-mcp-config). Codex runs in its
  *   workspace-write sandbox. The agent still runs code (the skill is Python), so only pair devices with a Studio
@@ -32,14 +36,14 @@
  * (instead of ~/Library/LaunchAgents), ACS_BRIDGE_LAUNCHCTL (instead of launchctl).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '3';
+export const VERSION = '4';
 const HOME = process.env.ACS_BRIDGE_HOME || path.join(os.homedir(), '.acs-bridge');
 const CONFIG = path.join(HOME, 'config.json');
 const CHUNK = 3 * 1024 * 1024;
@@ -48,18 +52,22 @@ const TOKEN_RE = /^acsd_[A-Za-z0-9_-]{43}$/;
 export const LABEL = 'dev.ankicardstudio.bridge';
 export const LOG = path.join(HOME, 'bridge.log');
 const SERVICE = process.env.ACS_BRIDGE_SERVICE === '1';   // started by launchd (install)
+const JOBS = path.join(HOME, 'jobs'), CACHE = path.join(HOME, 'cache');
+const CACHE_DAYS = 7, CACHE_MAX = 1024 ** 3;          // cached files unused for a week go, and the cache stays under 1 GB
+/** a block bigger than this leaves the prompt for a file of its own (smaller ones are handier inline) */
+export const BLOCK_INLINE_MAX = 16_000;
 const SKILL_FILES = { 'SKILL.md': '', 'anki_helper.py': 'scripts', 'extract.py': 'scripts', 'make_prompts.py': 'scripts' };
 const DEFAULTS = {
   agents: ['claude', 'codex'],               // which agents this Mac runs (only the ones that are installed)
   claudeTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'],
   maxMinutes: 60,                            // a run that takes longer is stopped (a job can ask for less, never more)
-  keepJobs: false,                           // keep a job's folder after it succeeded (failed ones are always kept)
+  keepJobs: false,                           // keep each job's folder after it ends (to look at what the agent did)
 };
 /** what the agent is told. Fixed here on purpose: nothing from the server ends up in an argument */
 export const INSTRUCTION = `You are running unattended for Anki Card Studio, in a folder made for this one job.
 Your task is in ./anki_prompt.txt: read it and follow it exactly.
 - The anki skill, in the exact version the Studio uses, is in ./anki-skill/SKILL.md; its scripts are in ./anki-skill/scripts (in Python: import sys; sys.path.insert(0, "anki-skill/scripts"); from anki_helper import *).
-- The files the prompt mentions as attached are in this folder. Read blocks of the prompt by their id with the helper (it finds anki_prompt.txt here); never retype them.
+- The files the prompt mentions as attached are in this folder: open them with your tools. Read blocks of the prompt by their id with the helper (it finds them in anki_prompt.txt and ./anki_blocks); never retype them.
 - Outputs go to ./anki_out (ANKI_OUT_DIR is set): ./anki_out/anki_bundle.json for new cards, ./anki_out/anki_revision.json for a revision, ./anki_out/anki_actions.json for proposed actions - whichever the prompt asks for (some tasks ask only for an answer).
 - If ./acs.mjs is here, it is the user's Studio project (acs_project.json, acs_sources.json): run node acs.mjs help.
 - Nobody can answer questions while you work: make sensible choices and mention them in your final reply.
@@ -153,12 +161,14 @@ export function agentOptions(agent, raw) {
   for (const [k, v] of Object.entries(o)) {
     if (v === '' || v === null || v === undefined || v === 0) continue;
     if (!OPTION_KEYS[agent]?.includes(k)) throw new Error(`${agent} has no option ${JSON.stringify(k)}`);
+    const numeric = k === 'maxBudgetUsd' || k === 'maxMinutes';
+    if (numeric ? !(typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) : typeof v !== 'string') throw new Error(`${k} must be a ${numeric ? 'number' : 'string'}`);
     if (k === 'model' && !MODEL_RE.test(String(v))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'fallbackModel' && !String(v).split(',').every((m) => MODEL_RE.test(m.trim()))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'effort' && !EFFORTS[agent].includes(String(v))) throw new Error(`${agent} effort must be one of ${EFFORTS[agent].join(', ')}`);
     if (k === 'maxBudgetUsd' && !(Number(v) > 0 && Number(v) <= 1000)) throw new Error('maxBudgetUsd must be between 0 and 1000');
     if (k === 'maxMinutes' && !(Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 1440)) throw new Error('maxMinutes must be 1-1440');
-    out[k] = typeof v === 'string' ? v.trim() : Number(v);
+    out[k] = numeric ? Number(v) : v.trim();
   }
   return out;
 }
@@ -196,7 +206,12 @@ export function toEvents(agent, line) {
 
 /* ------------------------------------------------------------------ one job */
 let running = null;   // stops the agent that is running now
-const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+let runDir = null;    // the folder of the run now, removed on Ctrl+C / stop too (unless keepJobs)
+/** names this script uses in the job folder itself: a job's file may not take one (in any case: macOS folders ignore it) */
+const RESERVED = new Set(['agents.md', 'anki_out', 'anki-skill', 'anki_blocks']);
+const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && !RESERVED.has(n.toLowerCase()) && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+const SHA_RE = /^[0-9a-f]{64}$/;
+const sha256 = (b) => createHash('sha256').update(b).digest('hex');
 
 /** a regular file's bytes, or null for anything else (missing, a folder, a link) */
 function readOwnFile(p) {
@@ -205,37 +220,124 @@ function readOwnFile(p) {
   try { return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null; } finally { fs.closeSync(fd); }
 }
 
+/* big blocks by reference: the Studio puts a prompt's material and cards in <<<SOURCE id=s-… / <<<REVISE_CARDS id=r-…
+   blocks. A big one goes to anki_blocks/<id>.txt and the prompt keeps one line saying where it is. The helper finds a
+   block by its id in any text file of the job folder (find_block), so load_source(id) / Deck.load(id) work the same,
+   and the agent reads a short prompt instead of all the material at once. */
+const BLOCK_RE = /<<<(SOURCE|REVISE_CARDS) id=([a-z]-[0-9a-f]{8})[^\n]*\n[\s\S]*?\n?\1>>>/g;
+/** {prompt, blocks: [{id, text}]}: the prompt with every block longer than `max` characters replaced by a pointer */
+export function splitBlocks(text, max = BLOCK_INLINE_MAX) {
+  const blocks = [];
+  const prompt = text.replace(BLOCK_RE, (m, tag, id) => {
+    if (m.length <= max) return m;
+    if (!blocks.some((b) => b.id === id)) blocks.push({ id, text: m });   // the id comes from the content: same id, same block
+    return `[${tag} block ${id} (${m.length} characters) is in anki_blocks/${id}.txt, not in this prompt. ${tag === 'SOURCE' ? `load_source("${id}")` : `Deck.load("${id}")`} reads it from there; open the file yourself only for the parts you need.]`;
+  });
+  return { prompt, blocks };
+}
+
+/** a declared file's bytes: from this Mac's cache when it holds exactly that content (sha256), else downloaded and cached */
+async function fetchInput(api, id, f) {
+  const want = typeof f.sha256 === 'string' && SHA_RE.test(f.sha256) ? f.sha256 : null, cached = want && path.join(CACHE, want);
+  if (cached) {
+    const bytes = readOwnFile(cached);
+    if (bytes && sha256(bytes) === want) { try { const now = new Date(); fs.utimesSync(cached, now, now); } catch {} return { bytes, hit: true }; }
+  }
+  const bytes = await api.download(id, f.name);
+  // only what really has that hash is kept, written to a new name first so a half-written file is never used
+  if (cached && sha256(bytes) === want) try {
+    fs.mkdirSync(CACHE, { recursive: true, mode: 0o700 });
+    const tmp = `${cached}.${randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(tmp, cached);
+  } catch {}
+  return { bytes, hit: false };
+}
+/** the cache keeps what was used in the last CACHE_DAYS, newest first, up to CACHE_MAX bytes */
+export function pruneCache(now = Date.now()) {
+  let names; try { names = fs.readdirSync(CACHE); } catch { return; }
+  const list = names.map((n) => ({ n, p: path.join(CACHE, n), st: fs.lstatSync(path.join(CACHE, n), { throwIfNoEntry: false }) })).filter((e) => e.st);
+  let total = 0;
+  for (const e of list.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)) {
+    if (e.n.endsWith('.tmp') && now - e.st.mtimeMs < 3600_000) continue;   // another bridge may be writing it now
+    if (!SHA_RE.test(e.n) || !e.st.isFile() || now - e.st.mtimeMs > CACHE_DAYS * 86_400_000 || (total += e.st.size) > CACHE_MAX)
+      fs.rmSync(e.p, { recursive: true, force: true });
+  }
+}
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+/** folders of runs that never ended here (the bridge was killed, the Mac shut down). A run's folder names the bridge
+    that owns it (jobs/<id>-<pid>-<random>): gone at once when that process is gone, else only after the longest run
+    any bridge allows (another bridge on this Mac may have a longer limit). Folders without an owner (older versions,
+    which also kept failed jobs) go after this bridge's own limit. */
+export function sweepJobs(cfg, now = Date.now()) {
+  if (cfg.keepJobs) return;
+  let names; try { names = fs.readdirSync(JOBS); } catch { return; }
+  for (const n of names) {
+    const m = /^j[a-z0-9]{12,40}(?:-(\d{1,10})-[A-Za-z0-9]{6}|-[A-Za-z0-9]{6})?$/.exec(n); if (!m) continue;
+    const p = path.join(JOBS, n), st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (!st?.isDirectory()) continue;
+    const pid = m[1] && Number(m[1]), age = now - st.mtimeMs;
+    const stale = pid ? pid !== process.pid && (!alive(pid) || age > (1440 + 15) * 60_000) : age > (cfg.maxMinutes + 15) * 60_000;
+    if (stale) fs.rmSync(p, { recursive: true, force: true });
+  }
+}
+
 export async function runJob(api, job, cfg, log = console.log) {
   if (typeof job.id !== 'string' || !/^j[a-z0-9]{12,40}$/.test(job.id)) throw new Error('invalid job id');
-  const dir = path.join(HOME, 'jobs', job.id);
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(path.join(dir, 'anki_out'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(JOBS, { recursive: true, mode: 0o700 });
+  // a new folder for every run, even of the same job (a claim whose answer was lost is handed out again), so two runs
+  // never share one; it is removed however the run ends
+  const dir = fs.mkdtempSync(path.join(JOBS, `${job.id}-${process.pid}-`));
+  fs.mkdirSync(path.join(dir, 'anki_out'), { mode: 0o700 });
   fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
-  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
-  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
+  const kept = cfg.keepJobs ? dir : undefined;
+  if (!kept) runDir = dir;
+  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0, inflight = null;
+  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive.
+  // One post at a time: the server drops events numbered below the highest it has, so a later batch overtaking an
+  // earlier one (a slow network, the 1.5 s flusher meeting the final flush) would lose the earlier batch's lines.
   const send = async (force) => {
+    if (inflight && !force) return;
+    while (inflight) await inflight.catch(() => {});
     if (!pending.length && !force && Date.now() - lastSent < 30_000) return;
-    const list = pending; pending = []; lastSent = Date.now();
-    try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
-    catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+    // the server takes at most 200 events a post (the rest would be dropped): send them in batches
+    const list = pending.splice(0, 200); lastSent = Date.now();
+    const post = (async () => {
+      try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } return true; }
+      catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); return false; }
+    })();
+    inflight = post;
+    let ok;
+    try { ok = await post; } finally { if (inflight === post) inflight = null; }
+    // a final flush sends everything; the flusher sends the rest on its next tick
+    if (ok && force && pending.length) await send(true);
   };
   let revoked = null;
   try {
     // say so first: a slow download must not look like a bridge that went quiet
     pending.push({ type: 'log', text: `Picked up on ${os.hostname()} - fetching ${job.files.length} file(s)` });
     await send(true);
+    let hits = 0;
     for (const f of job.files) {
       await send(false);
       if (cancelled) return { ok: false, cancelled: true };
       if (!safeName(f.name)) throw new Error(`refusing the file name ${JSON.stringify(f.name)}`);
-      const bytes = await api.download(job.id, f.name), sub = SKILL_FILES[f.name];
+      const { bytes, hit } = await fetchInput(api, job.id, f), sub = SKILL_FILES[f.name];
+      hits += hit;
       fs.writeFileSync(sub === undefined ? path.join(dir, f.name) : path.join(dir, 'anki-skill', sub, f.name), bytes, { mode: 0o600 });
     }
-    if (!fs.existsSync(path.join(dir, 'anki_prompt.txt'))) throw new Error('the job has no anki_prompt.txt');
+    const promptPath = path.join(dir, 'anki_prompt.txt'), raw = readOwnFile(promptPath);
+    if (!raw) throw new Error('the job has no anki_prompt.txt');
+    const { prompt, blocks } = splitBlocks(raw.toString('utf8'));
+    if (blocks.length) {
+      fs.mkdirSync(path.join(dir, 'anki_blocks'), { mode: 0o700 });
+      for (const b of blocks) fs.writeFileSync(path.join(dir, 'anki_blocks', b.id + '.txt'), b.text, { mode: 0o600 });
+      fs.writeFileSync(promptPath, prompt, { mode: 0o600 });
+    }
     const opts = agentOptions(job.agent, job.options), minutes = Math.min(opts.maxMinutes || cfg.maxMinutes, cfg.maxMinutes);
     // Codex reads AGENTS.md; Claude gets the same through its instruction
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), INSTRUCTION + '\n');
-    pending.push({ type: 'log', text: `Started with ${job.agent}${Object.keys(opts).length ? ` (${describe({ ...opts, ...(opts.maxMinutes ? { maxMinutes: minutes } : {}) })})` : ''}` });
+    pending.push({ type: 'log', text: `Started with ${job.agent}${Object.keys(opts).length ? ` (${describe({ ...opts, ...(opts.maxMinutes ? { maxMinutes: minutes } : {}) })})` : ''}${hits ? ` - ${hits} of ${job.files.length} file(s) were already on this Mac` : ''}` });
     await send(true);
     if (cancelled) return { ok: false, cancelled: true };
     // its own process group, so stopping it also stops whatever it started (python, shells…)
@@ -272,13 +374,14 @@ export async function runJob(api, job, cfg, log = console.log) {
       if (bytes) await api.upload(job.id, name, bytes, name.endsWith('.json') ? 'application/json' : 'text/markdown');
     }
     const r = await api.finish(job.id, code === 0, code === 0 ? '' : `${job.agent} exited with code ${code}${errTail.trim() ? ': ' + errTail.trim().slice(-300) : ''}`);
-    const ok = r.job?.status === 'done';
-    if (ok && !cfg.keepJobs) fs.rmSync(dir, { recursive: true, force: true });
-    return { ok, status: r.job?.status, error: r.job?.error, dir };
+    return { ok: r.job?.status === 'done', status: r.job?.status, error: r.job?.error, dir: kept };
   } catch (e) {
     if (e.fatal) throw e;
     await api.finish(job.id, false, String(e.message || e)).catch(() => {});
-    return { ok: false, error: String(e.message || e), dir };
+    return { ok: false, error: String(e.message || e), dir: kept };
+  } finally {
+    running = null; if (runDir === dir) runDir = null;
+    if (!kept) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -287,6 +390,7 @@ export async function serve(cfg, { once = false, log = console.log } = {}) {
   if (!cfg.server || !cfg.token) throw Object.assign(new Error('not paired yet - run: pbpaste | node acs-bridge.mjs setup --server https://<your studio>'), { fatal: true });
   const api = client(cfg.server, cfg.token), agents = installedAgents(cfg);
   if (!agents.length) throw new Error('neither claude nor codex is on your PATH');
+  sweepJobs(cfg); pruneCache();
   // offline at start (the Mac just woke up, no Wi-Fi yet): keep trying instead of giving up
   let me;
   for (let tries = 0; ; tries++) {
@@ -302,6 +406,7 @@ export async function serve(cfg, { once = false, log = console.log } = {}) {
     if (job) {
       log(`▶ ${job.title} (${job.kind}, ${job.agent})`);
       const r = await runJob(api, job, cfg, log);
+      pruneCache();
       log(r.ok ? `✓ done - the Studio imports it` : `✗ ${r.cancelled ? 'cancelled' : r.error || 'failed'}${r.dir && !r.ok ? ` (files kept in ${r.dir})` : ''}`);
       if (once) return r;
       continue;
@@ -405,7 +510,8 @@ function status() {
 
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 if (isMain) {
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); process.exit(130); });
+  // stopping the bridge stops the agent and removes the run's folder (process.exit skips runJob's finally)
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); if (runDir) try { fs.rmSync(runDir, { recursive: true, force: true }); } catch {} process.exit(130); });
   const [cmd, ...rest] = process.argv.slice(2), flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
   // in the background: a time on every line, and a log that doesn't grow forever
   const stamp = (m) => console.log(`${new Date().toISOString().slice(0, 19).replace('T', ' ')} ${m}`);

@@ -19,6 +19,7 @@ test('revision prompt as a file → helper loads the cards by id → its anki_re
  expect((await request.put('/api/projects',{headers,data:[{id:pid,name:pid,cards:2,updated:Date.now()}]})).ok()).toBeTruthy();
  await page.addInitScript(id=>localStorage.setItem('acs-current',id),pid);
  await page.goto('/');await page.waitForFunction('Store.on && curProject && !sync.dirty && S.cards.length===2');
+ await page.evaluate(()=>(window as any).eval('SET.showCopy=true;applyCopyButtons()'));   // these tests use the 📋 Copy buttons (hidden unless chosen in Settings); this browser only, not saved
  await page.locator('#tabs button[data-tab=revise]').click();
  const box=page.locator('#tab-revise .optPromptFile').last();
  await box.check();
@@ -59,6 +60,7 @@ test('batch prompt as a file → helper loads the source material by id',async({
  expect((await request.put('/api/projects',{headers,data:[{id:pid,name:pid,cards:0,updated:Date.now()}]})).ok()).toBeTruthy();
  await page.addInitScript(id=>localStorage.setItem('acs-current',id),pid);
  await page.goto('/');await page.waitForFunction('Store.on && curProject && !sync.dirty');
+ await page.evaluate(()=>(window as any).eval('SET.showCopy=true;applyCopyButtons()'));   // these tests use the 📋 Copy buttons (hidden unless chosen in Settings); this browser only, not saved
  await page.locator('#tabs button[data-tab=prompt]').click();
  await page.locator('#flowSeg button[data-flow=batch]').click();
  const content='[L01.pdf p.3]\nA class is a blueprint for objects.\n[L01.pdf p.4]\nAn object is an instance of a class.';

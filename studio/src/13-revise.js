@@ -215,14 +215,20 @@ function presetOn(p, picked){
   const t = grTask(), f = grFilter();
   return J(p.task || null) === J(t.instr.trim() ? t : null) && J(p.filter || null) === J(f.conds.length ? f : null);
 }
+/** Counts follow the queue filters, but always require an actual failure, even in “all cards” mode. */
+function fixRuleCount(key){
+  if (!rulesOn([key]).length) return 0;
+  const errorsOnly = $('#fixScope').value === 'err';
+  return fmtCandidates([key]).filter(c => issuesFor(c, [key]).some(x => !errorsOnly || x.level === 'E')).length;
+}
 function renderRulePicker(picked, C){
   $('#fxPresets').innerHTML = fixPresets().map((p, i) => `<button class="btn sm ${presetOn(p, picked) ? 'on' : ''}" data-preset="${i}" title="${esc([p.rules.map(k => FMT_LABEL[k]).join(', '), p.task && `“${shorten(p.task.instr, 80)}”`, p.filter && `${p.filter.conds.length} filter condition(s)`].filter(Boolean).join(' · '))}">${esc(p.name)}${p.own ? `<span class="fx-rm" data-rm-preset="${i}" title="Delete this preset">✕</span>` : ''}</button>`).join('')
     + `<button class="btn sm" id="fxSave" title="Save the rules ticked below, the instruction and the filter as a preset of your own" ${picked.length || grTask().instr.trim() || grFilter().conds.length ? '' : 'disabled'}>＋ Save as preset</button>`;
   let g = '', h = '';
   for (const k of FIX_RULES){
-    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length;
+    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length, count = fixRuleCount(k);
     if (d.group !== g){ h += `${g ? '</div>' : ''}<div class="fx-g"><h4>${esc(d.group)}</h4>`; g = d.group; }
-    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''}> <span>${esc(FMT_LABEL[k])} <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
+    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''} ${count ? '' : 'disabled'}> <span>${esc(FMT_LABEL[k])} <b>${count} ${count === 1 ? 'card' : 'cards'}</b> <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
   }
   $('#fxRules').innerHTML = h + '</div>';
 }
@@ -284,7 +290,7 @@ function renderFmtPass(){
       <div class="sub">${it.cards.length} cards · ${ok} approved${rc ? ` · ${rc} to re-check` : ''}${na ? ` · ${na} left as is` : ''}${Object.keys(tally).length ? ' · ' + Object.entries(tally).map(([k, v]) => `${FMT_LABEL[k]} ${v}`).join(', ') : ''}</div></div>
       <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'answered'}[it.status]}</span>
         <button class="btn sm" data-fq="view" data-id="${it.id}" title="Open the full prompt in a new tab">👁</button>
-        <button class="btn sm" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
+        <button class="btn sm copyBtn" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
         <button class="btn sm" data-fq="done" data-id="${it.id}" title="Toggle answered">✓</button></div></div>`; }).join('');
   const cur = $('#fqList').querySelector('.qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
 }
@@ -383,7 +389,7 @@ if ($('#fqList')){
 document.addEventListener('keydown', e => {
   if (!$('#tab-revise').classList.contains('active') || e.key.toLowerCase() !== 'n') return;
   if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
-  if ($('#fqPanel').hidden || !fmtNext()) return;
+  if ($('#fqPanel').hidden || !fmtNext() || copyHidden()) return;
   e.preventDefault(); $('#fqNext').click();
 });
 const mediaForAI = cards => [...new Set(cards.flatMap(cardImages))].filter(n => S.media[n]).map(n => { const m = S.media[n]; const e = {filename: n, origin: m.origin}; for (const k of ['url','hint','caption','credit']) if (m[k]) e[k] = m[k]; return e; });

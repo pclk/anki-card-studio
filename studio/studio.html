@@ -28,6 +28,7 @@
 }
 *{box-sizing:border-box}
 [hidden]{display:none !important}
+body.hide-copy .copyBtn{display:none !important}
 html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{margin:0;line-height:1.25}
@@ -491,6 +492,11 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <label class="check small"><input type="checkbox" id="setAna"> Show the <b>Analytics</b> tab (deck makeup and checker results)</label>
     </div>
     <div class="stack" style="gap:8px">
+      <b>Prompts</b>
+      <label class="check small"><input type="checkbox" id="setCopy"> Show the <b>📋 Copy</b> buttons next to prompts, to paste them into a chat yourself</label>
+      <span class="small muted">Off by default. Choose <b>Manual transfer</b> next to any prompt to show Copy and file options everywhere, including without a paired Mac. Your choice is saved.</span>
+    </div>
+    <div class="stack" style="gap:8px">
       <b>Swiping (touch screens)</b>
       <span class="small muted">On a phone, swipe the card right to approve and left to exclude.</span>
       <label class="f">How far to swipe: <b id="swDistV"></b> of the card's width<input type="range" id="swDist" min="8" max="60" step="1"></label>
@@ -657,8 +663,8 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
         <button class="btn" id="btnCopyScript" title="Copy anki_helper.py to clipboard">📋 Copy script</button>
         <button class="btn" id="btnDlScript">⬇ anki_helper.py</button>
         <button class="btn" id="btnDlSkill2" hidden>⬇ anki skill (.zip)</button>
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn" id="btnSrcFiles" hidden title="Download the source files again">⬇ Source files</button><button class="btn brRun" id="runPrompt" hidden title="Run this prompt on your Mac (Claude Code / Codex) and import the cards when it is done">▶ Run on Mac</button><button class="btn primary" id="btnCopyPrompt">📋 Copy prompt</button></div>
-      <div class="small" id="pAttachInfo"></div>
+        <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn copyBtn" id="btnSrcFiles" hidden title="Download the source files again">⬇ Source files</button><button class="btn manualTransfer" type="button" title="Show prompt Copy and file options everywhere; saves your preference">Manual transfer</button><button class="btn brRun" id="runPrompt" hidden title="Run this prompt on your Mac (Claude Code / Codex) and import the cards when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="btnCopyPrompt">📋 Copy prompt</button></div>
+      <div class="small copyBtn" id="pAttachInfo"></div>
       <textarea id="pOut" readonly style="min-height:520px;flex:1"></textarea>
       <ol class="steps small muted" id="pSteps">
         <li>Open a new Claude chat. Attach your material and <b>anki_helper.py</b>, then paste the prompt.</li>
@@ -687,7 +693,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
         <div class="row" style="margin-top:4px"><span class="spacer"></span><button class="btn sm" id="btnQPaste">Load queue</button></div></details>
       <div id="qPanel" class="stack" hidden>
         <div class="row">
-          <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runQueue" hidden title="Run every prompt that is still to do on your Mac, one after another; each result is imported by itself">▶ Run all on Mac</button><button class="btn primary" id="btnCopyNext">📋 Copy next prompt <span class="kbd">N</span></button>
+          <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn manualTransfer" type="button" title="Show prompt Copy and file options everywhere; saves your preference">Manual transfer</button><button class="btn brRun" id="runQueue" hidden title="Run every prompt that is still to do on your Mac, one after another; each result is imported by itself">▶ Run all on Mac</button><button class="btn primary copyBtn" id="btnCopyNext">📋 Copy next prompt <span class="kbd">N</span></button>
           <span class="small" id="qNextLabel"></span><span class="spacer"></span>
           <button class="btn sm" id="btnQReset" title="Mark every prompt as not copied">↺ Reset</button>
           <button class="btn sm" id="btnQClear" title="Remove the queue">✕ Clear</button>
@@ -835,7 +841,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     <div class="row"><h2 style="margin:0">Broken images</h2><span class="spacer"></span><span id="biStats" class="small muted"></span></div>
     <p class="small muted" style="margin:0">Images you marked broken in Review → 🖼 Images. Claude redoes each one (new filename, same card otherwise) and replies with <b>anki_revision.json</b>: drop it under <i>2 · Apply Claude's revision</i> below. The changed cards go back to <i>Unreviewed</i>, and their new images wait for review.</p>
     <div id="biList" class="stack" style="gap:6px;max-height:40vh;overflow-y:auto"></div>
-    <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary" id="biCopy">📋 Copy</button></div>
+    <div class="row"><span class="spacer"></span><button class="btn" id="biBuild">Build image-fix prompt</button><label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn manualTransfer" type="button" title="Show prompt Copy and file options everywhere; saves your preference">Manual transfer</button><button class="btn brRun" id="runImageFix" hidden title="Run the image fix on your Mac and apply the revision when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="biCopy">📋 Copy</button></div>
     <textarea id="biOut" readonly rows="6" placeholder="The image-fix prompt appears here"></textarea>
   </div>
   <div class="panel stack" id="fixPanel" style="margin-bottom:14px">
@@ -871,7 +877,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
     </div>
     <div id="fqPanel" class="stack" hidden>
       <div class="row">
-        <label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
+        <label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn manualTransfer" type="button" title="Show prompt Copy and file options everywhere; saves your preference">Manual transfer</button><button class="btn brRun" id="runFmt" hidden title="Run every checker-fix prompt that is still to do on your Mac">▶ Run all on Mac</button><button class="btn primary copyBtn" id="fqNext">📋 Copy next prompt <span class="kbd">N</span></button>
         <span class="small" id="fqNextLabel"></span><span class="spacer"></span>
         <button class="btn sm" id="fqReset" title="Mark every prompt as not copied (answered ones stay ticked)">↺ Reset</button>
         <button class="btn sm" id="fqClear" title="Remove the queue">✕ Clear</button>
@@ -895,7 +901,7 @@ function a(e,t){return n(e)||r(e,t)||o(e,t)||i()}function o(e,n){if(e){if(typeof
       <label class="check"><input type="checkbox" id="rvMore"> Also ask for new cards to fill gaps</label>
       <div class="row"><span class="spacer"></span><button class="btn primary" id="btnMakeRevision">Build revision prompt</button></div>
       <textarea id="rvOut" readonly rows="14" placeholder="The revision prompt appears here"></textarea>
-      <div class="row"><span class="small muted">Send it in the <b>same Claude chat</b> if possible (it still has your material).</span><span class="spacer"></span><label class="check small" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn brRun" id="runRevision" hidden title="Run the revision on your Mac and apply it when it is done">▶ Run on Mac</button><button class="btn primary" id="btnCopyRevision">📋 Copy</button></div>
+      <div class="row"><span class="small muted">Send it in the <b>same Claude chat</b> if possible (it still has your material).</span><span class="spacer"></span><label class="check small copyBtn" title="Copy saves the whole prompt as anki_prompt_….txt to attach, and copies a one-line message. Claude's helper then reads the material / cards from the file by id instead of retyping them."><input type="checkbox" class="optPromptFile"> 📎 As a file</label><button class="btn manualTransfer" type="button" title="Show prompt Copy and file options everywhere; saves your preference">Manual transfer</button><button class="btn brRun" id="runRevision" hidden title="Run the revision on your Mac and apply it when it is done">▶ Run on Mac</button><button class="btn primary copyBtn" id="btnCopyRevision">📋 Copy</button></div>
     </div>
     <div class="panel stack">
       <h2>2 · Apply Claude's revision</h2>
@@ -2165,8 +2171,12 @@ if (isMain) {
  * Safety
  * - The device token is kept in ~/.acs-bridge/config.json, readable only by you. Remove the device in the Studio to
  *   cut it off at once. It is sent only over https (or to this Mac itself), and only to the server you paired with.
- * - Each job runs in its own new folder (~/.acs-bridge/jobs/<id>). The prompt and files from the Studio are written
- *   there as files; they are never put on a command line. The agent gets a fixed instruction from this script.
+ * - Each run gets its own new folder (~/.acs-bridge/jobs/<id>-<pid>-<random>), removed when the run ends - done, failed,
+ *   cancelled or the bridge stopped (keepJobs keeps them). The prompt and files from the Studio are written there as files; they are never
+ *   put on a command line or into the agent's messages. The agent gets a fixed instruction from this script and reads
+ *   the files with its own tools. Big blocks of the prompt (material, cards) go to files of their own (anki_blocks/).
+ * - Files the Studio declares with a sha256 are kept in ~/.acs-bridge/cache, so the skill and a lecture's slides
+ *   are downloaded once, not for every job (checked against the hash each time; old entries are pruned).
  * - Claude Code runs with --permission-mode dontAsk and only the tools in `claudeTools` (anything else is refused,
  *   nothing waits for an answer), and without your MCP servers (--strict-mcp-config). Codex runs in its
  *   workspace-write sandbox. The agent still runs code (the skill is Python), so only pair devices with a Studio
@@ -2180,14 +2190,14 @@ if (isMain) {
  * (instead of ~/Library/LaunchAgents), ACS_BRIDGE_LAUNCHCTL (instead of launchctl).
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '3';
+export const VERSION = '4';
 const HOME = process.env.ACS_BRIDGE_HOME || path.join(os.homedir(), '.acs-bridge');
 const CONFIG = path.join(HOME, 'config.json');
 const CHUNK = 3 * 1024 * 1024;
@@ -2196,18 +2206,22 @@ const TOKEN_RE = /^acsd_[A-Za-z0-9_-]{43}$/;
 export const LABEL = 'dev.ankicardstudio.bridge';
 export const LOG = path.join(HOME, 'bridge.log');
 const SERVICE = process.env.ACS_BRIDGE_SERVICE === '1';   // started by launchd (install)
+const JOBS = path.join(HOME, 'jobs'), CACHE = path.join(HOME, 'cache');
+const CACHE_DAYS = 7, CACHE_MAX = 1024 ** 3;          // cached files unused for a week go, and the cache stays under 1 GB
+/** a block bigger than this leaves the prompt for a file of its own (smaller ones are handier inline) */
+export const BLOCK_INLINE_MAX = 16_000;
 const SKILL_FILES = { 'SKILL.md': '', 'anki_helper.py': 'scripts', 'extract.py': 'scripts', 'make_prompts.py': 'scripts' };
 const DEFAULTS = {
   agents: ['claude', 'codex'],               // which agents this Mac runs (only the ones that are installed)
   claudeTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'],
   maxMinutes: 60,                            // a run that takes longer is stopped (a job can ask for less, never more)
-  keepJobs: false,                           // keep a job's folder after it succeeded (failed ones are always kept)
+  keepJobs: false,                           // keep each job's folder after it ends (to look at what the agent did)
 };
 /** what the agent is told. Fixed here on purpose: nothing from the server ends up in an argument */
 export const INSTRUCTION = `You are running unattended for Anki Card Studio, in a folder made for this one job.
 Your task is in ./anki_prompt.txt: read it and follow it exactly.
 - The anki skill, in the exact version the Studio uses, is in ./anki-skill/SKILL.md; its scripts are in ./anki-skill/scripts (in Python: import sys; sys.path.insert(0, "anki-skill/scripts"); from anki_helper import *).
-- The files the prompt mentions as attached are in this folder. Read blocks of the prompt by their id with the helper (it finds anki_prompt.txt here); never retype them.
+- The files the prompt mentions as attached are in this folder: open them with your tools. Read blocks of the prompt by their id with the helper (it finds them in anki_prompt.txt and ./anki_blocks); never retype them.
 - Outputs go to ./anki_out (ANKI_OUT_DIR is set): ./anki_out/anki_bundle.json for new cards, ./anki_out/anki_revision.json for a revision, ./anki_out/anki_actions.json for proposed actions - whichever the prompt asks for (some tasks ask only for an answer).
 - If ./acs.mjs is here, it is the user's Studio project (acs_project.json, acs_sources.json): run node acs.mjs help.
 - Nobody can answer questions while you work: make sensible choices and mention them in your final reply.
@@ -2301,12 +2315,14 @@ export function agentOptions(agent, raw) {
   for (const [k, v] of Object.entries(o)) {
     if (v === '' || v === null || v === undefined || v === 0) continue;
     if (!OPTION_KEYS[agent]?.includes(k)) throw new Error(`${agent} has no option ${JSON.stringify(k)}`);
+    const numeric = k === 'maxBudgetUsd' || k === 'maxMinutes';
+    if (numeric ? !(typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) : typeof v !== 'string') throw new Error(`${k} must be a ${numeric ? 'number' : 'string'}`);
     if (k === 'model' && !MODEL_RE.test(String(v))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'fallbackModel' && !String(v).split(',').every((m) => MODEL_RE.test(m.trim()))) throw new Error(`not a model name: ${JSON.stringify(v)}`);
     if (k === 'effort' && !EFFORTS[agent].includes(String(v))) throw new Error(`${agent} effort must be one of ${EFFORTS[agent].join(', ')}`);
     if (k === 'maxBudgetUsd' && !(Number(v) > 0 && Number(v) <= 1000)) throw new Error('maxBudgetUsd must be between 0 and 1000');
     if (k === 'maxMinutes' && !(Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 1440)) throw new Error('maxMinutes must be 1-1440');
-    out[k] = typeof v === 'string' ? v.trim() : Number(v);
+    out[k] = numeric ? Number(v) : v.trim();
   }
   return out;
 }
@@ -2344,7 +2360,12 @@ export function toEvents(agent, line) {
 
 /* ------------------------------------------------------------------ one job */
 let running = null;   // stops the agent that is running now
-const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+let runDir = null;    // the folder of the run now, removed on Ctrl+C / stop too (unless keepJobs)
+/** names this script uses in the job folder itself: a job's file may not take one (in any case: macOS folders ignore it) */
+const RESERVED = new Set(['agents.md', 'anki_out', 'anki-skill', 'anki_blocks']);
+const safeName = (n) => typeof n === 'string' && n === path.basename(n) && !n.startsWith('.') && !RESERVED.has(n.toLowerCase()) && /^[A-Za-z0-9][A-Za-z0-9 ._()+,=@#&'\-[\]]{0,180}$/.test(n);
+const SHA_RE = /^[0-9a-f]{64}$/;
+const sha256 = (b) => createHash('sha256').update(b).digest('hex');
 
 /** a regular file's bytes, or null for anything else (missing, a folder, a link) */
 function readOwnFile(p) {
@@ -2353,37 +2374,124 @@ function readOwnFile(p) {
   try { return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null; } finally { fs.closeSync(fd); }
 }
 
+/* big blocks by reference: the Studio puts a prompt's material and cards in <<<SOURCE id=s-… / <<<REVISE_CARDS id=r-…
+   blocks. A big one goes to anki_blocks/<id>.txt and the prompt keeps one line saying where it is. The helper finds a
+   block by its id in any text file of the job folder (find_block), so load_source(id) / Deck.load(id) work the same,
+   and the agent reads a short prompt instead of all the material at once. */
+const BLOCK_RE = /<<<(SOURCE|REVISE_CARDS) id=([a-z]-[0-9a-f]{8})[^\n]*\n[\s\S]*?\n?\1>>>/g;
+/** {prompt, blocks: [{id, text}]}: the prompt with every block longer than `max` characters replaced by a pointer */
+export function splitBlocks(text, max = BLOCK_INLINE_MAX) {
+  const blocks = [];
+  const prompt = text.replace(BLOCK_RE, (m, tag, id) => {
+    if (m.length <= max) return m;
+    if (!blocks.some((b) => b.id === id)) blocks.push({ id, text: m });   // the id comes from the content: same id, same block
+    return `[${tag} block ${id} (${m.length} characters) is in anki_blocks/${id}.txt, not in this prompt. ${tag === 'SOURCE' ? `load_source("${id}")` : `Deck.load("${id}")`} reads it from there; open the file yourself only for the parts you need.]`;
+  });
+  return { prompt, blocks };
+}
+
+/** a declared file's bytes: from this Mac's cache when it holds exactly that content (sha256), else downloaded and cached */
+async function fetchInput(api, id, f) {
+  const want = typeof f.sha256 === 'string' && SHA_RE.test(f.sha256) ? f.sha256 : null, cached = want && path.join(CACHE, want);
+  if (cached) {
+    const bytes = readOwnFile(cached);
+    if (bytes && sha256(bytes) === want) { try { const now = new Date(); fs.utimesSync(cached, now, now); } catch {} return { bytes, hit: true }; }
+  }
+  const bytes = await api.download(id, f.name);
+  // only what really has that hash is kept, written to a new name first so a half-written file is never used
+  if (cached && sha256(bytes) === want) try {
+    fs.mkdirSync(CACHE, { recursive: true, mode: 0o700 });
+    const tmp = `${cached}.${randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' });
+    fs.renameSync(tmp, cached);
+  } catch {}
+  return { bytes, hit: false };
+}
+/** the cache keeps what was used in the last CACHE_DAYS, newest first, up to CACHE_MAX bytes */
+export function pruneCache(now = Date.now()) {
+  let names; try { names = fs.readdirSync(CACHE); } catch { return; }
+  const list = names.map((n) => ({ n, p: path.join(CACHE, n), st: fs.lstatSync(path.join(CACHE, n), { throwIfNoEntry: false }) })).filter((e) => e.st);
+  let total = 0;
+  for (const e of list.sort((a, b) => b.st.mtimeMs - a.st.mtimeMs)) {
+    if (e.n.endsWith('.tmp') && now - e.st.mtimeMs < 3600_000) continue;   // another bridge may be writing it now
+    if (!SHA_RE.test(e.n) || !e.st.isFile() || now - e.st.mtimeMs > CACHE_DAYS * 86_400_000 || (total += e.st.size) > CACHE_MAX)
+      fs.rmSync(e.p, { recursive: true, force: true });
+  }
+}
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+/** folders of runs that never ended here (the bridge was killed, the Mac shut down). A run's folder names the bridge
+    that owns it (jobs/<id>-<pid>-<random>): gone at once when that process is gone, else only after the longest run
+    any bridge allows (another bridge on this Mac may have a longer limit). Folders without an owner (older versions,
+    which also kept failed jobs) go after this bridge's own limit. */
+export function sweepJobs(cfg, now = Date.now()) {
+  if (cfg.keepJobs) return;
+  let names; try { names = fs.readdirSync(JOBS); } catch { return; }
+  for (const n of names) {
+    const m = /^j[a-z0-9]{12,40}(?:-(\d{1,10})-[A-Za-z0-9]{6}|-[A-Za-z0-9]{6})?$/.exec(n); if (!m) continue;
+    const p = path.join(JOBS, n), st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (!st?.isDirectory()) continue;
+    const pid = m[1] && Number(m[1]), age = now - st.mtimeMs;
+    const stale = pid ? pid !== process.pid && (!alive(pid) || age > (1440 + 15) * 60_000) : age > (cfg.maxMinutes + 15) * 60_000;
+    if (stale) fs.rmSync(p, { recursive: true, force: true });
+  }
+}
+
 export async function runJob(api, job, cfg, log = console.log) {
   if (typeof job.id !== 'string' || !/^j[a-z0-9]{12,40}$/.test(job.id)) throw new Error('invalid job id');
-  const dir = path.join(HOME, 'jobs', job.id);
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(path.join(dir, 'anki_out'), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(JOBS, { recursive: true, mode: 0o700 });
+  // a new folder for every run, even of the same job (a claim whose answer was lost is handed out again), so two runs
+  // never share one; it is removed however the run ends
+  const dir = fs.mkdtempSync(path.join(JOBS, `${job.id}-${process.pid}-`));
+  fs.mkdirSync(path.join(dir, 'anki_out'), { mode: 0o700 });
   fs.mkdirSync(path.join(dir, 'anki-skill', 'scripts'), { recursive: true });
-  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0;
-  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive
+  const kept = cfg.keepJobs ? dir : undefined;
+  if (!kept) runDir = dir;
+  let pending = [], stop = null, cancelled = false, reply = '', lastSent = 0, inflight = null;
+  // also the heartbeat: with nothing new to say, still report every 30 s so the Studio knows the run is alive.
+  // One post at a time: the server drops events numbered below the highest it has, so a later batch overtaking an
+  // earlier one (a slow network, the 1.5 s flusher meeting the final flush) would lose the earlier batch's lines.
   const send = async (force) => {
+    if (inflight && !force) return;
+    while (inflight) await inflight.catch(() => {});
     if (!pending.length && !force && Date.now() - lastSent < 30_000) return;
-    const list = pending; pending = []; lastSent = Date.now();
-    try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } }
-    catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); }
+    // the server takes at most 200 events a post (the rest would be dropped): send them in batches
+    const list = pending.splice(0, 200); lastSent = Date.now();
+    const post = (async () => {
+      try { const r = await api.events(job.id, list); if (r.cancel && !cancelled){ cancelled = true; log(`  cancelled in the Studio`); stop?.(); } return true; }
+      catch (e) { if (e.fatal) throw e; pending = list.concat(pending).slice(-400); return false; }
+    })();
+    inflight = post;
+    let ok;
+    try { ok = await post; } finally { if (inflight === post) inflight = null; }
+    // a final flush sends everything; the flusher sends the rest on its next tick
+    if (ok && force && pending.length) await send(true);
   };
   let revoked = null;
   try {
     // say so first: a slow download must not look like a bridge that went quiet
     pending.push({ type: 'log', text: `Picked up on ${os.hostname()} - fetching ${job.files.length} file(s)` });
     await send(true);
+    let hits = 0;
     for (const f of job.files) {
       await send(false);
       if (cancelled) return { ok: false, cancelled: true };
       if (!safeName(f.name)) throw new Error(`refusing the file name ${JSON.stringify(f.name)}`);
-      const bytes = await api.download(job.id, f.name), sub = SKILL_FILES[f.name];
+      const { bytes, hit } = await fetchInput(api, job.id, f), sub = SKILL_FILES[f.name];
+      hits += hit;
       fs.writeFileSync(sub === undefined ? path.join(dir, f.name) : path.join(dir, 'anki-skill', sub, f.name), bytes, { mode: 0o600 });
     }
-    if (!fs.existsSync(path.join(dir, 'anki_prompt.txt'))) throw new Error('the job has no anki_prompt.txt');
+    const promptPath = path.join(dir, 'anki_prompt.txt'), raw = readOwnFile(promptPath);
+    if (!raw) throw new Error('the job has no anki_prompt.txt');
+    const { prompt, blocks } = splitBlocks(raw.toString('utf8'));
+    if (blocks.length) {
+      fs.mkdirSync(path.join(dir, 'anki_blocks'), { mode: 0o700 });
+      for (const b of blocks) fs.writeFileSync(path.join(dir, 'anki_blocks', b.id + '.txt'), b.text, { mode: 0o600 });
+      fs.writeFileSync(promptPath, prompt, { mode: 0o600 });
+    }
     const opts = agentOptions(job.agent, job.options), minutes = Math.min(opts.maxMinutes || cfg.maxMinutes, cfg.maxMinutes);
     // Codex reads AGENTS.md; Claude gets the same through its instruction
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), INSTRUCTION + '\n');
-    pending.push({ type: 'log', text: `Started with ${job.agent}${Object.keys(opts).length ? ` (${describe({ ...opts, ...(opts.maxMinutes ? { maxMinutes: minutes } : {}) })})` : ''}` });
+    pending.push({ type: 'log', text: `Started with ${job.agent}${Object.keys(opts).length ? ` (${describe({ ...opts, ...(opts.maxMinutes ? { maxMinutes: minutes } : {}) })})` : ''}${hits ? ` - ${hits} of ${job.files.length} file(s) were already on this Mac` : ''}` });
     await send(true);
     if (cancelled) return { ok: false, cancelled: true };
     // its own process group, so stopping it also stops whatever it started (python, shells…)
@@ -2420,13 +2528,14 @@ export async function runJob(api, job, cfg, log = console.log) {
       if (bytes) await api.upload(job.id, name, bytes, name.endsWith('.json') ? 'application/json' : 'text/markdown');
     }
     const r = await api.finish(job.id, code === 0, code === 0 ? '' : `${job.agent} exited with code ${code}${errTail.trim() ? ': ' + errTail.trim().slice(-300) : ''}`);
-    const ok = r.job?.status === 'done';
-    if (ok && !cfg.keepJobs) fs.rmSync(dir, { recursive: true, force: true });
-    return { ok, status: r.job?.status, error: r.job?.error, dir };
+    return { ok: r.job?.status === 'done', status: r.job?.status, error: r.job?.error, dir: kept };
   } catch (e) {
     if (e.fatal) throw e;
     await api.finish(job.id, false, String(e.message || e)).catch(() => {});
-    return { ok: false, error: String(e.message || e), dir };
+    return { ok: false, error: String(e.message || e), dir: kept };
+  } finally {
+    running = null; if (runDir === dir) runDir = null;
+    if (!kept) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -2435,6 +2544,7 @@ export async function serve(cfg, { once = false, log = console.log } = {}) {
   if (!cfg.server || !cfg.token) throw Object.assign(new Error('not paired yet - run: pbpaste | node acs-bridge.mjs setup --server https://<your studio>'), { fatal: true });
   const api = client(cfg.server, cfg.token), agents = installedAgents(cfg);
   if (!agents.length) throw new Error('neither claude nor codex is on your PATH');
+  sweepJobs(cfg); pruneCache();
   // offline at start (the Mac just woke up, no Wi-Fi yet): keep trying instead of giving up
   let me;
   for (let tries = 0; ; tries++) {
@@ -2450,6 +2560,7 @@ export async function serve(cfg, { once = false, log = console.log } = {}) {
     if (job) {
       log(`▶ ${job.title} (${job.kind}, ${job.agent})`);
       const r = await runJob(api, job, cfg, log);
+      pruneCache();
       log(r.ok ? `✓ done - the Studio imports it` : `✗ ${r.cancelled ? 'cancelled' : r.error || 'failed'}${r.dir && !r.ok ? ` (files kept in ${r.dir})` : ''}`);
       if (once) return r;
       continue;
@@ -2553,7 +2664,8 @@ function status() {
 
 const isMain = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 if (isMain) {
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); process.exit(130); });
+  // stopping the bridge stops the agent and removes the run's folder (process.exit skips runJob's finally)
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { running?.(); if (runDir) try { fs.rmSync(runDir, { recursive: true, force: true }); } catch {} process.exit(130); });
   const [cmd, ...rest] = process.argv.slice(2), flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
   // in the background: a time on every line, and a log that doesn't grow forever
   const stamp = (m) => console.log(`${new Date().toISOString().slice(0, 19).replace('T', ' ')} ${m}`);
@@ -5391,7 +5503,19 @@ function normSkips(v){
 
 /* ---------------------------------------------------------------------- persistence (IndexedDB) */
 const DB_NAME = 'anki-card-studio';
-function idb(){ return new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+/* one connection for the page: opening one per read or write costs a round trip each time, and the connections were
+   never closed. It is given up when the browser closes it or another page needs a newer version of the database. */
+let idbConn = null;
+function idb(){
+  if (!idbConn){
+    const p = idbConn = new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => { const db = r.result, drop = () => { if (idbConn === p) idbConn = null; };
+        db.onclose = drop; db.onversionchange = () => { drop(); db.close(); }; res(db); };
+      r.onerror = () => rej(r.error); });
+    p.catch(() => { if (idbConn === p) idbConn = null; });
+  }
+  return idbConn;
+}
 async function idbPut(key, val){ try { const db = await idb(); await new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(val, key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); } catch (e) { console.warn('autosave failed', e); } }
 async function idbGet(key){ try { const db = await idb(); return await new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); } catch { return null; } }
 /** run fn(objectStore) inside one read-write transaction; resolves with fn's result once committed */
@@ -7109,7 +7233,7 @@ function renderBatch(){
     <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'imported'}[it.status]}</span>
       <button class="btn sm" data-q="view" data-id="${esc(it.id)}" title="Open the full prompt in a new tab">👁</button>
       ${itemAttachments(it).length ? `<button class="btn sm" data-q="files" data-id="${esc(it.id)}" title="Download this prompt's files again: ${esc(attachNames(itemAttachments(it)))}">⬇</button>` : ''}
-      <button class="btn sm" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
+      <button class="btn sm copyBtn" data-q="copy" data-id="${esc(it.id)}" title="Copy the prompt (and download its files)">📋</button>
       <button class="btn sm" data-q="done" data-id="${esc(it.id)}" title="Toggle imported">✓</button></div></div>`).join('');
   if (typeof renderBatchJobs === 'function') renderBatchJobs();   // "Mac: running" on prompts sent to the bridge
   const cur = $('#qList .qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
@@ -7127,7 +7251,7 @@ $('#btnQueueFromSubs').onclick = () => {
 };
 document.addEventListener('keydown', e => {
   if (!$('#tab-prompt').classList.contains('active') || $('#batchOut').hidden || $('#qPanel').hidden) return;
-  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey || copyHidden()) return;
   if (e.key.toLowerCase() === 'n'){ e.preventDefault(); $('#btnCopyNext').click(); }
 });
 
@@ -7210,14 +7334,15 @@ function applyBundle(d, mode, opts = {}){
           && (n.why || '') === (existing.why || '') && J(n.refs || []) === J(existing.refs || [])
           && (!('skipped_checks' in n) || J(n.skipped_checks) === J(existing.skipped_checks || {}));
         if (same){ sum.fmtSame++; continue; }
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: opts.keepStatus ? opts.note || '' : existing.fmtTask && existing.fmtTask.instr ? 'Global revision: ' + existing.fmtTask.instr : ''};
+        // prev is a copy: the card's refs / skips may later change in place (Undo skip), and prev must keep the old ones
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: JSON.parse(J(existing.refs || [])), skipped_checks: {...(existing.skipped_checks || {})}, feedback: opts.keepStatus ? opts.note || '' : existing.fmtTask && existing.fmtTask.instr ? 'Global revision: ' + existing.fmtTask.instr : ''};
         existing.revised = true; existing.edited = false; delete existing.fmtNA;
         sum.fmtUpd++; if (existing.status === 'ok'){ existing.recheck = true; sum.recheck++; }
         // keep the review state and any feedback the user already wrote
         for (const k of ['status', 'feedback', 'time', 'ord', 'deck']) if (existing[k] !== undefined) delete n[k];
       } else if (!isProject){
         delete existing.fmtNA;
-        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: existing.refs || [], skipped_checks: existing.skipped_checks || {}, feedback: existing.feedback || ''};
+        existing.prev = {type: existing.type, ...Object.fromEntries(FIELDS[existing.type].map(f => [f, existing[f]])), why: existing.why || '', refs: JSON.parse(J(existing.refs || [])), skipped_checks: {...(existing.skipped_checks || {})}, feedback: existing.feedback || ''};
         existing.revised = true; existing.edited = false; existing.status = 'new'; existing.feedback = '';
       }
       Object.assign(existing, n);
@@ -7976,7 +8101,8 @@ function renderCurChecks(c){
 }
 $('#curChecks ul').addEventListener('click', e => {
   const b = e.target.closest('[data-unskip]'), c = curCard(); if (!b || !c || !c.skipped_checks) return;
-  delete c.skipped_checks[b.dataset.unskip]; if (!Object.keys(c.skipped_checks).length) delete c.skipped_checks;
+  const sk = {...c.skipped_checks}; delete sk[b.dataset.unskip];   // a new object: the previous version may share the old one
+  if (Object.keys(sk).length) c.skipped_checks = sk; else delete c.skipped_checks;
   save(); renderReviewSoft(); toast('The check applies to this card again');
 });
 function badgesHTML(c){
@@ -8550,6 +8676,7 @@ const DEFAULT_SETTINGS = {
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
   showAnalytics: true,                             // the Analytics tab (Settings → Tabs)
   promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
+  showCopy: false,                                 // the 📋 Copy buttons next to prompts (Settings → Prompts); ▶ Run on Mac replaces them
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   bridgeOpts: {claude: {}, codex: {}},              // what each agent runs with there: model, effort, limits (empty = the CLI's default)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
@@ -8579,6 +8706,7 @@ function mergeSettings(j){
   if (j && j.keys && !(j.version >= 2) && J(j.keys.approve) === J(['q']) && J(j.keys.exclude) === J(['d'])){ out.keys.approve = ['d']; out.keys.exclude = ['q']; }
   if (j && j.showAnalytics === false) out.showAnalytics = false;
   if (j && j.promptFile === true) out.promptFile = true;
+  if (j && j.showCopy === true) out.showCopy = true;   // on only when chosen: settings saved before it existed hide them too
   if (j && ['claude', 'codex'].includes(j.bridgeAgent)) out.bridgeAgent = j.bridgeAgent;
   if (j && j.bridgeOpts && typeof j.bridgeOpts === 'object') for (const a of ['claude', 'codex']) out.bridgeOpts[a] = cleanBridgeOpts(a, j.bridgeOpts[a]);
   if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
@@ -8619,8 +8747,22 @@ function applyTabs(){
   if (b){ b.hidden = !on; if (!on && b.classList.contains('active')) showTab('review'); }
   let i = 0; $$('#tabs button').forEach(x => { if (!x.hidden){ const n = x.querySelector('.n'); if (n) n.textContent = ++i; } });
 }
+/** Prompt transfer controls follow the saved preference, including before bridge setup.
+    Manual transfer reveals them everywhere and persists the choice for the next visit. */
+function copyHidden(){ return !SET.showCopy; }
+function revealManualTransfer(){ SET.showCopy = true; saveSettings(); }
+function applyCopyButtons(){
+  const off = copyHidden();
+  document.body.classList.toggle('hide-copy', off);
+  $$('.brRun').forEach(b => b.classList.toggle('primary', off));
+  $$('.manualTransfer').forEach(b => { b.hidden = !off; });
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('.manualTransfer')) revealManualTransfer();
+});
 function renderKeyHints(){
   try { applyTabs(); } catch {}
+  applyCopyButtons();
   if ($('#ckGrid') && typeof renderCheckSettings === 'function') try { renderCheckSettings(); } catch {}   // the checker settings change with the rest of the settings
   $$('.optPromptFile').forEach(cb => { cb.checked = !!SET.promptFile; });
   $$('.kbd[data-k]').forEach(el => { const ks = SET.keys[el.dataset.k] || []; el.textContent = ks.length ? keyName(ks[0]) : '–'; el.title = ks.map(keyName).join(' / '); });
@@ -8712,12 +8854,14 @@ function renderSwipeSettings(){
   $('#swAng').value = SET.swipe.angle; $('#swAngV').textContent = SET.swipe.angle + '°';
   $('#swFx').checked = SET.swipe.effects;
   $('#setAna').checked = SET.showAnalytics !== false;
+  $('#setCopy').checked = !!SET.showCopy;
 }
 $('#swDist').oninput = e => { SET.swipe.dist = +e.target.value; renderSwipeSettings(); };
 $('#swAng').oninput = e => { SET.swipe.angle = +e.target.value; renderSwipeSettings(); };
 ['#swDist', '#swAng'].forEach(q => $(q).onchange = () => saveSettings());
 $('#swFx').onchange = e => { SET.swipe.effects = e.target.checked; saveSettings(); };
 $('#setAna').onchange = e => { SET.showAnalytics = e.target.checked; saveSettings(); applyTabs(); };
+$('#setCopy').onchange = e => { SET.showCopy = e.target.checked; saveSettings(); };   // saveSettings → renderKeyHints → applyCopyButtons
 function renderSettings(){
   renderSwipeSettings();
   $('#keyGrid').innerHTML = Object.keys(DEFAULT_SETTINGS.keys).map(a => `<span>${esc(KEY_LABELS[a])}</span>
@@ -9357,14 +9501,20 @@ function presetOn(p, picked){
   const t = grTask(), f = grFilter();
   return J(p.task || null) === J(t.instr.trim() ? t : null) && J(p.filter || null) === J(f.conds.length ? f : null);
 }
+/** Counts follow the queue filters, but always require an actual failure, even in “all cards” mode. */
+function fixRuleCount(key){
+  if (!rulesOn([key]).length) return 0;
+  const errorsOnly = $('#fixScope').value === 'err';
+  return fmtCandidates([key]).filter(c => issuesFor(c, [key]).some(x => !errorsOnly || x.level === 'E')).length;
+}
 function renderRulePicker(picked, C){
   $('#fxPresets').innerHTML = fixPresets().map((p, i) => `<button class="btn sm ${presetOn(p, picked) ? 'on' : ''}" data-preset="${i}" title="${esc([p.rules.map(k => FMT_LABEL[k]).join(', '), p.task && `“${shorten(p.task.instr, 80)}”`, p.filter && `${p.filter.conds.length} filter condition(s)`].filter(Boolean).join(' · '))}">${esc(p.name)}${p.own ? `<span class="fx-rm" data-rm-preset="${i}" title="Delete this preset">✕</span>` : ''}</button>`).join('')
     + `<button class="btn sm" id="fxSave" title="Save the rules ticked below, the instruction and the filter as a preset of your own" ${picked.length || grTask().instr.trim() || grFilter().conds.length ? '' : 'disabled'}>＋ Save as preset</button>`;
   let g = '', h = '';
   for (const k of FIX_RULES){
-    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length;
+    const d = CHECK_DEFS.find(x => x.key === k), off = !rulesOn([k], C).length, count = fixRuleCount(k);
     if (d.group !== g){ h += `${g ? '</div>' : ''}<div class="fx-g"><h4>${esc(d.group)}</h4>`; g = d.group; }
-    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''}> <span>${esc(FMT_LABEL[k])} <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
+    h += `<label class="check small" title="${esc(d.label)}"><input type="checkbox" data-rule="${k}" ${picked.includes(k) ? 'checked' : ''} ${count ? '' : 'disabled'}> <span>${esc(FMT_LABEL[k])} <b>${count} ${count === 1 ? 'card' : 'cards'}</b> <span class="muted">(${off ? 'off in the Checker' : esc(String(ruleSetting(k, C)))})</span></span></label>`;
   }
   $('#fxRules').innerHTML = h + '</div>';
 }
@@ -9426,7 +9576,7 @@ function renderFmtPass(){
       <div class="sub">${it.cards.length} cards · ${ok} approved${rc ? ` · ${rc} to re-check` : ''}${na ? ` · ${na} left as is` : ''}${Object.keys(tally).length ? ' · ' + Object.entries(tally).map(([k, v]) => `${FMT_LABEL[k]} ${v}`).join(', ') : ''}</div></div>
       <div class="acts"><span class="pill ${it.status}">${{todo: 'to do', copied: 'copied', done: 'answered'}[it.status]}</span>
         <button class="btn sm" data-fq="view" data-id="${it.id}" title="Open the full prompt in a new tab">👁</button>
-        <button class="btn sm" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
+        <button class="btn sm copyBtn" data-fq="copy" data-id="${it.id}" ${it.status === 'done' ? 'disabled' : ''}>📋</button>
         <button class="btn sm" data-fq="done" data-id="${it.id}" title="Toggle answered">✓</button></div></div>`; }).join('');
   const cur = $('#fqList').querySelector('.qi.next'); if (cur) cur.scrollIntoView({block: 'nearest'});
 }
@@ -9525,7 +9675,7 @@ if ($('#fqList')){
 document.addEventListener('keydown', e => {
   if (!$('#tab-revise').classList.contains('active') || e.key.toLowerCase() !== 'n') return;
   if (e.target.closest('input,textarea,select,[contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
-  if ($('#fqPanel').hidden || !fmtNext()) return;
+  if ($('#fqPanel').hidden || !fmtNext() || copyHidden()) return;
   e.preventDefault(); $('#fqNext').click();
 });
 const mediaForAI = cards => [...new Set(cards.flatMap(cardImages))].filter(n => S.media[n]).map(n => { const m = S.media[n]; const e = {filename: n, origin: m.origin}; for (const k of ['url','hint','caption','credit']) if (m[k]) e[k] = m[k]; return e; });
@@ -10219,7 +10369,7 @@ function safeFileName(name, fallback = 'source'){
    always accepted by the server and never shared: a PDF whose own name isn't goes as a whole-file excerpt, so its page
    map still names the original file. */
 function planAttachments(list){
-  const used = new Set(['anki_prompt.txt', 'skill.md', 'anki_helper.py', 'extract.py', 'make_prompts.py', 'acs.mjs', 'acs_project.json', 'acs_sources.json']);
+  const used = new Set(['anki_prompt.txt', 'skill.md', 'anki_helper.py', 'extract.py', 'make_prompts.py', 'agents.md', 'anki_out', 'anki-skill', 'anki_blocks', 'acs.mjs', 'acs_project.json', 'acs_sources.json', 'acs_media.json']);   // the bridge's own names too
   const unique = n => {
     const ext = (/\.[^.]+$/.exec(n) || [''])[0], stem = n.slice(0, n.length - ext.length);
     let out = n;
@@ -10299,7 +10449,22 @@ const BR = {devices: null, jobs: [], timer: null, logs: new Map(), open: new Set
 /** a result that couldn't be fetched is tried again by itself this many times (then from Jobs → Import) */
 const IMPORT_TRIES = 3;
 const JOB_OPEN = ['uploading', 'queued', 'running'];
-function bridgeReady(){ return !!(Store.hosted && BR.devices && BR.devices.length); }
+// A heartbeat is evidence of recent contact, not a promise that a job starts immediately.
+const BR_RECENT_MS = 2 * 60 * 1000;
+function bridgeReadiness(now = Date.now()){
+  const agent = SET.bridgeAgent || 'claude', name = agentName(agent), devices = BR.devices || [];
+  if (!Store.hosted) return {state: 'local', canRun: false, text: 'Run on Mac is available in the hosted Studio.'};
+  if (!devices.length) return {state: 'unpaired', canRun: false, text: 'No Mac paired. Set up a device in Settings → Mac bridge.'};
+  const known = d => Array.isArray(d.info?.agents);
+  const compatible = devices.filter(d => known(d) && d.info.agents.includes(agent));
+  const unknown = devices.filter(d => !known(d));
+  if (!compatible.length && !unknown.length) return {state: 'unsupported', canRun: false, text: `No paired Mac reports ${name} support. Select another agent or install and sign in to ${name} on your Mac, then restart the bridge.`};
+  if (compatible.some(d => { const seen = Date.parse(d.lastSeen); return Number.isFinite(seen) && now - seen >= 0 && now - seen <= BR_RECENT_MS; }))
+    return {state: 'recent', canRun: true, text: `${name} · Mac seen recently. Jobs queue until a compatible Mac picks them up.`};
+  if (!compatible.length) return {state: 'paired', canRun: true, text: `Mac paired; ${name} support has not been reported yet. You can queue a job while setup finishes.`};
+  return {state: 'stale', canRun: true, text: `${name} · compatible Mac has not been seen recently. You can still queue; open your Mac and check that the bridge is running.`};
+}
+function bridgeReady(){ return bridgeReadiness().canRun; }
 /** the JSON answer of a bridge request, or an Error carrying the server's message */
 async function brCall(method, path, body){
   const r = await fetch(`${Store.base}/api/${path}`, {method, cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body), headers: body === undefined ? {} : {'Content-Type': 'application/json'}});
@@ -10313,8 +10478,21 @@ async function loadDevices(){
   renderBridgeButtons(); renderBridgeSettings();
 }
 function renderBridgeButtons(){
-  const on = bridgeReady();
-  $$('.brRun').forEach(b => { b.hidden = !on; });
+  const ready = bridgeReadiness();
+  $$('.brRun').forEach(b => {
+    b.hidden = !Store.hosted || !(BR.devices || []).length;
+    b.disabled = !!b._brSubmitting || !ready.canRun;
+    b.title = ready.text;
+    let note = b._brReadinessNote;
+    if (!note || !note.isConnected){
+      note = document.createElement('span'); note.setAttribute('data-br-readiness', '');
+      note.className = 'small muted'; note.setAttribute('role', 'status'); b.after(note);
+      b._brReadinessNote = note;
+    }
+    note.hidden = !Store.hosted;
+    note.textContent = ready.text;
+  });
+  applyCopyButtons();   // preserve the manual-transfer setting's bridgeReady() integration
   if (typeof renderBatch === 'function' && $('#batchOut') && !$('#batchOut').hidden) renderBatch();
 }
 const agentName = a => a === 'codex' ? 'Codex' : 'Claude Code';
@@ -10346,6 +10524,9 @@ function renderBridgeSettings(){
   $('#brAgent').value = SET.bridgeAgent || 'claude';
   if (!$('#brOpts').contains(document.activeElement)) renderBridgeOpts();
   const list = BR.devices || [];
+  let status = $('#brReadiness');
+  if (!status){ status = document.createElement('div'); status.id = 'brReadiness'; status.className = 'small'; status.setAttribute('role', 'status'); $('#brDevices').before(status); }
+  status.textContent = bridgeReadiness().text + ' Troubleshooting: check the selected CLI is installed and signed in, then restart the bridge. Use the setup command below to pair a new Mac.';
   $('#brDevices').innerHTML = list.length ? list.map(d => `<div class="dev"><span>🖥</span><div class="dm"><b>${esc(d.name)}</b> <span class="muted small">· token …${esc(d.hint)}</span>
       <div class="small muted">added ${esc(ago(d.created))} · last seen ${esc(ago(d.lastSeen))}${d.info && d.info.agents ? ` · runs ${esc(d.info.agents.map(agentName).join(' + ') || 'nothing yet')}` : ''}</div></div>
       <button class="btn sm bad" data-rm="${esc(d.id)}" title="Remove: its token stops working at once">Remove</button></div>`).join('')
@@ -10378,14 +10559,56 @@ $('#brAdd').onclick = async () => {
   } catch (er) { toast(er.message); }
   loadDevices();
 };
-$('#brAgent').onchange = e => { SET.bridgeAgent = e.target.value; saveSettings(); renderBridgeOpts(); };
+$('#brAgent').onchange = e => { SET.bridgeAgent = e.target.value; saveSettings(); renderBridgeOpts(); renderBridgeButtons(); renderBridgeSettings(); };
 /** pair (the token comes from the clipboard) and install as a background LaunchAgent, in one line to paste */
 const brSetupCommand = () => `pbpaste | node ~/Downloads/acs-bridge.mjs setup --server ${location.origin} && node ~/Downloads/acs-bridge.mjs install`;
 $('#brScript').onclick = () => download(new Blob([$('#bridgeSrc').textContent.replace(/^\n/, '')], {type: 'text/javascript'}), 'acs-bridge.mjs');
 $('#brJobsOpen').onclick = () => { $('#setDlg').close(); openJobs(); };
 
 /* ---- making a job: the prompt, its attachments and this Studio's own copy of the skill, as files */
-async function runOnMac({kind, title, prompt, atts = [], meta = {}, extra = []}){
+/** hex SHA-256 of a blob, or undefined where the browser has no crypto.subtle (plain http): the bridge then just downloads it */
+async function blobSha256(blob){
+  try { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map(x => x.toString(16).padStart(2, '0')).join(''); }
+  catch { return undefined; }
+}
+// Keep in sync with lib/bridge.ts MAX_JOB_FILES. Five slots are the prompt and support files.
+const BR_MAX_FILES = 24;
+const BR_MAX_CHUNKS = 4096; // lib/store.ts writeChunkInner
+function validateBridgeSizes(files){
+  const chunk = Store.CHUNK || 3 * 1024 * 1024;
+  for (const f of files) if (Math.ceil(f.blob.size / chunk) > BR_MAX_CHUNKS)
+    throw new Error(`${f.name} exceeds the upload limit of ${brBytes(chunk * BR_MAX_CHUNKS)} per file. Select fewer PDF pages or split the source file.`);
+}
+const brBytes = n => n == null ? 'size pending' : `${n.toLocaleString()} bytes`;
+function bridgeManifest(title, files, kind, origin){
+  const box = document.createElement('details');
+  box.className = 'small'; box.open = true;
+  const anchor = origin || $(kind === 'revision' ? '#runRevision' : kind === 'format' ? '#runFmt' : kind === 'ask' ? '#askRun' : '#runPrompt');
+  (anchor || $('#brPill')).insertAdjacentElement('afterend', box);
+  let phase = 'Preparing files';
+  const support = files.filter(f => !f.attachment).length;
+  const render = () => {
+    box.innerHTML = `<summary>${esc(title || 'Mac job')} · ${esc(phase)} · ${files.length}/${BR_MAX_FILES} files · ${esc(brBytes(files.reduce((n, f) => n + (f.blob?.size || 0), 0)))}${files.some(f => !f.blob) ? ' prepared so far' : ' total'}</summary>
+      <div role="status" aria-live="polite">${esc(phase)}</div>
+      <progress max="${files.length}" value="${files.filter(f => f.state === 'Uploaded').length}" aria-label="Files uploaded"></progress>
+      <div>${support} support files · ${files.length - support}/${BR_MAX_FILES - support} source attachments</div>
+      <ul>${files.map(f => `<li><b>${esc(f.name)}</b>${f.source ? ` · ${esc(f.source)}` : ''} · ${esc(brBytes(f.blob?.size))} · ${esc(f.state)}</li>`).join('')}</ul>`;
+  };
+  render();
+  return (text) => { if (text) phase = text; render(); };
+}
+function validateBridgeFiles(files){
+  const support = files.filter(f => !f.attachment).length;
+  if (files.length > BR_MAX_FILES) throw new Error(`${files.length} files exceeds the ${BR_MAX_FILES}-file limit (${support} support files + at most ${BR_MAX_FILES - support} attachments). Split the prompt into smaller batches or select fewer sources.`);
+  const names = new Set();
+  for (const f of files){
+    if (!FILE_NAME_RE.test(f.name) || f.name.includes('..')) throw new Error(`Invalid attachment name: ${f.name}. Rename the source and try again.`);
+    const key = f.name.toLowerCase();
+    if (names.has(key)) throw new Error(`Duplicate attachment name: ${f.name}. Rename one source and try again.`);
+    names.add(key);
+  }
+}
+async function runOnMac({kind, title, prompt, atts = [], meta = {}, origin, extra = []}){
   if (!bridgeReady()) return toast('Add a device in Settings → Mac bridge first'), null;
   if (!prompt) return toast('Nothing to run'), null;
   prompt = forMac(prompt);   // the job brings the skill files: no download steps
@@ -10393,24 +10616,46 @@ async function runOnMac({kind, title, prompt, atts = [], meta = {}, extra = []})
     {name: 'SKILL.md', blob: new Blob([skillSource()], {type: 'text/markdown'})},
     {name: 'anki_helper.py', blob: new Blob([helperSource()], {type: 'text/x-python'})},
     {name: 'extract.py', blob: new Blob([$('#extractSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})},
-    {name: 'make_prompts.py', blob: new Blob([$('#promptsSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})}, ...extra];
-  for (const a of atts){
-    if (files.some(f => f.name === a.name)) continue;
-    try { files.push({name: a.name, blob: await attachmentBlob(a)}); } catch (er) { toast(`${a.name}: ${er.message}`, 5000); return null; }
-  }
+    {name: 'make_prompts.py', blob: new Blob([$('#promptsSrc').textContent.replace(/^\n/, '')], {type: 'text/x-python'})}, ...extra];   // extra: more support files (an Assistant job's project files)
+  files.forEach(f => { f.state = 'Ready'; });
+  for (const a of atts) files.push({name: a.name, attachment: a, source: `${a.src?.name || a.name} · ${a.pages?.length ? `pages ${fmtPages(a.pages)}${a.cut ? ' (PDF excerpt)' : ' (whole file sent)'}` : 'all pages'}`, state: 'Waiting to prepare'});
+  const update = bridgeManifest(title, files, kind, origin);
   let job = null;
   try {
+    validateBridgeFiles(files);
+    let preparationFailed = false;
+    for (const f of files.filter(f => f.attachment)){
+      f.state = f.attachment.cut ? 'Preparing PDF excerpt' : 'Loading original'; update();
+      try {
+        f.blob = await attachmentBlob(f.attachment);
+        if (!f.blob) throw new Error('Original file missing. Add it again on Sources.');
+        f.state = 'Ready';
+      } catch (er) { f.state = `Preparation failed: ${er.message}. Check Sources and add the original file again if missing.`; preparationFailed = true; }
+      update();
+    }
+    if (preparationFailed) throw new Error('Some attachments could not be prepared. Check the file list, fix the sources, then run again.');
+    validateBridgeSizes(files);
+    update('Checking file hashes');
     const agent = SET.bridgeAgent || 'claude';
+    // each file's sha256: the bridge keeps files by content, so the skill and the same slides are downloaded once
     job = await brCall('POST', 'jobs', {project: curProject, kind, agent, options: brOpts(agent), title: String(title).slice(0, 200), meta,
-      files: files.map(f => ({name: f.name, size: f.blob.size}))});
-    for (const f of files) await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream');
+      files: await Promise.all(files.map(async f => ({name: f.name, size: f.blob.size, sha256: await blobSha256(f.blob)})))});
+    for (const f of files){
+      f.state = 'Uploading'; update(`Uploading ${files.indexOf(f) + 1}/${files.length}: ${f.name}`);
+      try { await Store.putBlob(`jobs/${job.id}/in/${encodeURIComponent(f.name)}`, f.blob, f.blob.type || 'application/octet-stream'); }
+      catch (er) { f.state = `Upload failed: ${er.message}`; throw er; }
+      f.state = 'Uploaded'; update();
+    }
+    update('All files uploaded · queueing on Mac');
     const queued = await brCall('POST', `jobs/${job.id}/queue`);
     BR.jobs = [queued, ...BR.jobs.filter(j => j.id !== queued.id)];
+    update('Queued on Mac');
     renderJobs(); pollJobsSoon(500);
     return queued;
   } catch (er) {
     // a half-sent job would wait "sending" for nothing: remove it (the server also gives up on it after an hour)
     if (job) await brCall('DELETE', `jobs/${job.id}`).catch(() => {});
+    update(`Could not send: ${er.message} Fix the issue and run again.`);
     toast('Could not send it to your Mac: ' + er.message, 5000); return null;
   }
 }
@@ -10513,9 +10758,9 @@ function renderJobsList(){
 }
 async function refreshLogs(){
   for (const id of BR.open){
-    const log = BR.logs.get(id) || {after: 0, items: []};
-    try { const ev = await brCall('GET', `jobs/${id}/events?after=${log.after}`); log.items.push(...ev); if (ev.length) log.after = ev[ev.length - 1].seq; } catch {}
-    BR.logs.set(id, log);
+    let log = BR.logs.get(id); if (!log) BR.logs.set(id, log = {after: 0, items: []});
+    // two refreshes can overlap (the poll, a click on Log): only lines newer than the last one shown are added
+    try { const ev = (await brCall('GET', `jobs/${id}/events?after=${log.after}`)).filter(e => e.seq > log.after); log.items.push(...ev); if (ev.length) log.after = ev[ev.length - 1].seq; } catch {}
   }
 }
 async function openJobs(){ $('#jobsDlg').showModal(); renderJobsList(); await pollJobs(); }
@@ -10540,7 +10785,7 @@ const onMacToast = (j, what) => j && toast(`🖥 ${what} sent to your Mac - it i
 $('#runPrompt').onclick = async () => {
   buildPrompt();
   const p = scopedPrompt(readPrompt()), atts = useStoredSources(p) ? planAttachments(singleSourceList()) : [];
-  onMacToast(await runOnMac({kind: 'cards', title: p.pDeck || S.deck || 'Cards', prompt: await fullSinglePrompt(), atts}), 'The prompt');
+  onMacToast(await runOnMac({origin: $('#runPrompt'), kind: 'cards', title: p.pDeck || S.deck || 'Cards', prompt: await fullSinglePrompt(), atts}), 'The prompt');
 };
 $('#runQueue').onclick = async () => {
   if (!S.batch) return;
@@ -10550,7 +10795,7 @@ $('#runQueue').onclick = async () => {
   if (!confirm(`Send ${todo.length} prompt(s) to your Mac? They run one after another (each uses your ${agentName(SET.bridgeAgent)} plan).`)) return;
   let sent = 0;
   for (const it of todo){
-    const j = await runOnMac({kind: 'cards', title: it.title || it.id, prompt: await itemPromptFull(it, S.batch.items.indexOf(it), n), atts: itemAttachments(it), meta: {batchItem: it.id}});
+    const j = await runOnMac({origin: $('#runQueue'), kind: 'cards', title: it.title || it.id, prompt: await itemPromptFull(it, S.batch.items.indexOf(it), n), atts: itemAttachments(it), meta: {batchItem: it.id}});
     if (!j) break;
     it.status = 'copied'; it.copiedAt = Date.now(); it.macJob = j.id; sent++;
   }
@@ -10569,11 +10814,11 @@ $('#runRevision').onclick = async () => {
   const prompt = $('#rvOut').value; if (!prompt) return;
   // a new session has none of the material: send the pages the cards come from
   const atts = planAttachments(refSourceList(S.cards.filter(c => c.status === 'change')));
-  onMacToast(await runOnMac({kind: 'revision', title: 'Revision', prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts}), 'The revision');
+  onMacToast(await runOnMac({origin: $('#runRevision'), kind: 'revision', title: 'Revision', prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts}), 'The revision');
 };
 $('#runImageFix').onclick = async () => {
   const prompt = await imageFixPrompt(); if (!prompt) return;
-  onMacToast(await runOnMac({kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
+  onMacToast(await runOnMac({origin: $('#runImageFix'), kind: 'revision', title: 'Image fix', prompt, atts: imageFixAttachments()}), 'The image fix');
 };
 $('#runFmt').onclick = async () => {
   const todo = fmtItems().filter(i => i.status === 'todo'); if (!todo.length) return toast('No global-revision prompt is still to do');
@@ -10583,13 +10828,23 @@ $('#runFmt').onclick = async () => {
     // rewrite content) come from it, formatting doesn't need it
     const rules = itemRules(it.cards), task = itemTask(it.cards), prompt = fixPrompt(it.cards, rules, task);
     const atts = formattingOnly(rules) && !(task && task.mode === 'content') ? [] : planAttachments(refSourceList(it.cards));
-    const j = await runOnMac({kind: 'format', title: `${itemName(it.cards, rules, task)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
+    const j = await runOnMac({origin: $('#runFmt'), kind: 'format', title: `${itemName(it.cards, rules, task)} ${it.cards[0].id} … ${it.cards[it.cards.length - 1].id}`, prompt: prompt + (atts.length ? `\n\n${await materialSection(atts, [])}` : ''), atts, meta: {fmt: it.id}});
     if (!j) break;
     it.cards.forEach(c => { if (c.fmt){ c.fmtSt = 'copied'; c.fmtJob = j.id; } }); sent++;
   }
   save(); renderFmtPass();
   if (sent) toast(`🖥 ${sent} global-revision prompt(s) sent to your Mac`, 4000);
 };
+// Lock before prompt preparation too, so repeated clicks cannot reserve the same batch twice.
+for (const id of ['runPrompt', 'runQueue', 'runRevision', 'runImageFix', 'runFmt']){
+  const button = $('#' + id), submit = button.onclick;
+  button.onclick = async () => {
+    if (button._brSubmitting) return;
+    button._brSubmitting = true; button.disabled = true;
+    try { return await submit(); }
+    finally { button._brSubmitting = false; button.disabled = !bridgeReady(); }
+  };
+}
 // start: once the storage is known (Store.hosted), and again whenever a project opens
 setTimeout(function startBridge(){ if (Store.status === 'detecting' || (Store.on && !curProject)) return setTimeout(startBridge, 500); loadDevices(); pollJobs(); }, 300);
 /* ====================================================================== ASSISTANT */
@@ -10697,7 +10952,7 @@ const askOpts = () => ({images: $('#askImages').checked, others: $('#askOthers')
 $('#askRun').onclick = async () => {
   const req = askRequest(); if (!req) return;
   const write = $('#askWrite').checked, o = askOpts(), snap = await askSnapshot($('#askFiles').checked, o);
-  const j = await runOnMac({kind: 'ask', title: shorten(req, 120), prompt: askPrompt(req, {write, atts: snap.atts, ...o}), atts: snap.atts, extra: askFilesFor(snap), meta: {ask: {write, auto: write && $('#askAuto').checked}}});
+  const j = await runOnMac({origin: $('#askRun'), kind: 'ask', title: shorten(req, 120), prompt: askPrompt(req, {write, atts: snap.atts, ...o}), atts: snap.atts, extra: askFilesFor(snap), meta: {ask: {write, auto: write && $('#askAuto').checked}}});
   if (j){ toast('🖥 Sent to your Mac - the answer appears below', 4000); renderAsk(); }
 };
 $('#askCopy').onclick = async () => {
@@ -10713,7 +10968,7 @@ $('#askWrite').onchange = () => { $('#askAuto').disabled = !$('#askWrite').check
 function renderAskInfo(){
   const n = askCards().length, dev = (BR.devices || []).find(d => d.info && d.info.version);
   $('#askInfo').textContent = `${n} card${n === 1 ? '' : 's'}${$('#askScope').value === 'scope' && scopeNode() ? ` in ${nodeDeckOf(scopeNode())}` : ''} · ${S.sources.length} source${S.sources.length === 1 ? '' : 's'}`
-    + (dev && +dev.info.version < 3 ? ' · your Mac bridge is an older version: download acs-bridge.mjs again (Settings → Mac bridge) and run install, so it can send back proposed actions' : '');
+    + (dev && +dev.info.version < 4 ? ' · your Mac bridge is an older version: download acs-bridge.mjs again (Settings → Mac bridge) and run install, so it can send back proposed actions' : '');
 }
 
 /* ---- what comes back: the answer, and a proposal (card changes and actions) to look at and apply */

@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS = {
   swipe: {dist: 25, angle: 50, effects: true},   // touch screens: % of card width, degrees off horizontal, stars
   showAnalytics: true,                             // the Analytics tab (Settings → Tabs)
   promptFile: false,                               // Copy saves big prompts as a file to attach (the helper reads blocks from it)
+  showCopy: false,                                 // the 📋 Copy buttons next to prompts (Settings → Prompts); ▶ Run on Mac replaces them
   bridgeAgent: 'claude',                           // ▶ Run on Mac uses Claude Code or Codex (Settings → Mac bridge)
   bridgeOpts: {claude: {}, codex: {}},              // what each agent runs with there: model, effort, limits (empty = the CLI's default)
   checks: {...CHECK_DEFAULTS},                     // the checker (Prompt page): sent to Claude, used by Analytics
@@ -52,6 +53,7 @@ function mergeSettings(j){
   if (j && j.keys && !(j.version >= 2) && J(j.keys.approve) === J(['q']) && J(j.keys.exclude) === J(['d'])){ out.keys.approve = ['d']; out.keys.exclude = ['q']; }
   if (j && j.showAnalytics === false) out.showAnalytics = false;
   if (j && j.promptFile === true) out.promptFile = true;
+  if (j && j.showCopy === true) out.showCopy = true;   // on only when chosen: settings saved before it existed hide them too
   if (j && ['claude', 'codex'].includes(j.bridgeAgent)) out.bridgeAgent = j.bridgeAgent;
   if (j && j.bridgeOpts && typeof j.bridgeOpts === 'object') for (const a of ['claude', 'codex']) out.bridgeOpts[a] = cleanBridgeOpts(a, j.bridgeOpts[a]);
   if (j && j.checks && typeof j.checks === 'object') for (const d of CHECK_DEFS){
@@ -92,8 +94,22 @@ function applyTabs(){
   if (b){ b.hidden = !on; if (!on && b.classList.contains('active')) showTab('review'); }
   let i = 0; $$('#tabs button').forEach(x => { if (!x.hidden){ const n = x.querySelector('.n'); if (n) n.textContent = ++i; } });
 }
+/** Prompt transfer controls follow the saved preference, including before bridge setup.
+    Manual transfer reveals them everywhere and persists the choice for the next visit. */
+function copyHidden(){ return !SET.showCopy; }
+function revealManualTransfer(){ SET.showCopy = true; saveSettings(); }
+function applyCopyButtons(){
+  const off = copyHidden();
+  document.body.classList.toggle('hide-copy', off);
+  $$('.brRun').forEach(b => b.classList.toggle('primary', off));
+  $$('.manualTransfer').forEach(b => { b.hidden = !off; });
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('.manualTransfer')) revealManualTransfer();
+});
 function renderKeyHints(){
   try { applyTabs(); } catch {}
+  applyCopyButtons();
   if ($('#ckGrid') && typeof renderCheckSettings === 'function') try { renderCheckSettings(); } catch {}   // the checker settings change with the rest of the settings
   $$('.optPromptFile').forEach(cb => { cb.checked = !!SET.promptFile; });
   $$('.kbd[data-k]').forEach(el => { const ks = SET.keys[el.dataset.k] || []; el.textContent = ks.length ? keyName(ks[0]) : '–'; el.title = ks.map(keyName).join(' / '); });
@@ -185,12 +201,14 @@ function renderSwipeSettings(){
   $('#swAng').value = SET.swipe.angle; $('#swAngV').textContent = SET.swipe.angle + '°';
   $('#swFx').checked = SET.swipe.effects;
   $('#setAna').checked = SET.showAnalytics !== false;
+  $('#setCopy').checked = !!SET.showCopy;
 }
 $('#swDist').oninput = e => { SET.swipe.dist = +e.target.value; renderSwipeSettings(); };
 $('#swAng').oninput = e => { SET.swipe.angle = +e.target.value; renderSwipeSettings(); };
 ['#swDist', '#swAng'].forEach(q => $(q).onchange = () => saveSettings());
 $('#swFx').onchange = e => { SET.swipe.effects = e.target.checked; saveSettings(); };
 $('#setAna').onchange = e => { SET.showAnalytics = e.target.checked; saveSettings(); applyTabs(); };
+$('#setCopy').onchange = e => { SET.showCopy = e.target.checked; saveSettings(); };   // saveSettings → renderKeyHints → applyCopyButtons
 function renderSettings(){
   renderSwipeSettings();
   $('#keyGrid').innerHTML = Object.keys(DEFAULT_SETTINGS.keys).map(a => `<span>${esc(KEY_LABELS[a])}</span>

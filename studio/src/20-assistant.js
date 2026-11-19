@@ -103,7 +103,7 @@ const askOpts = () => ({images: $('#askImages').checked, others: $('#askOthers')
 $('#askRun').onclick = async () => {
   const req = askRequest(); if (!req) return;
   const write = $('#askWrite').checked, o = askOpts(), snap = await askSnapshot($('#askFiles').checked, o);
-  const j = await runOnMac({kind: 'ask', title: shorten(req, 120), prompt: askPrompt(req, {write, atts: snap.atts, ...o}), atts: snap.atts, extra: askFilesFor(snap), meta: {ask: {write, auto: write && $('#askAuto').checked}}});
+  const j = await runOnMac({origin: $('#askRun'), kind: 'ask', title: shorten(req, 120), prompt: askPrompt(req, {write, atts: snap.atts, ...o}), atts: snap.atts, extra: askFilesFor(snap), meta: {ask: {write, auto: write && $('#askAuto').checked}}});
   if (j){ toast('🖥 Sent to your Mac - the answer appears below', 4000); renderAsk(); }
 };
 $('#askCopy').onclick = async () => {
@@ -119,7 +119,7 @@ $('#askWrite').onchange = () => { $('#askAuto').disabled = !$('#askWrite').check
 function renderAskInfo(){
   const n = askCards().length, dev = (BR.devices || []).find(d => d.info && d.info.version);
   $('#askInfo').textContent = `${n} card${n === 1 ? '' : 's'}${$('#askScope').value === 'scope' && scopeNode() ? ` in ${nodeDeckOf(scopeNode())}` : ''} · ${S.sources.length} source${S.sources.length === 1 ? '' : 's'}`
-    + (dev && +dev.info.version < 3 ? ' · your Mac bridge is an older version: download acs-bridge.mjs again (Settings → Mac bridge) and run install, so it can send back proposed actions' : '');
+    + (dev && +dev.info.version < 4 ? ' · your Mac bridge is an older version: download acs-bridge.mjs again (Settings → Mac bridge) and run install, so it can send back proposed actions' : '');
 }
 
 /* ---- what comes back: the answer, and a proposal (card changes and actions) to look at and apply */

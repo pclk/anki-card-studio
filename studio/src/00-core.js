@@ -285,7 +285,19 @@ function normSkips(v){
 
 /* ---------------------------------------------------------------------- persistence (IndexedDB) */
 const DB_NAME = 'anki-card-studio';
-function idb(){ return new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+/* one connection for the page: opening one per read or write costs a round trip each time, and the connections were
+   never closed. It is given up when the browser closes it or another page needs a newer version of the database. */
+let idbConn = null;
+function idb(){
+  if (!idbConn){
+    const p = idbConn = new Promise((res, rej) => { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => { const db = r.result, drop = () => { if (idbConn === p) idbConn = null; };
+        db.onclose = drop; db.onversionchange = () => { drop(); db.close(); }; res(db); };
+      r.onerror = () => rej(r.error); });
+    p.catch(() => { if (idbConn === p) idbConn = null; });
+  }
+  return idbConn;
+}
 async function idbPut(key, val){ try { const db = await idb(); await new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(val, key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); } catch (e) { console.warn('autosave failed', e); } }
 async function idbGet(key){ try { const db = await idb(); return await new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); } catch { return null; } }
 /** run fn(objectStore) inside one read-write transaction; resolves with fn's result once committed */

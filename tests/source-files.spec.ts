@@ -28,6 +28,7 @@ async function setup(page:Page,request:any,info:any,tag:string,cards:any[]=[]){
  expect((await request.put('/api/projects',{headers,data:[{id:pid,name:pid,cards:cards.length,updated:Date.now()}]})).ok()).toBeTruthy();
  await page.addInitScript(id=>localStorage.setItem('acs-current',id),pid);
  await page.goto('/');await page.waitForFunction('Store.on && curProject && !sync.dirty && window.pdfjsLib');
+ await page.evaluate(()=>(window as any).eval('SET.showCopy=true;applyCopyButtons()'));   // these tests use the 📋 Copy buttons (hidden unless chosen in Settings); this browser only, not saved
  const pdf=await lecturePdf();
  await page.locator('#tabs button[data-tab=sources]').click();
  await page.locator('#srcFile').setInputFiles({name:'lecture.pdf',mimeType:'application/pdf',buffer:pdf});
